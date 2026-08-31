@@ -1,0 +1,35 @@
+{
+  "name": "onceclic",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ONCEClic - AI Receptionist for Small Businesses (Website, Email, Appointments)",
+  "workspaces": [
+    "shared",
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev:server": "npm --workspace=server run dev",
+    "dev:client": "npm --workspace=client run dev",
+    "build:shared": "npm --workspace=shared run build",
+    "build:server": "npm --workspace=server run build",
+    "build:client": "npm --workspace=client run build",
+    "build": "npm run build:shared && npm run build:server && npm run build:client",
+    "test": "npx tsx tests/run-all.ts",
+    "start": "node server/dist/index.js",
+    "migrate": "node server/dist/db/migrate.js"
+  },
+  "keywords": [
+    "ai-receptionist",
+    "saas",
+    "b2b",
+    "appointment-booking",
+    "paddle-billing",
+    "multi-tenant"
+  ],
+  "author": "ONCEClic",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@paddle/paddle-node-sdk": "^3.10.0"
+  }
+}
