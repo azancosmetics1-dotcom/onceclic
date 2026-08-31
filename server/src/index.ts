@@ -30,9 +30,35 @@ app.use(
   })
 );
 
+const allowedOrigins = [
+  'https://onceclic.com',
+  'https://www.onceclic.com',
+  'https://api.onceclic.com',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:5000',
+];
+
+if (config.app.corsOrigin && config.app.corsOrigin !== '*') {
+  const extraOrigins = config.app.corsOrigin.split(',').map((s) => s.trim());
+  allowedOrigins.push(...extraOrigins);
+}
+
 app.use(
   cors({
-    origin: '*',
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server, health checks)
+      if (!origin) return callback(null, true);
+      if (
+        allowedOrigins.includes(origin) ||
+        origin.endsWith('.onceclic.com') ||
+        origin.endsWith('.netlify.app')
+      ) {
+        return callback(null, true);
+      }
+      // Permissive fallback to allow embeddable chat widgets on customer websites
+      return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-organization-id', 'x-webhook-token', 'paddle-signature'],
@@ -49,8 +75,8 @@ app.use(
 );
 app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
+// Health check endpoints (root /health and /api/health for cloud load balancers and monitors)
+app.get(['/health', '/api/health'], (req, res) => {
   res.json({
     status: 'ok',
     service: 'ONCEClic API',
@@ -147,9 +173,9 @@ export async function startServer() {
   const db = getDatabase();
   await db.runMigrations();
 
-  const server = app.listen(config.port, () => {
+  const server = app.listen(config.port, '0.0.0.0', () => {
     console.log(`==================================================`);
-    console.log(`  ONCEClic Server running on port ${config.port}`);
+    console.log(`  ONCEClic Server running on 0.0.0.0:${config.port}`);
     console.log(`  Environment: ${config.nodeEnv}`);
     console.log(`  AI Provider: OpenAI (${config.openai.isAvailable ? 'Ready' : 'Requires OPENAI_API_KEY'})`);
     console.log(`  Paddle Billing: ${config.paddle.isConfigured ? 'Ready' : 'Requires PADDLE_WEBHOOK_SECRET'}`);

@@ -4,7 +4,7 @@
   "private": true,
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"const fs=require('fs'),path=require('path');const src=path.join(__dirname,'src','db','migrations'),dst=path.join(__dirname,'dist','db','migrations');if(fs.existsSync(src)){fs.mkdirSync(dst,{recursive:true});for(const f of fs.readdirSync(src)){fs.copyFileSync(path.join(src,f),path.join(dst,f));}}\"",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "test": "node --loader ts-node/esm ../tests/run-all.ts",

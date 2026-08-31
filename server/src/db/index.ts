@@ -92,8 +92,25 @@ class PostgresDatabase implements IDatabase {
   }
 
   async runMigrations(): Promise<void> {
-    const migrationsDir = path.join(__dirname, 'migrations');
-    if (!fs.existsSync(migrationsDir)) return;
+    const possibleDirs = [
+      path.join(__dirname, 'migrations'),
+      path.join(__dirname, '..', '..', 'src', 'db', 'migrations'),
+      path.join(process.cwd(), 'server', 'src', 'db', 'migrations'),
+      path.join(process.cwd(), 'src', 'db', 'migrations'),
+    ];
+
+    let migrationsDir = '';
+    for (const dir of possibleDirs) {
+      if (fs.existsSync(dir)) {
+        migrationsDir = dir;
+        break;
+      }
+    }
+
+    if (!migrationsDir) {
+      console.log('[Postgres] No migrations directory found. Skipping migration run.');
+      return;
+    }
 
     const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
     for (const file of files) {
