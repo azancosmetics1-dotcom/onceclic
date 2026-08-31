@@ -20,7 +20,15 @@ import {
   EmailIntegrationConfig,
 } from '@onceclic/shared';
 
-const API_BASE = '/api';
+const getApiBase = (): string => {
+  const envUrl = (import.meta as any).env?.VITE_API_URL;
+  if (!envUrl) return '/api';
+  const clean = envUrl.replace(/\/+$/, '');
+  return clean.endsWith('/api') ? clean : `${clean}/api`;
+};
+
+const API_BASE = getApiBase();
+
 
 class ApiClient {
   private getToken(): string | null {
