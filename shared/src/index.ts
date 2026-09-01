@@ -101,6 +101,16 @@ export enum AuditAction {
   EMAIL_CONNECTED = 'EMAIL_CONNECTED',
   EMAIL_DISCONNECTED = 'EMAIL_DISCONNECTED',
   EMAIL_CONNECTION_FAILED = 'EMAIL_CONNECTION_FAILED',
+  GOOGLE_CALENDAR_AUTH_STARTED = 'GOOGLE_CALENDAR_AUTH_STARTED',
+  GOOGLE_CALENDAR_CONNECTED = 'GOOGLE_CALENDAR_CONNECTED',
+  GOOGLE_CALENDAR_DISCONNECTED = 'GOOGLE_CALENDAR_DISCONNECTED',
+  GOOGLE_CALENDAR_SYNCED = 'GOOGLE_CALENDAR_SYNCED',
+  GOOGLE_CALENDAR_EVENT_CREATED = 'GOOGLE_CALENDAR_EVENT_CREATED',
+  GOOGLE_CALENDAR_EVENT_UPDATED = 'GOOGLE_CALENDAR_EVENT_UPDATED',
+  GOOGLE_CALENDAR_EVENT_DELETED = 'GOOGLE_CALENDAR_EVENT_DELETED',
+  BOOKING_CONFIRMATION_EMAIL_SENT = 'BOOKING_CONFIRMATION_EMAIL_SENT',
+  BOOKING_CANCELLATION_EMAIL_SENT = 'BOOKING_CANCELLATION_EMAIL_SENT',
+  BOOKING_RESCHEDULED_EMAIL_SENT = 'BOOKING_RESCHEDULED_EMAIL_SENT',
   ANALYTICS_VIEWED = 'ANALYTICS_VIEWED',
 }
 
@@ -340,6 +350,9 @@ export interface Appointment {
   status: AppointmentStatus;
   notes?: string;
   conversationId?: string;
+  googleCalendarEventId?: string;
+  calendarSyncStatus?: 'SYNCED' | 'NOT_SYNCED' | 'FAILED';
+  calendarSyncError?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -605,3 +618,30 @@ export interface EmailIntegrationConfig {
   lastSyncedAt?: string;
   errorMessage?: string;
 }
+
+export interface GoogleCalendarConfig {
+  status: IntegrationStatus;
+  connectedEmail?: string;
+  calendarId?: string;
+  calendarSummary?: string;
+  isConfigured: boolean;
+  lastSyncedAt?: string;
+  errorMessage?: string;
+}
+
+export interface CalendarConnection {
+  id: string;
+  organizationId: string;
+  provider: string;
+  calendarId?: string;
+  calendarSummary?: string;
+  accessToken?: string;
+  refreshToken?: string;
+  tokenExpiry?: string;
+  isActive: boolean;
+  lastSyncedAt?: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+

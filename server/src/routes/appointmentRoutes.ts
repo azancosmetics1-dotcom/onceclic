@@ -101,6 +101,43 @@ router.patch('/:id/status', requirePermission('appointments:manage'), async (req
   }
 });
 
+// Reschedule appointment
+router.patch('/:id/reschedule', requirePermission('appointments:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const { startTime, endTime } = req.body;
+    if (!startTime) {
+      return res.status(400).json({ success: false, error: 'New start time is required for rescheduling.' });
+    }
+
+    const updated = await AppointmentService.rescheduleAppointment({
+      organizationId: req.organizationId!,
+      appointmentId: req.params.id,
+      newStartTime: startTime,
+      newEndTime: endTime,
+      userId: req.user?.id,
+    });
+
+    res.json({ success: true, message: 'Appointment rescheduled successfully.', data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Cancel appointment
+router.post('/:id/cancel', requirePermission('appointments:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const updated = await AppointmentService.cancelAppointment(
+      req.organizationId!,
+      req.params.id,
+      req.user?.id
+    );
+
+    res.json({ success: true, message: 'Appointment cancelled successfully.', data: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Get availability rules
 router.get('/rules', requirePermission('appointments:read'), async (req: Request, res: Response, next) => {
   try {

@@ -31,7 +31,14 @@ export const config = {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
     callbackUrl: process.env.GOOGLE_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:5000'}/api/auth/google/callback`,
+    calendarCallbackUrl: process.env.GOOGLE_CALENDAR_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:5000'}/api/integrations/google-calendar/callback`,
     isConfigured: !!process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_ID.includes('placeholder') && !!process.env.GOOGLE_CLIENT_SECRET && !process.env.GOOGLE_CLIENT_SECRET.includes('placeholder'),
+  },
+
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || '',
+    fromEmail: process.env.RESEND_FROM_EMAIL || 'ONCEClic <notifications@onceclic.com>',
+    isConfigured: !!process.env.RESEND_API_KEY && !process.env.RESEND_API_KEY.includes('placeholder'),
   },
 
   app: {

@@ -3,11 +3,77 @@ import { authMiddleware } from '../middleware/authMiddleware';
 import { tenantIsolationMiddleware } from '../middleware/tenantIsolationMiddleware';
 import { requirePermission } from '../middleware/rbacMiddleware';
 import { IntegrationService } from '../services/IntegrationService';
+import { config } from '../config';
 
 const router = Router();
 
+// ------------------------------------------
+// Public OAuth Callback for Google Calendar
+// ------------------------------------------
+router.get('/google-calendar/callback', async (req: Request, res: Response, next) => {
+  try {
+    const { code, state, error } = req.query;
+
+    if (error) {
+      return res.redirect(`${config.app.url}/app/integrations?error=${encodeURIComponent(String(error))}`);
+    }
+
+    if (!code || !state) {
+      return res.redirect(`${config.app.url}/app/integrations?error=missing_oauth_params`);
+    }
+
+    const ip = req.ip || req.socket.remoteAddress;
+    const result = await IntegrationService.handleGoogleCalendarCallback(String(code), String(state), undefined, ip);
+
+    return res.redirect(`${config.app.url}${result.returnUrl}?calendar_connected=true`);
+  } catch (err: any) {
+    console.error('[Google Calendar Callback Error]', err);
+    return res.redirect(`${config.app.url}/app/integrations?error=${encodeURIComponent(err.message || 'oauth_failed')}`);
+  }
+});
+
+// Protected routes require authentication & tenant isolation
 router.use(authMiddleware);
 router.use(tenantIsolationMiddleware);
+
+// ------------------------------------------
+// Google Calendar Endpoints
+// ------------------------------------------
+
+// Get Google Calendar authorization URL
+router.get('/google-calendar/auth-url', requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const { returnUrl } = req.query;
+    const result = IntegrationService.getGoogleCalendarAuthUrl(
+      req.organizationId!,
+      returnUrl ? String(returnUrl) : undefined
+    );
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get Google Calendar connection status
+router.get('/google-calendar', requirePermission('integrations:read'), async (req: Request, res: Response, next) => {
+  try {
+    const data = await IntegrationService.getGoogleCalendarConfig(req.organizationId!);
+    res.json({ success: true, data });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Disconnect Google Calendar
+router.post('/google-calendar/disconnect', requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const ip = req.ip || req.socket.remoteAddress;
+    const data = await IntegrationService.disconnectGoogleCalendar(req.organizationId!, req.user?.id, ip);
+    res.json({ success: true, message: 'Google Calendar disconnected.', data });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ------------------------------------------
 // Website Connection Endpoints

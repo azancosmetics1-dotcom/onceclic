@@ -7,6 +7,8 @@ import { runIdempotencyTests } from './idempotency.test';
 import { runAIGroundingTests } from './ai-grounding.test';
 import { runAnalyticsTests } from './analytics.test';
 import { runIntegrationTests } from './integrations.test';
+import { runGoogleCalendarTests } from './google-calendar.test';
+import { runResendEmailTests } from './resend-email.test';
 import { getDatabase } from '../server/src/db';
 
 async function runAllTests() {
@@ -44,6 +46,12 @@ async function runAllTests() {
     console.log('');
 
     await runIntegrationTests();
+    console.log('');
+
+    await runGoogleCalendarTests();
+    console.log('');
+
+    await runResendEmailTests();
     console.log('');
 
     const duration = ((Date.now() - start) / 1000).toFixed(2);

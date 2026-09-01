@@ -18,6 +18,7 @@ import {
   AnalyticsResponse,
   WebsiteConnectionConfig,
   EmailIntegrationConfig,
+  GoogleCalendarConfig,
 } from '@onceclic/shared';
 
 const getApiBase = (): string => {
@@ -232,6 +233,19 @@ class ApiClient {
     });
   }
 
+  async rescheduleAppointment(id: string, startTime: string, endTime?: string): Promise<Appointment> {
+    return this.request(`/appointments/${id}/reschedule`, {
+      method: 'PATCH',
+      body: JSON.stringify({ startTime, endTime }),
+    });
+  }
+
+  async cancelAppointment(id: string): Promise<Appointment> {
+    return this.request(`/appointments/${id}/cancel`, {
+      method: 'POST',
+    });
+  }
+
   async getAvailabilityRules(): Promise<AvailabilityRule[]> {
     return this.request('/appointments/rules');
   }
@@ -390,6 +404,19 @@ class ApiClient {
 
   async disconnectEmailIntegration(): Promise<EmailIntegrationConfig> {
     return this.request('/integrations/email/disconnect', { method: 'POST' });
+  }
+
+  // Google Calendar Integration
+  async getGoogleCalendarIntegration(): Promise<GoogleCalendarConfig> {
+    return this.request('/integrations/google-calendar');
+  }
+
+  async getGoogleCalendarAuthUrl(returnUrl?: string): Promise<{ url: string; state: string }> {
+    return this.request(`/integrations/google-calendar/auth-url${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ''}`);
+  }
+
+  async disconnectGoogleCalendarIntegration(): Promise<GoogleCalendarConfig> {
+    return this.request('/integrations/google-calendar/disconnect', { method: 'POST' });
   }
 }
 

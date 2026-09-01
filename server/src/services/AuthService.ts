@@ -17,6 +17,7 @@ import {
 import { PaddleBillingService } from './PaddleBillingService';
 import { KnowledgeService } from './KnowledgeService';
 import { AuditService } from './AuditService';
+import { ResendEmailService } from './ResendEmailService';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface ExtendedAuthResponse extends AuthResponse {
@@ -67,6 +68,19 @@ export class AuthService {
        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
       [uuidv4(), userId, verificationTokenHash, verificationExpiresAt.toISOString()]
     );
+
+    // 4. Send transactional verification email via Resend
+    try {
+      await ResendEmailService.sendVerificationEmail({
+        toEmail: email,
+        token: rawVerificationToken,
+        fullName: params.fullName,
+        organizationId: orgId,
+        userId,
+      });
+    } catch (err: any) {
+      console.error('[AuthService] Failed to dispatch verification email via Resend:', err?.message || err);
+    }
 
     // 4. Audit logs
     await AuditService.log({
@@ -561,6 +575,18 @@ export class AuthService {
         metadata: { email: cleanEmail, expiresAt: expiresAt.toISOString() },
         ipAddress,
       });
+    }
+
+    // Dispatch transactional verification email via Resend
+    try {
+      await ResendEmailService.sendVerificationEmail({
+        toEmail: cleanEmail,
+        token: rawVerificationToken,
+        organizationId: membership?.organization_id,
+        userId: user.id,
+      });
+    } catch (err: any) {
+      console.error('[AuthService] Failed to dispatch verification email via Resend:', err?.message || err);
     }
 
     return {
