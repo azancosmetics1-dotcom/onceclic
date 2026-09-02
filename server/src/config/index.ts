@@ -42,10 +42,12 @@ export const config = {
   },
 
   app: {
-    url: process.env.APP_URL || 'http://localhost:3000',
+    url: (process.env.FRONTEND_URL || process.env.APP_URL || (process.env.NODE_ENV === 'production' ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
+    frontendUrl: (process.env.FRONTEND_URL || process.env.APP_URL || (process.env.NODE_ENV === 'production' ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
     apiUrl: process.env.API_URL || 'http://localhost:5000',
     corsOrigin: process.env.CORS_ORIGIN || '*',
   },
+  frontendUrl: (process.env.FRONTEND_URL || process.env.APP_URL || (process.env.NODE_ENV === 'production' ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
 
   billing: {
     planName: 'ONCEClic Pro',

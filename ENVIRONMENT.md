@@ -7,6 +7,7 @@
 | `PORT` | API Server listening port | `5000` | No |
 | `NODE_ENV` | Environment mode (`development` / `production`) | `development` | Yes |
 | `APP_URL` | Public Frontend Web Application URL | `https://onceclic.com` | Yes |
+| `FRONTEND_URL` | Frontend Origin URL for verification links & redirects | `https://onceclic.com` | Yes |
 | `API_URL` | Public Backend API URL | `https://api.onceclic.com` | Yes |
 | `CORS_ORIGIN` | Allowed CORS origins for frontend requests | `https://onceclic.com` | Yes |
 | `AUTH_SECRET` | Secure JWT signing key (min 32 chars) | `openssl rand -hex 32` | Yes |

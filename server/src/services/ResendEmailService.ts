@@ -94,7 +94,8 @@ export class ResendEmailService {
     organizationId?: string;
     userId?: string;
   }): Promise<EmailDispatchResult> {
-    const verifyUrl = `${config.app.url}/verify-email?token=${encodeURIComponent(params.token)}`;
+    const frontendUrl = config.frontendUrl || config.app.url;
+    const verifyUrl = `${frontendUrl}/verify-email?token=${encodeURIComponent(params.token)}`;
     const name = params.fullName || 'there';
 
     const html = `
