@@ -67,4 +67,24 @@ router.get('/config', requirePermission('billing:read'), async (req: Request, re
   }
 });
 
+// Create Customer Portal Session URL
+router.post('/portal-session', requirePermission('billing:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const session = await PaddleBillingService.createCustomerPortalSession(req.organizationId!);
+    res.json({ success: true, data: session });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message || 'Failed to create customer portal session.' });
+  }
+});
+
+// Cancel subscription (scheduled at end of current billing period)
+router.post('/cancel', requirePermission('billing:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const result = await PaddleBillingService.cancelSubscription(req.organizationId!);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message || 'Failed to cancel subscription.' });
+  }
+});
+
 export default router;

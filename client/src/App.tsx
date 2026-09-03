@@ -13,6 +13,7 @@ import { Signup } from './pages/Signup';
 import { VerifyEmail } from './pages/VerifyEmail';
 import { AuthCallback } from './pages/AuthCallback';
 import { Onboarding } from './pages/Onboarding';
+import { Welcome } from './pages/Welcome';
 
 import { AppLayout } from './components/AppLayout';
 import { Dashboard } from './pages/Dashboard';
@@ -64,12 +65,20 @@ export const App: React.FC = () => {
           <Route path="/verify-email" element={<VerifyEmail />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
 
-          {/* Onboarding */}
+          {/* Onboarding & Welcome */}
           <Route
             path="/onboarding"
             element={
               <ProtectedRoute>
                 <Onboarding />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/welcome"
+            element={
+              <ProtectedRoute>
+                <Welcome />
               </ProtectedRoute>
             }
           />

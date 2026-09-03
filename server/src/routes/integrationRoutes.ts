@@ -32,6 +32,31 @@ router.get('/google-calendar/callback', async (req: Request, res: Response, next
   }
 });
 
+// ------------------------------------------
+// Public OAuth Callback for Google Email / Gmail
+// ------------------------------------------
+router.get('/google-email/callback', async (req: Request, res: Response, next) => {
+  try {
+    const { code, state, error } = req.query;
+
+    if (error) {
+      return res.redirect(`${config.app.url}/app/integrations?error=${encodeURIComponent(String(error))}`);
+    }
+
+    if (!code || !state) {
+      return res.redirect(`${config.app.url}/app/integrations?error=missing_oauth_params`);
+    }
+
+    const ip = req.ip || req.socket.remoteAddress;
+    const result = await IntegrationService.handleGoogleEmailCallback(String(code), String(state), undefined, ip);
+
+    return res.redirect(`${config.app.url}${result.returnUrl}?email_connected=true&email=${encodeURIComponent(result.connectedEmail)}`);
+  } catch (err: any) {
+    console.error('[Google Email Callback Error]', err);
+    return res.redirect(`${config.app.url}/app/integrations?error=${encodeURIComponent(err.message || 'email_oauth_failed')}`);
+  }
+});
+
 // Protected routes require authentication & tenant isolation
 router.use(authMiddleware);
 router.use(tenantIsolationMiddleware);
@@ -44,8 +69,9 @@ router.use(tenantIsolationMiddleware);
 router.get('/google-calendar/auth-url', requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
   try {
     const { returnUrl } = req.query;
-    const result = IntegrationService.getGoogleCalendarAuthUrl(
+    const result = await IntegrationService.getGoogleCalendarAuthUrl(
       req.organizationId!,
+      req.user?.id,
       returnUrl ? String(returnUrl) : undefined
     );
     res.json({ success: true, data: result });
@@ -115,23 +141,26 @@ router.post('/website/disconnect', requirePermission('integrations:manage'), asy
 // Email Connection Endpoints
 // ------------------------------------------
 
-// Get email connection status
-router.get('/email', requirePermission('integrations:read'), async (req: Request, res: Response, next) => {
+// Get Google Email / Gmail OAuth authorization URL
+router.get('/google-email/auth-url', requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
   try {
-    const data = await IntegrationService.getEmailConfig(req.organizationId!);
-    res.json({ success: true, data });
+    const { returnUrl } = req.query;
+    const result = await IntegrationService.getGoogleEmailAuthUrl(
+      req.organizationId!,
+      req.user?.id,
+      returnUrl ? String(returnUrl) : undefined
+    );
+    res.json({ success: true, data: result });
   } catch (err) {
     next(err);
   }
 });
 
-// Connect business email
-router.post('/email/connect', requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
+// Get email connection status
+router.get('/email', requirePermission('integrations:read'), async (req: Request, res: Response, next) => {
   try {
-    const { email } = req.body;
-    const ip = req.ip || req.socket.remoteAddress;
-    const data = await IntegrationService.connectEmail(req.organizationId!, email, req.user?.id, ip);
-    res.json({ success: true, message: 'Business email connected successfully.', data });
+    const data = await IntegrationService.getEmailConfig(req.organizationId!);
+    res.json({ success: true, data });
   } catch (err) {
     next(err);
   }

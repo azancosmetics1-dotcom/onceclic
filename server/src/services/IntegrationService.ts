@@ -10,6 +10,7 @@ import {
   AuditAction,
 } from '@onceclic/shared';
 import { AuditService } from './AuditService';
+import { encrypt, decrypt } from '../utils/crypto';
 import { v4 as uuidv4 } from 'uuid';
 
 export class IntegrationService {
@@ -138,7 +139,7 @@ export class IntegrationService {
   }
 
   // =========================================================================
-  // 2. EMAIL CHANNEL INTEGRATION
+  // 2. EMAIL CHANNEL INTEGRATION (GOOGLE GMAIL OAUTH, SMTP/IMAP & FORWARDING)
   // =========================================================================
 
   /**
@@ -149,7 +150,7 @@ export class IntegrationService {
     const slug = org?.slug || 'business';
 
     let conn = await db.getOne(
-      'SELECT id, provider_type, inbound_address, webhook_token, is_active, connected_email, status, last_synced_at FROM email_connections WHERE organization_id = $1',
+      'SELECT id, provider_type, inbound_address, webhook_token, is_active, connected_email, status, last_synced_at, error_message FROM email_connections WHERE organization_id = $1',
       [organizationId]
     );
 
@@ -159,77 +160,297 @@ export class IntegrationService {
       await db.execute(
         `INSERT INTO email_connections (
            id, organization_id, provider_type, inbound_address, webhook_token, is_active, status, created_at, updated_at
-         ) VALUES ($1, $2, 'WEBHOOK', $3, $4, FALSE, 'NOT_CONNECTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         ) VALUES ($1, $2, 'OAUTH', $3, $4, FALSE, 'NOT_CONNECTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         [uuidv4(), organizationId, inboundAddress, webhookToken]
       );
       conn = await db.getOne(
-        'SELECT id, provider_type, inbound_address, webhook_token, is_active, connected_email, status, last_synced_at FROM email_connections WHERE organization_id = $1',
+        'SELECT id, provider_type, inbound_address, webhook_token, is_active, connected_email, status, last_synced_at, error_message FROM email_connections WHERE organization_id = $1',
         [organizationId]
       );
     }
 
-    const isOAuthConfigured = !!process.env.EMAIL_OAUTH_CLIENT_ID;
+    const isOAuthConfigured = config.google.isConfigured;
     let status = (conn?.status as IntegrationStatus) || IntegrationStatus.NOT_CONNECTED;
-    if (conn?.is_active && conn?.connected_email) {
+    if (conn?.is_active && conn?.connected_email && conn?.status === 'CONNECTED') {
       status = IntegrationStatus.CONNECTED;
+    } else if (conn?.status === 'CONNECTING') {
+      status = 'CONNECTING' as any;
+    } else if (conn?.error_message) {
+      status = IntegrationStatus.ERROR;
+    } else if (!conn?.is_active && conn?.status === 'DISCONNECTED') {
+      status = IntegrationStatus.DISCONNECTED;
     }
 
     return {
       status,
       connectedEmail: conn?.connected_email || undefined,
       inboundWebhookAddress: conn?.inbound_address || `inbox+${slug}@onceclic.com`,
-      providerType: isOAuthConfigured ? 'OAUTH' : 'WEBHOOK',
+      providerType: conn?.provider_type === 'OAUTH' ? 'OAUTH' : (isOAuthConfigured ? 'OAUTH' : 'WEBHOOK'),
       isOAuthConfigured,
       lastSyncedAt: conn?.last_synced_at || undefined,
+      errorMessage: conn?.error_message || undefined,
     };
   }
 
   /**
-   * Connect business email.
+   * Generate Google Email / Gmail OAuth authorization URL with signed, one-time, user+org-bound state token.
    */
-  static async connectEmail(
+  static async getGoogleEmailAuthUrl(
     organizationId: string,
-    emailAddress: string,
     userId?: string,
+    returnUrl?: string
+  ): Promise<{ url: string; state: string }> {
+    if (!config.google.clientId) {
+      throw new Error('Google OAuth is not configured on the server. Please provide GOOGLE_CLIENT_ID.');
+    }
+
+    // Generate cryptographically random secret and compute SHA-256 hash for database storage
+    const randomSecret = crypto.randomBytes(32).toString('hex');
+    const stateHash = crypto.createHash('sha256').update(randomSecret).digest('hex');
+    const stateId = uuidv4();
+    const effectiveUserId = userId || 'system';
+    const effectiveReturnUrl = returnUrl || '/app/integrations';
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes validity
+
+    // Store state record for one-time-use validation and replay protection
+    await db.execute(
+      `INSERT INTO oauth_states (
+         id, state_hash, organization_id, user_id, provider, return_url, expires_at, created_at
+       ) VALUES ($1, $2, $3, $4, 'GOOGLE_EMAIL', $5, $6, CURRENT_TIMESTAMP)`,
+      [stateId, stateHash, organizationId, effectiveUserId, effectiveReturnUrl, expiresAt]
+    );
+
+    // Update connection status to CONNECTING
+    await db.execute(
+      `UPDATE email_connections
+       SET status = 'CONNECTING', error_message = NULL, updated_at = CURRENT_TIMESTAMP
+       WHERE organization_id = $1`,
+      [organizationId]
+    );
+
+    const stateToken = jwt.sign(
+      {
+        stateId,
+        stateHash,
+        secret: randomSecret,
+        organizationId,
+        userId: effectiveUserId,
+        returnUrl: effectiveReturnUrl,
+        type: 'google_email_oauth_state',
+      },
+      config.jwtSecret,
+      { expiresIn: '15m' }
+    );
+
+    const redirectUri = config.google.emailCallbackUrl;
+    const scope = [
+      'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.send',
+      'openid',
+      'email',
+      'profile',
+    ].join(' ');
+
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
+      config.google.clientId
+    )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(
+      scope
+    )}&access_type=offline&prompt=consent&state=${encodeURIComponent(stateToken)}`;
+
+    return { url, state: stateToken };
+  }
+
+  /**
+   * Handle Google Email / Gmail OAuth authorization callback with strict state verification,
+   * atomic consumption (replay defense), token encryption, and Gmail API capability testing.
+   */
+  static async handleGoogleEmailCallback(
+    code: string,
+    state: string,
+    initiatingUserId?: string,
     ipAddress?: string
-  ): Promise<EmailIntegrationConfig> {
-    const cleanEmail = (emailAddress || '').toLowerCase().trim();
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      throw new Error('Please enter a valid business email address.');
+  ): Promise<{ organizationId: string; returnUrl: string; connectedEmail: string }> {
+    if (!code) {
+      throw new Error('Authorization code is required.');
+    }
+    if (!state) {
+      throw new Error('Missing OAuth state parameter.');
+    }
+
+    // 1. Verify signed JWT state structure
+    let decoded: any;
+    try {
+      decoded = jwt.verify(state, config.jwtSecret);
+      if (decoded.type !== 'google_email_oauth_state' || !decoded.organizationId || !decoded.stateHash) {
+        throw new Error('Invalid OAuth state payload format.');
+      }
+    } catch (jwtErr: any) {
+      throw new Error(`Invalid or expired Google Email OAuth state signature: ${jwtErr.message}`);
+    }
+
+    const organizationId = decoded.organizationId;
+    const returnUrl = decoded.returnUrl || '/app/integrations';
+
+    // 2. Validate one-time-use state record in database
+    const stateRecord = await db.getOne<{
+      id: string;
+      state_hash: string;
+      organization_id: string;
+      user_id: string;
+      provider: string;
+      expires_at: string;
+      consumed_at: string | null;
+    }>('SELECT * FROM oauth_states WHERE state_hash = $1', [decoded.stateHash]);
+
+    if (!stateRecord) {
+      throw new Error('OAuth state was not found. Possible CSRF or unauthorized callback attempt.');
+    }
+
+    if (stateRecord.consumed_at) {
+      throw new Error('OAuth state has already been consumed. Replay attack blocked.');
+    }
+
+    if (new Date(stateRecord.expires_at).getTime() < Date.now()) {
+      throw new Error('OAuth state has expired. Please initiate connection again.');
+    }
+
+    if (stateRecord.organization_id !== organizationId) {
+      throw new Error('Tenant mismatch on OAuth state verification.');
+    }
+
+    if (
+      initiatingUserId &&
+      stateRecord.user_id !== 'system' &&
+      stateRecord.user_id !== initiatingUserId
+    ) {
+      throw new Error('Initiating user mismatch on OAuth state verification.');
+    }
+
+    // 3. Atomically consume the state record to prevent race conditions / duplicate callback execution
+    const consumedCount = await db.execute(
+      'UPDATE oauth_states SET consumed_at = CURRENT_TIMESTAMP WHERE id = $1 AND consumed_at IS NULL',
+      [stateRecord.id]
+    );
+
+    if (consumedCount === 0) {
+      throw new Error('OAuth state was already consumed in a concurrent transaction.');
+    }
+
+    if (!config.google.clientId || !config.google.clientSecret) {
+      throw new Error('Google OAuth credentials not configured on server.');
     }
 
     await AuditService.log({
       organizationId,
-      userId,
+      userId: stateRecord.user_id,
       action: AuditAction.EMAIL_CONNECTION_STARTED,
       entityType: 'ORGANIZATION',
       entityId: organizationId,
-      metadata: { email: cleanEmail },
       ipAddress,
     });
 
-    await db.execute(
-      `UPDATE email_connections
-       SET connected_email = $1,
-           is_active = TRUE,
-           status = 'CONNECTED',
-           last_synced_at = CURRENT_TIMESTAMP,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE organization_id = $2`,
-      [cleanEmail, organizationId]
+    // 4. Exchange authorization code for access and refresh tokens
+    const tokenParams = new URLSearchParams({
+      code,
+      client_id: config.google.clientId,
+      client_secret: config.google.clientSecret,
+      redirect_uri: config.google.emailCallbackUrl,
+      grant_type: 'authorization_code',
+    });
+
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: tokenParams.toString(),
+    });
+
+    const tokenData = (await tokenRes.json()) as any;
+    if (!tokenRes.ok || !tokenData.access_token) {
+      const errMsg = tokenData.error_description || tokenData.error || 'Failed to exchange token with Google.';
+      await db.execute(
+        `UPDATE email_connections SET status = 'ERROR', error_message = $1, updated_at = CURRENT_TIMESTAMP WHERE organization_id = $2`,
+        [errMsg, organizationId]
+      );
+      throw new Error(errMsg);
+    }
+
+    const accessToken = tokenData.access_token;
+    const refreshToken = tokenData.refresh_token;
+    const expiresIn = tokenData.expires_in || 3600;
+    const tokenExpiry = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+    // 5. Capability Test: Verify Mailbox Identity & Gmail API capability
+    let connectedEmail = '';
+    try {
+      const profileRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!profileRes.ok) {
+        throw new Error(`Gmail API profile request failed with HTTP ${profileRes.status}`);
+      }
+      const profileData = (await profileRes.json()) as any;
+      connectedEmail = (profileData.emailAddress || '').toLowerCase().trim();
+      if (!connectedEmail) {
+        throw new Error('No email address returned by Gmail profile.');
+      }
+    } catch (testErr: any) {
+      const errMsg = `Gmail capability verification failed: ${testErr.message}`;
+      await db.execute(
+        `UPDATE email_connections SET status = 'ERROR', error_message = $1, updated_at = CURRENT_TIMESTAMP WHERE organization_id = $2`,
+        [errMsg, organizationId]
+      );
+      throw new Error(errMsg);
+    }
+
+    // 6. Encrypt tokens at rest using AES-256-GCM before database insertion
+    const encryptedAccessToken = encrypt(accessToken);
+    const existing = await db.getOne<{ refresh_token: string }>(
+      'SELECT refresh_token FROM email_connections WHERE organization_id = $1',
+      [organizationId]
     );
+    const encryptedRefreshToken = refreshToken ? encrypt(refreshToken) : existing?.refresh_token;
+
+    // 7. Upsert verified email connection
+    if (existing) {
+      await db.execute(
+        `UPDATE email_connections
+         SET provider_type = 'OAUTH',
+             connected_email = $1,
+             access_token = $2,
+             refresh_token = COALESCE($3, refresh_token),
+             token_expiry = $4,
+             is_active = TRUE,
+             status = 'CONNECTED',
+             error_message = NULL,
+             last_synced_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE organization_id = $5`,
+        [connectedEmail, encryptedAccessToken, encryptedRefreshToken || null, tokenExpiry, organizationId]
+      );
+    } else {
+      const slugRes = await db.getOne('SELECT slug FROM organizations WHERE id = $1', [organizationId]);
+      const inboundAddress = `inbox+${slugRes?.slug || 'business'}@onceclic.com`;
+      const webhookToken = uuidv4().replace(/-/g, '');
+      await db.execute(
+        `INSERT INTO email_connections (
+           id, organization_id, provider_type, inbound_address, webhook_token, connected_email,
+           access_token, refresh_token, token_expiry, is_active, status, last_synced_at, created_at, updated_at
+         ) VALUES ($1, $2, 'OAUTH', $3, $4, $5, $6, $7, $8, TRUE, 'CONNECTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [uuidv4(), organizationId, inboundAddress, webhookToken, connectedEmail, encryptedAccessToken, encryptedRefreshToken || null, tokenExpiry]
+      );
+    }
 
     await AuditService.log({
       organizationId,
-      userId,
+      userId: stateRecord.user_id,
       action: AuditAction.EMAIL_CONNECTED,
       entityType: 'ORGANIZATION',
       entityId: organizationId,
-      metadata: { email: cleanEmail },
+      metadata: { connectedEmail, provider: 'GOOGLE_GMAIL' },
       ipAddress,
     });
 
-    return this.getEmailConfig(organizationId);
+    return { organizationId, returnUrl, connectedEmail };
   }
 
   /**
@@ -244,6 +465,9 @@ export class IntegrationService {
       `UPDATE email_connections
        SET is_active = FALSE,
            status = 'DISCONNECTED',
+           access_token = NULL,
+           refresh_token = NULL,
+           error_message = NULL,
            updated_at = CURRENT_TIMESTAMP
        WHERE organization_id = $1`,
       [organizationId]
@@ -261,6 +485,80 @@ export class IntegrationService {
     return this.getEmailConfig(organizationId);
   }
 
+  /**
+   * Safely obtain a fresh Google Email / Gmail OAuth access token using stored encrypted refresh token.
+   */
+  static async getValidGoogleEmailAccessToken(organizationId: string): Promise<string | null> {
+    const conn = await db.getOne<{
+      access_token: string;
+      refresh_token: string;
+      token_expiry: string;
+    }>(
+      'SELECT access_token, refresh_token, token_expiry FROM email_connections WHERE organization_id = $1 AND is_active = TRUE',
+      [organizationId]
+    );
+
+    if (!conn) return null;
+
+    const now = Date.now();
+    const expiry = conn.token_expiry ? new Date(conn.token_expiry).getTime() : 0;
+
+    // Decrypt tokens before usage
+    const decryptedAccessToken = conn.access_token ? decrypt(conn.access_token) : null;
+    const decryptedRefreshToken = conn.refresh_token ? decrypt(conn.refresh_token) : null;
+
+    // Return decrypted access token if still valid (> 2 minutes remaining)
+    if (decryptedAccessToken && expiry > now + 2 * 60 * 1000) {
+      return decryptedAccessToken;
+    }
+
+    // Refresh token required
+    if (!decryptedRefreshToken || !config.google.clientId || !config.google.clientSecret) {
+      return decryptedAccessToken;
+    }
+
+    try {
+      const refreshParams = new URLSearchParams({
+        client_id: config.google.clientId,
+        client_secret: config.google.clientSecret,
+        refresh_token: decryptedRefreshToken,
+        grant_type: 'refresh_token',
+      });
+
+      const res = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: refreshParams.toString(),
+      });
+
+      if (!res.ok) {
+        console.warn(`[Gmail Token Refresh] Failed to refresh token for org ${organizationId}`);
+        await db.execute(
+          `UPDATE email_connections SET status = 'ERROR', error_message = 'OAuth token expired. Please reconnect your email.' WHERE organization_id = $1`,
+          [organizationId]
+        );
+        return null;
+      }
+
+      const data = (await res.json()) as any;
+      const newAccessToken = encrypt(data.access_token);
+      const expiresIn = data.expires_in || 3600;
+      const newTokenExpiry = new Date(Date.now() + expiresIn * 1000).toISOString();
+
+      await db.execute(
+        `UPDATE email_connections
+         SET access_token = $1, token_expiry = $2, error_message = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE organization_id = $3`,
+        [newAccessToken, newTokenExpiry, organizationId]
+      );
+
+      return data.access_token;
+    } catch (err: any) {
+      console.error(`[Gmail Token Refresh] Exception refreshing token:`, err);
+      return null;
+    }
+  }
+
   // =========================================================================
   // 3. GOOGLE CALENDAR INTEGRATION
   // =========================================================================
@@ -268,16 +566,37 @@ export class IntegrationService {
   /**
    * Generate Google Calendar OAuth authorization URL with signed state token.
    */
-  static getGoogleCalendarAuthUrl(organizationId: string, returnUrl?: string): { url: string; state: string } {
+  static async getGoogleCalendarAuthUrl(
+    organizationId: string,
+    userId?: string,
+    returnUrl?: string
+  ): Promise<{ url: string; state: string }> {
     if (!config.google.clientId) {
       throw new Error('Google OAuth is not configured on the server. Please provide GOOGLE_CLIENT_ID.');
     }
 
+    const randomSecret = crypto.randomBytes(32).toString('hex');
+    const stateHash = crypto.createHash('sha256').update(randomSecret).digest('hex');
+    const stateId = uuidv4();
+    const effectiveUserId = userId || 'system';
+    const effectiveReturnUrl = returnUrl || '/app/integrations';
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
+    await db.execute(
+      `INSERT INTO oauth_states (
+         id, state_hash, organization_id, user_id, provider, return_url, expires_at, created_at
+       ) VALUES ($1, $2, $3, $4, 'GOOGLE_CALENDAR', $5, $6, CURRENT_TIMESTAMP)`,
+      [stateId, stateHash, organizationId, effectiveUserId, effectiveReturnUrl, expiresAt]
+    );
+
     const stateToken = jwt.sign(
       {
-        csrf: crypto.randomBytes(16).toString('hex'),
+        stateId,
+        stateHash,
+        secret: randomSecret,
         organizationId,
-        returnUrl: returnUrl || '/app/integrations',
+        userId: effectiveUserId,
+        returnUrl: effectiveReturnUrl,
         type: 'google_calendar_oauth_state',
       },
       config.jwtSecret,
@@ -303,30 +622,61 @@ export class IntegrationService {
   }
 
   /**
-   * Handle Google Calendar OAuth authorization callback.
+   * Handle Google Calendar OAuth authorization callback with one-time state consumption & encrypted token storage.
    */
   static async handleGoogleCalendarCallback(
     code: string,
     state: string,
-    userId?: string,
+    initiatingUserId?: string,
     ipAddress?: string
   ): Promise<{ organizationId: string; returnUrl: string; summary: string }> {
     if (!code) {
       throw new Error('Authorization code is required.');
     }
+    if (!state) {
+      throw new Error('Missing OAuth state parameter.');
+    }
 
     let decoded: any;
     try {
       decoded = jwt.verify(state, config.jwtSecret);
-      if (decoded.type !== 'google_calendar_oauth_state' || !decoded.organizationId) {
-        throw new Error('Invalid OAuth state type.');
+      if (decoded.type !== 'google_calendar_oauth_state' || !decoded.organizationId || !decoded.stateHash) {
+        throw new Error('Invalid OAuth state payload format.');
       }
-    } catch {
-      throw new Error('Invalid or expired Google Calendar OAuth state parameter.');
+    } catch (jwtErr: any) {
+      throw new Error(`Invalid or expired Google Calendar OAuth state signature: ${jwtErr.message}`);
     }
 
     const organizationId = decoded.organizationId;
     const returnUrl = decoded.returnUrl || '/app/integrations';
+
+    const stateRecord = await db.getOne<{
+      id: string;
+      state_hash: string;
+      organization_id: string;
+      user_id: string;
+      expires_at: string;
+      consumed_at: string | null;
+    }>('SELECT * FROM oauth_states WHERE state_hash = $1', [decoded.stateHash]);
+
+    if (!stateRecord) {
+      throw new Error('OAuth state was not found. Possible CSRF attempt.');
+    }
+    if (stateRecord.consumed_at) {
+      throw new Error('OAuth state has already been consumed.');
+    }
+    if (new Date(stateRecord.expires_at).getTime() < Date.now()) {
+      throw new Error('OAuth state has expired.');
+    }
+
+    const consumedCount = await db.execute(
+      'UPDATE oauth_states SET consumed_at = CURRENT_TIMESTAMP WHERE id = $1 AND consumed_at IS NULL',
+      [stateRecord.id]
+    );
+
+    if (consumedCount === 0) {
+      throw new Error('OAuth state was already consumed in a concurrent transaction.');
+    }
 
     if (!config.google.clientId || !config.google.clientSecret) {
       throw new Error('Google OAuth credentials not configured on server.');
@@ -357,7 +707,7 @@ export class IntegrationService {
     const expiresIn = tokenData.expires_in || 3600;
     const tokenExpiry = new Date(Date.now() + expiresIn * 1000).toISOString();
 
-    // 2. Fetch primary calendar metadata or user info
+    // 2. Fetch primary calendar metadata
     let calendarSummary = 'Primary Google Calendar';
     try {
       const calRes = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList/primary', {
@@ -368,15 +718,16 @@ export class IntegrationService {
         calendarSummary = calData.summary || calData.id || calendarSummary;
       }
     } catch {
-      // Non-fatal, use default summary
+      // Non-fatal, fallback to default
     }
 
-    // 3. Upsert calendar connection in database
+    // 3. Upsert encrypted calendar connection
+    const encryptedAccessToken = encrypt(accessToken);
     const existing = await db.getOne('SELECT id, refresh_token FROM calendar_connections WHERE organization_id = $1', [
       organizationId,
     ]);
 
-    const finalRefreshToken = refreshToken || existing?.refresh_token;
+    const finalRefreshToken = refreshToken ? encrypt(refreshToken) : existing?.refresh_token;
 
     if (existing) {
       await db.execute(
@@ -392,7 +743,7 @@ export class IntegrationService {
              error_message = NULL,
              updated_at = CURRENT_TIMESTAMP
          WHERE organization_id = $5`,
-        [calendarSummary, accessToken, finalRefreshToken || null, tokenExpiry, organizationId]
+        [calendarSummary, encryptedAccessToken, finalRefreshToken || null, tokenExpiry, organizationId]
       );
     } else {
       await db.execute(
@@ -400,13 +751,13 @@ export class IntegrationService {
            id, organization_id, provider, calendar_id, calendar_summary,
            access_token, refresh_token, token_expiry, is_active, last_synced_at, created_at, updated_at
          ) VALUES ($1, $2, 'GOOGLE_CALENDAR', 'primary', $3, $4, $5, $6, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        [uuidv4(), organizationId, calendarSummary, accessToken, finalRefreshToken || null, tokenExpiry]
+        [uuidv4(), organizationId, calendarSummary, encryptedAccessToken, finalRefreshToken || null, tokenExpiry]
       );
     }
 
     await AuditService.log({
       organizationId,
-      userId,
+      userId: stateRecord.user_id,
       action: AuditAction.GOOGLE_CALENDAR_CONNECTED,
       entityType: 'INTEGRATION',
       entityId: organizationId,
@@ -494,22 +845,25 @@ export class IntegrationService {
     const expiryMs = conn.token_expiry ? new Date(conn.token_expiry).getTime() : 0;
     const nowMs = Date.now();
 
-    // If access token is still valid for more than 3 minutes, return it
-    if (conn.access_token && expiryMs > nowMs + 3 * 60 * 1000) {
-      return conn.access_token;
+    const decryptedAccessToken = conn.access_token ? decrypt(conn.access_token) : null;
+    const decryptedRefreshToken = conn.refresh_token ? decrypt(conn.refresh_token) : null;
+
+    // If access token is still valid for more than 3 minutes, return decrypted
+    if (decryptedAccessToken && expiryMs > nowMs + 3 * 60 * 1000) {
+      return decryptedAccessToken;
     }
 
     // Refresh token required
-    if (!conn.refresh_token) {
+    if (!decryptedRefreshToken) {
       console.warn(`[Google Calendar] No refresh token available for org: ${organizationId}`);
-      return conn.access_token || null;
+      return decryptedAccessToken || null;
     }
 
     try {
       const refreshParams = new URLSearchParams({
         client_id: config.google.clientId,
         client_secret: config.google.clientSecret,
-        refresh_token: conn.refresh_token,
+        refresh_token: decryptedRefreshToken,
         grant_type: 'refresh_token',
       });
 
@@ -529,16 +883,16 @@ export class IntegrationService {
         return null;
       }
 
-      const newAccessToken = data.access_token;
+      const newEncryptedAccessToken = encrypt(data.access_token);
       const expiresIn = data.expires_in || 3600;
       const newExpiry = new Date(Date.now() + expiresIn * 1000).toISOString();
 
       await db.execute(
         'UPDATE calendar_connections SET access_token = $1, token_expiry = $2, error_message = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
-        [newAccessToken, newExpiry, conn.id]
+        [newEncryptedAccessToken, newExpiry, conn.id]
       );
 
-      return newAccessToken;
+      return data.access_token;
     } catch (err: any) {
       console.error('[Google Calendar Refresh Exception]', err.message || err);
       return null;
@@ -588,46 +942,93 @@ export class IntegrationService {
         end: new Date(item.end).getTime(),
       }));
     } catch (err: any) {
-      console.warn('[Google Calendar FreeBusy Exception]', err.message || err);
+      console.error('[Google Calendar FreeBusy Exception]', err.message || err);
       return [];
     }
   }
 
   /**
-   * Create an event in Google Calendar upon confirmed appointment booking.
+   * Insert a newly confirmed appointment as an Event in Google Calendar.
    */
   static async createGoogleCalendarEvent(
-    organizationId: string,
-    appointment: {
-      id: string;
+    param1:
+      | string
+      | {
+          organizationId: string;
+          appointmentId?: string;
+          id?: string;
+          serviceName: string;
+          customerName: string;
+          customerEmail: string;
+          customerPhone?: string;
+          startTime: string;
+          endTime: string;
+          notes?: string;
+          timezone?: string;
+        },
+    param2?: {
+      id?: string;
+      appointmentId?: string;
       customerName: string;
       customerEmail: string;
       customerPhone?: string;
       serviceName: string;
-      startTime: string; // ISO
-      endTime: string;   // ISO
+      startTime: string;
+      endTime: string;
       notes?: string;
       timezone?: string;
     }
-  ): Promise<{ eventId?: string; success: boolean }> {
+  ): Promise<{ success: boolean; eventId?: string; error?: string }> {
+    let organizationId = '';
+    let appointmentId = '';
+    let serviceName = '';
+    let customerName = '';
+    let customerEmail = '';
+    let customerPhone = '';
+    let startTime = '';
+    let endTime = '';
+    let notes = '';
+
+    if (typeof param1 === 'string') {
+      organizationId = param1;
+      appointmentId = param2?.appointmentId || param2?.id || '';
+      serviceName = param2?.serviceName || '';
+      customerName = param2?.customerName || '';
+      customerEmail = param2?.customerEmail || '';
+      customerPhone = param2?.customerPhone || '';
+      startTime = param2?.startTime || '';
+      endTime = param2?.endTime || '';
+      notes = param2?.notes || '';
+    } else {
+      organizationId = param1.organizationId;
+      appointmentId = param1.appointmentId || param1.id || '';
+      serviceName = param1.serviceName;
+      customerName = param1.customerName;
+      customerEmail = param1.customerEmail;
+      customerPhone = param1.customerPhone || '';
+      startTime = param1.startTime;
+      endTime = param1.endTime;
+      notes = param1.notes || '';
+    }
+
     const accessToken = await this.getValidAccessToken(organizationId);
     if (!accessToken) {
-      return { success: false };
+      return { success: false, error: 'Google Calendar not connected or token expired.' };
     }
 
     try {
       const eventPayload = {
-        summary: `${appointment.serviceName} - ${appointment.customerName}`,
-        description: `ONCEClic Booking Reference: ${appointment.id}\nCustomer: ${appointment.customerName} (${appointment.customerEmail})\nPhone: ${appointment.customerPhone || 'N/A'}\nNotes: ${appointment.notes || 'None'}`,
+        summary: `${serviceName} - ${customerName}`,
+        description: `Appointment booked via ONCEClic AI Receptionist.\n\nService: ${serviceName}\nCustomer: ${customerName}\nEmail: ${customerEmail}\nPhone: ${
+          customerPhone || 'N/A'
+        }\nNotes: ${notes || 'None'}\nAppointment ID: ${appointmentId}`,
         start: {
-          dateTime: appointment.startTime,
-          timeZone: appointment.timezone || 'UTC',
+          dateTime: startTime,
         },
         end: {
-          dateTime: appointment.endTime,
-          timeZone: appointment.timezone || 'UTC',
+          dateTime: endTime,
         },
-        attendees: [{ email: appointment.customerEmail, displayName: appointment.customerName }],
+        attendees: [{ email: customerEmail, displayName: customerName }],
         reminders: {
           useDefault: true,
         },
@@ -644,81 +1045,110 @@ export class IntegrationService {
 
       const data = (await res.json()) as any;
 
-      if (!res.ok || !data.id) {
-        console.error('[Google Calendar Event Create Error]', data);
-        await db.execute(
-          "UPDATE appointments SET calendar_sync_status = 'FAILED', calendar_sync_error = $1 WHERE id = $2",
-          [data?.error?.message || 'Failed to create Google Calendar event', appointment.id]
-        );
-        return { success: false };
+      if (!res.ok) {
+        const errorMsg = data?.error?.message || 'Failed to create event in Google Calendar.';
+        console.error('[Google Calendar Create Event Error]', data);
+        if (appointmentId) {
+          await db.execute(
+            'UPDATE appointments SET calendar_sync_status = $1, calendar_sync_error = $2 WHERE id = $3',
+            ['FAILED', errorMsg, appointmentId]
+          );
+        }
+        return { success: false, error: errorMsg };
       }
 
-      await db.execute(
-        "UPDATE appointments SET google_calendar_event_id = $1, calendar_sync_status = 'SYNCED', calendar_sync_error = NULL WHERE id = $2",
-        [data.id, appointment.id]
-      );
+      const eventId = data.id;
+
+      if (appointmentId) {
+        await db.execute(
+          'UPDATE appointments SET google_calendar_event_id = $1, calendar_sync_status = $2, calendar_sync_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+          [eventId, 'SYNCED', appointmentId]
+        );
+      }
 
       await AuditService.log({
         organizationId,
         action: AuditAction.GOOGLE_CALENDAR_EVENT_CREATED,
         entityType: 'APPOINTMENT',
-        entityId: appointment.id,
-        metadata: { googleEventId: data.id },
+        entityId: appointmentId,
+        metadata: { googleCalendarEventId: eventId, serviceName, startTime },
       });
 
-      return { eventId: data.id, success: true };
+      return { success: true, eventId };
     } catch (err: any) {
-      console.error('[Google Calendar Event Create Exception]', err.message || err);
-      await db.execute(
-        "UPDATE appointments SET calendar_sync_status = 'FAILED', calendar_sync_error = $1 WHERE id = $2",
-        [err.message, appointment.id]
-      );
-      return { success: false };
+      console.error('[Google Calendar Create Event Exception]', err.message || err);
+      return { success: false, error: err.message || 'Unknown calendar sync error' };
     }
   }
 
   /**
-   * Update an existing Google Calendar event upon appointment rescheduling.
+   * Update an existing appointment event in Google Calendar.
    */
   static async updateGoogleCalendarEvent(
-    organizationId: string,
-    appointment: {
-      id: string;
-      googleCalendarEventId?: string;
+    param1:
+      | string
+      | {
+          organizationId: string;
+          googleCalendarEventId: string;
+          serviceName: string;
+          customerName: string;
+          customerEmail: string;
+          startTime: string;
+          endTime: string;
+          notes?: string;
+        },
+    param2?: {
+      id?: string;
+      googleCalendarEventId: string;
       customerName: string;
       customerEmail: string;
       serviceName: string;
       startTime: string;
       endTime: string;
+      notes?: string;
       timezone?: string;
     }
-  ): Promise<boolean> {
-    if (!appointment.googleCalendarEventId) {
-      return false;
+  ): Promise<{ success: boolean; eventId?: string; error?: string }> {
+    let organizationId = '';
+    let googleCalendarEventId = '';
+    let serviceName = '';
+    let customerName = '';
+    let customerEmail = '';
+    let startTime = '';
+    let endTime = '';
+
+    if (typeof param1 === 'string') {
+      organizationId = param1;
+      googleCalendarEventId = param2?.googleCalendarEventId || '';
+      serviceName = param2?.serviceName || '';
+      customerName = param2?.customerName || '';
+      customerEmail = param2?.customerEmail || '';
+      startTime = param2?.startTime || '';
+      endTime = param2?.endTime || '';
+    } else {
+      organizationId = param1.organizationId;
+      googleCalendarEventId = param1.googleCalendarEventId;
+      serviceName = param1.serviceName;
+      customerName = param1.customerName;
+      customerEmail = param1.customerEmail;
+      startTime = param1.startTime;
+      endTime = param1.endTime;
     }
 
     const accessToken = await this.getValidAccessToken(organizationId);
-    if (!accessToken) {
-      return false;
+    if (!accessToken || !googleCalendarEventId) {
+      return { success: false, error: 'Google Calendar not connected or missing event ID.' };
     }
 
     try {
       const eventPayload = {
-        summary: `${appointment.serviceName} - ${appointment.customerName}`,
-        start: {
-          dateTime: appointment.startTime,
-          timeZone: appointment.timezone || 'UTC',
-        },
-        end: {
-          dateTime: appointment.endTime,
-          timeZone: appointment.timezone || 'UTC',
-        },
+        summary: `${serviceName} - ${customerName}`,
+        start: { dateTime: startTime },
+        end: { dateTime: endTime },
       };
 
       const res = await fetch(
-        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(
-          appointment.googleCalendarEventId
-        )}`,
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(googleCalendarEventId)}`,
         {
           method: 'PATCH',
           headers: {
@@ -729,38 +1159,28 @@ export class IntegrationService {
         }
       );
 
-      if (res.ok) {
-        await AuditService.log({
-          organizationId,
-          action: AuditAction.GOOGLE_CALENDAR_EVENT_UPDATED,
-          entityType: 'APPOINTMENT',
-          entityId: appointment.id,
-          metadata: { googleEventId: appointment.googleCalendarEventId },
-        });
-        return true;
+      const data = (await res.json()) as any;
+      if (!res.ok) {
+        return { success: false, error: data?.error?.message || 'Failed to update Google Calendar event' };
       }
-      return false;
+
+      return { success: true, eventId: data.id };
     } catch (err: any) {
-      console.error('[Google Calendar Event Update Exception]', err.message || err);
-      return false;
+      return { success: false, error: err.message };
     }
   }
 
   /**
-   * Delete an event from Google Calendar upon appointment cancellation.
+   * Delete or cancel an event in Google Calendar if an appointment is canceled.
    */
   static async deleteGoogleCalendarEvent(
     organizationId: string,
-    googleCalendarEventId: string,
-    appointmentId?: string
-  ): Promise<boolean> {
-    if (!googleCalendarEventId) {
-      return false;
-    }
-
+    appointmentId: string,
+    googleCalendarEventId: string
+  ): Promise<{ success: boolean; error?: string }> {
     const accessToken = await this.getValidAccessToken(organizationId);
-    if (!accessToken) {
-      return false;
+    if (!accessToken || !googleCalendarEventId) {
+      return { success: false, error: 'Cannot delete event: no access token or event ID.' };
     }
 
     try {
@@ -770,24 +1190,30 @@ export class IntegrationService {
         )}`,
         {
           method: 'DELETE',
-          headers: { Authorization: `Bearer ${accessToken}` },
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
         }
       );
 
-      if (res.ok || res.status === 404 || res.status === 410) {
-        await AuditService.log({
-          organizationId,
-          action: AuditAction.GOOGLE_CALENDAR_EVENT_DELETED,
-          entityType: 'APPOINTMENT',
-          entityId: appointmentId || googleCalendarEventId,
-          metadata: { googleEventId: googleCalendarEventId },
-        });
-        return true;
+      if (!res.ok && res.status !== 404 && res.status !== 410) {
+        const data = await res.json().catch(() => ({}));
+        console.warn('[Google Calendar Delete Event Error]', data);
+        return { success: false, error: 'Failed to delete event from Google Calendar.' };
       }
-      return false;
+
+      await AuditService.log({
+        organizationId,
+        action: AuditAction.GOOGLE_CALENDAR_EVENT_DELETED,
+        entityType: 'APPOINTMENT',
+        entityId: appointmentId,
+        metadata: { googleCalendarEventId },
+      });
+
+      return { success: true };
     } catch (err: any) {
-      console.error('[Google Calendar Event Delete Exception]', err.message || err);
-      return false;
+      console.error('[Google Calendar Delete Event Exception]', err.message || err);
+      return { success: false, error: err.message };
     }
   }
 }

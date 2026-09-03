@@ -150,11 +150,14 @@ class EmbeddedDatabase implements IDatabase {
       'conversations',
       'conversation_messages',
       'email_connections',
+      'calendar_connections',
       'audit_logs',
       'ai_usage_records',
       'sessions',
       'password_resets',
       'email_verifications',
+      'processed_webhook_events',
+      'oauth_states',
     ];
     for (const t of tableNames) {
       if (!this.tables.has(t)) {

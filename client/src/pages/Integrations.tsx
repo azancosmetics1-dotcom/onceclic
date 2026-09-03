@@ -31,7 +31,7 @@ export const IntegrationsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [verifyingWebsite, setVerifyingWebsite] = useState(false);
-  const [emailInput, setEmailInput] = useState('');
+
   const [connectingEmail, setConnectingEmail] = useState(false);
   const [connectingCalendar, setConnectingCalendar] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -47,9 +47,6 @@ export const IntegrationsPage: React.FC = () => {
       setWebsiteConfig(wRes);
       setEmailConfig(eRes);
       setCalendarConfig(cRes);
-      if (eRes.connectedEmail) {
-        setEmailInput(eRes.connectedEmail);
-      }
     } catch (err: any) {
       setActionMessage({ type: 'error', text: err.message || 'Failed to load integration configurations.' });
     } finally {
@@ -64,6 +61,10 @@ export const IntegrationsPage: React.FC = () => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('calendar_connected') === 'true') {
       setActionMessage({ type: 'success', text: 'Google Calendar successfully connected and synced!' });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (params.get('email_connected') === 'true') {
+      const connectedAddr = params.get('email') || '';
+      setActionMessage({ type: 'success', text: `Gmail mailbox ${connectedAddr ? `(${connectedAddr}) ` : ''}connected and verified!` });
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (params.get('error')) {
       setActionMessage({ type: 'error', text: `Integration error: ${params.get('error')}` });
@@ -103,19 +104,14 @@ export const IntegrationsPage: React.FC = () => {
     }
   };
 
-  const handleConnectEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!emailInput) return;
-
+  const handleConnectGoogleEmail = async () => {
     setConnectingEmail(true);
     setActionMessage(null);
     try {
-      const updated = await api.connectEmailIntegration(emailInput);
-      setEmailConfig(updated);
-      setActionMessage({ type: 'success', text: `Business email (${emailInput}) connected successfully!` });
+      const { url } = await api.getGoogleEmailAuthUrl('/app/integrations');
+      window.location.href = url;
     } catch (err: any) {
-      setActionMessage({ type: 'error', text: err.message || 'Failed to connect email.' });
-    } finally {
+      setActionMessage({ type: 'error', text: err.message || 'Failed to initiate Google Email connection. Ensure Google OAuth is configured on the server.' });
       setConnectingEmail(false);
     }
   };
@@ -125,8 +121,7 @@ export const IntegrationsPage: React.FC = () => {
     try {
       const updated = await api.disconnectEmailIntegration();
       setEmailConfig(updated);
-      setEmailInput('');
-      setActionMessage({ type: 'success', text: 'Business email disconnected.' });
+      setActionMessage({ type: 'success', text: 'Gmail mailbox disconnected.' });
     } catch (err: any) {
       setActionMessage({ type: 'error', text: err.message || 'Failed to disconnect email.' });
     }
@@ -346,18 +341,21 @@ export const IntegrationsPage: React.FC = () => {
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
                     emailConfig?.status === IntegrationStatus.CONNECTED
                       ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                      : emailConfig?.status === IntegrationStatus.ERROR
+                      ? 'bg-amber-950 text-amber-400 border border-amber-800'
                       : emailConfig?.status === IntegrationStatus.DISCONNECTED
                       ? 'bg-red-950 text-red-400 border border-red-800'
                       : 'bg-slate-800 text-slate-400 border border-slate-700'
                   }`}
                 >
                   {emailConfig?.status === IntegrationStatus.CONNECTED && '● CONNECTED'}
+                  {emailConfig?.status === IntegrationStatus.ERROR && '⚠ RECONNECT REQUIRED'}
                   {emailConfig?.status === IntegrationStatus.DISCONNECTED && '● DISCONNECTED'}
                   {emailConfig?.status === IntegrationStatus.NOT_CONNECTED && '○ NOT CONNECTED'}
                 </span>
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Connect your business email address so ONCEClic can draft and process inbound customer inquiries.
+                Authorize your Gmail mailbox so ONCEClic can read inbound customer emails and send AI-drafted replies.
               </p>
             </div>
           </div>
@@ -366,9 +364,9 @@ export const IntegrationsPage: React.FC = () => {
         {emailConfig?.status === IntegrationStatus.CONNECTED ? (
           <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <span className="text-xs text-slate-400 block font-medium">Connected Business Email:</span>
+              <span className="text-xs text-slate-400 block font-medium">Connected Gmail Mailbox:</span>
               <span className="text-base font-bold text-white mt-0.5 block">{emailConfig.connectedEmail}</span>
-              <span className="text-xs text-emerald-400 mt-1 block">● AI receptionist monitoring inbound inquiries</span>
+              <span className="text-xs text-emerald-400 mt-1 block">● AI receptionist monitoring inbound inquiries via Gmail API</span>
             </div>
             <button
               onClick={handleDisconnectEmail}
@@ -378,36 +376,41 @@ export const IntegrationsPage: React.FC = () => {
               Disconnect Email
             </button>
           </div>
+        ) : emailConfig?.status === IntegrationStatus.ERROR ? (
+          <div className="space-y-4">
+            <div className="bg-amber-950/40 p-4 rounded-xl border border-amber-700/40 text-xs text-amber-300 flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{emailConfig?.errorMessage || 'Email authorization expired or was revoked. Please reconnect your Gmail mailbox.'}</span>
+            </div>
+            <button
+              onClick={handleConnectGoogleEmail}
+              disabled={connectingEmail}
+              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition disabled:opacity-50"
+            >
+              {connectingEmail ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+              Reconnect Gmail
+            </button>
+          </div>
         ) : (
           <div className="space-y-4">
-            <form onSubmit={handleConnectEmail} className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
+            <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  Connect Business Email
+                  Connect Gmail Mailbox
                 </label>
                 <p className="text-xs text-slate-400 mb-3">
-                  Enter your business contact address (e.g. info@yourclinic.com) to enable AI email drafting and scheduling:
+                  Click the button below to authorize ONCEClic with your Google account. You will be redirected to Google's consent screen. Only Gmail read and send permissions are requested.
                 </p>
-                <div className="flex flex-col sm:flex-row items-center gap-3">
-                  <input
-                    type="email"
-                    required
-                    value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
-                    placeholder="clinic@example.com"
-                    className="w-full sm:w-80 bg-slate-900 border border-slate-700 text-white rounded-lg px-3.5 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={connectingEmail || !emailInput}
-                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-medium px-5 py-2 rounded-lg text-sm transition disabled:opacity-50"
-                  >
-                    {connectingEmail ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-                    Connect Email
-                  </button>
-                </div>
               </div>
-            </form>
+              <button
+                onClick={handleConnectGoogleEmail}
+                disabled={connectingEmail}
+                className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition disabled:opacity-50"
+              >
+                {connectingEmail ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                Connect with Google Gmail
+              </button>
+            </div>
           </div>
         )}
       </div>

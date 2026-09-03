@@ -5,9 +5,10 @@ import { AuditAction } from '@onceclic/shared';
 export interface SendEmailOptions {
   to: string | string[];
   subject: string;
-  html: string;
+  html?: string;
   text?: string;
   from?: string;
+  replyTo?: string;
 }
 
 export interface EmailDispatchResult {

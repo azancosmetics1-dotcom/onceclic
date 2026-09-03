@@ -49,13 +49,53 @@ export async function runIntegrationTests() {
   }
   console.log('  ✓ Email configuration provides secure inbound webhook routing address');
 
-  // 6. Test Email Connection
-  const testBusinessEmail = 'contact@apexhealth.com';
-  const connectedEmail = await IntegrationService.connectEmail(orgId, testBusinessEmail, user.user.id);
-  if (connectedEmail.status !== IntegrationStatus.CONNECTED || connectedEmail.connectedEmail !== testBusinessEmail) {
+  // 6. Test Email Connection via Google OAuth Flow
+  const { config } = await import('../server/src/config');
+  const prevClientId = config.google.clientId;
+  const prevClientSecret = config.google.clientSecret;
+  config.google.clientId = config.google.clientId || 'mock_google_client_id.apps.googleusercontent.com';
+  config.google.clientSecret = config.google.clientSecret || 'mock_google_client_secret_xyz';
+
+  const authUrlRes = await IntegrationService.getGoogleEmailAuthUrl(orgId, user.user.id);
+  if (!authUrlRes.url || !authUrlRes.state) {
+    throw new Error('Google Email OAuth URL generation failed.');
+  }
+
+  // Mock token exchange & capability verification
+  const originalFetch = global.fetch;
+  global.fetch = async (url: any, init?: any) => {
+    const urlStr = String(url);
+    if (urlStr.includes('oauth2.googleapis.com/token')) {
+      return {
+        ok: true,
+        json: async () => ({
+          access_token: 'mock_token_apex',
+          refresh_token: 'mock_refresh_apex',
+          expires_in: 3600,
+        }),
+      } as any;
+    }
+    if (urlStr.includes('gmail.googleapis.com/gmail/v1/users/me/profile')) {
+      return {
+        ok: true,
+        json: async () => ({
+          emailAddress: 'contact@apexhealth.com',
+        }),
+      } as any;
+    }
+    return originalFetch(url, init);
+  };
+
+  await IntegrationService.handleGoogleEmailCallback('mock_code_apex', authUrlRes.state, user.user.id);
+  global.fetch = originalFetch;
+  config.google.clientId = prevClientId;
+  config.google.clientSecret = prevClientSecret;
+
+  const connectedEmail = await IntegrationService.getEmailConfig(orgId);
+  if (connectedEmail.status !== IntegrationStatus.CONNECTED || connectedEmail.connectedEmail !== 'contact@apexhealth.com') {
     throw new Error('Email connection failed to update connected address or status.');
   }
-  console.log('  ✓ Business email connected with non-technical customer flow');
+  console.log('  ✓ Business Gmail connected and verified with secure OAuth flow');
 
   // 7. Test Email Disconnect
   const disconnectedEmail = await IntegrationService.disconnectEmail(orgId, user.user.id);

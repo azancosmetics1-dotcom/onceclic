@@ -11,6 +11,11 @@ export const config = {
     url: process.env.DATABASE_URL || '',
   },
 
+  encryption: {
+    emailKey: process.env.EMAIL_ENCRYPTION_KEY || '',
+    isConfigured: !!process.env.EMAIL_ENCRYPTION_KEY && !process.env.EMAIL_ENCRYPTION_KEY.includes('placeholder'),
+  },
+
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
     chatModel: process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini',
@@ -20,9 +25,9 @@ export const config = {
 
   paddle: {
     apiKey: process.env.PADDLE_API_KEY || '',
-    clientToken: process.env.PADDLE_CLIENT_TOKEN || '',
+    clientToken: process.env.PADDLE_CLIENT_TOKEN || process.env.VITE_PADDLE_CLIENT_TOKEN || '',
     webhookSecret: process.env.PADDLE_WEBHOOK_SECRET || '',
-    priceId: process.env.PADDLE_PRICE_ID || 'pri_01onceclicpro49monthly',
+    priceId: process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || '',
     environment: (process.env.PADDLE_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
     isConfigured: !!process.env.PADDLE_WEBHOOK_SECRET && !process.env.PADDLE_WEBHOOK_SECRET.includes('placeholder'),
   },
@@ -32,6 +37,7 @@ export const config = {
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
     callbackUrl: process.env.GOOGLE_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:5000'}/api/auth/google/callback`,
     calendarCallbackUrl: process.env.GOOGLE_CALENDAR_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:5000'}/api/integrations/google-calendar/callback`,
+    emailCallbackUrl: process.env.GOOGLE_EMAIL_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:5000'}/api/integrations/google-email/callback`,
     isConfigured: !!process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_ID.includes('placeholder') && !!process.env.GOOGLE_CLIENT_SECRET && !process.env.GOOGLE_CLIENT_SECRET.includes('placeholder'),
   },
 

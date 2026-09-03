@@ -238,7 +238,7 @@ export const Home: React.FC = () => {
             Ready to give your business a 24/7 AI Receptionist?
           </h2>
           <p className="mt-4 text-base text-slate-300 max-w-xl mx-auto">
-            Start your 7-day free trial today. Then just $49/month. Recurring billing powered securely by Paddle.
+            Start your 7-day trial for just $1 today. Then just $49/month. Recurring billing powered securely by Paddle.
           </p>
 
           <div className="mt-8 flex justify-center">

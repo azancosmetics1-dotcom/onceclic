@@ -1,24 +1,20 @@
 import { db } from '../db';
-import { EmailConnection, ConversationChannel, AuditAction } from '@onceclic/shared';
+import { EmailConnection, ConversationChannel, AuditAction, IntegrationStatus } from '@onceclic/shared';
 import { ConversationService } from './ConversationService';
 import { AuditService } from './AuditService';
+import { IntegrationService } from './IntegrationService';
+import { ResendEmailService } from './ResendEmailService';
+import { config } from '../config';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface InboundEmailPayload {
   fromEmail: string;
   fromName?: string;
-  toEmail: string;
-  subject: string;
+  toEmail?: string;
+  subject?: string;
   textBody: string;
+  messageId?: string;
   webhookToken?: string;
-}
-
-export interface IEmailProvider {
-  connect(config: Record<string, any>): Promise<boolean>;
-  disconnect(): Promise<boolean>;
-  receiveMessage(payload: InboundEmailPayload): Promise<any>;
-  sendMessage(to: string, subject: string, body: string): Promise<boolean>;
-  healthCheck(): Promise<{ connected: boolean; provider: string; details?: string }>;
 }
 
 export class EmailService {
@@ -31,7 +27,8 @@ export class EmailService {
               inbound_address as "inboundAddress", smtp_host as "smtpHost", smtp_port as "smtpPort",
               smtp_user as "smtpUser", imap_host as "imapHost", imap_port as "imapPort",
               imap_user as "imapUser", webhook_token as "webhookToken", is_active as "isActive",
-              last_synced_at as "lastSyncedAt", created_at as "createdAt", updated_at as "updatedAt"
+              status, connected_email as "connectedEmail", last_synced_at as "lastSyncedAt",
+              error_message as "errorMessage", created_at as "createdAt", updated_at as "updatedAt"
        FROM email_connections WHERE organization_id = $1`,
       [organizationId]
     );
@@ -39,19 +36,20 @@ export class EmailService {
     if (!conn) {
       const connId = uuidv4();
       const webhookToken = `whk_${uuidv4().replace(/-/g, '')}`;
-      const inboundAddress = `reception+${organizationId.substring(0, 8)}@mail.onceclic.com`;
+      const org = await db.getOne<{ slug: string }>('SELECT slug FROM organizations WHERE id = $1', [organizationId]);
+      const inboundAddress = `inbox+${org?.slug || organizationId.substring(0, 8)}@onceclic.com`;
 
       await db.execute(
         `INSERT INTO email_connections (
-           id, organization_id, provider_type, inbound_address, webhook_token, is_active, created_at, updated_at
-         ) VALUES ($1, $2, 'WEBHOOK', $3, $4, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+           id, organization_id, provider_type, inbound_address, webhook_token, is_active, status, created_at, updated_at
+         ) VALUES ($1, $2, 'OAUTH', $3, $4, FALSE, 'NOT_CONNECTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         [connId, organizationId, inboundAddress, webhookToken]
       );
 
       conn = (await db.getOne<EmailConnection>(
         `SELECT id, organization_id as "organizationId", provider_type as "providerType",
                 inbound_address as "inboundAddress", webhook_token as "webhookToken", is_active as "isActive",
-                created_at as "createdAt", updated_at as "updatedAt"
+                status, created_at as "createdAt", updated_at as "updatedAt"
          FROM email_connections WHERE id = $1`,
         [connId]
       ))!;
@@ -87,7 +85,7 @@ export class EmailService {
         updates.smtpHost,
         updates.smtpPort,
         updates.smtpUser,
-        updates.smtpHost ? updates.smtpHost : null, // (smtp_pass handled securely)
+        updates.smtpHost ? updates.smtpHost : null,
         updates.imapHost,
         updates.imapPort,
         updates.imapUser,
@@ -101,7 +99,99 @@ export class EmailService {
   }
 
   /**
-   * Process inbound email webhook from email provider.
+   * Send an outgoing email reply via Google Gmail API or fallback transactional dispatcher.
+   */
+  static async sendEmailReply(params: {
+    organizationId: string;
+    toEmail: string;
+    subject: string;
+    body: string;
+    inReplyToMessageId?: string;
+  }): Promise<{ success: boolean; messageId?: string; provider: string }> {
+    const { organizationId, toEmail, subject, body, inReplyToMessageId } = params;
+
+    const conn = await db.getOne<{
+      provider_type: string;
+      connected_email: string;
+      inbound_address: string;
+      is_active: boolean;
+    }>(
+      'SELECT provider_type, connected_email, inbound_address, is_active FROM email_connections WHERE organization_id = $1',
+      [organizationId]
+    );
+
+    const cleanSubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+
+    // 1. If connected via Google Gmail OAuth, dispatch directly from customer's authorized Gmail mailbox
+    if (conn?.provider_type === 'OAUTH' && conn.connected_email) {
+      const accessToken = await IntegrationService.getValidGoogleEmailAccessToken(organizationId);
+      if (accessToken) {
+        try {
+          const fromHeader = conn.connected_email;
+          const headers = [
+            `From: ${fromHeader}`,
+            `To: ${toEmail}`,
+            `Subject: ${cleanSubject}`,
+            'MIME-Version: 1.0',
+            'Content-Type: text/plain; charset=UTF-8',
+          ];
+          if (inReplyToMessageId) {
+            headers.push(`In-Reply-To: ${inReplyToMessageId}`);
+            headers.push(`References: ${inReplyToMessageId}`);
+          }
+
+          const rawEmail = `${headers.join('\r\n')}\r\n\r\n${body}`;
+          // Gmail API requires base64url encoding
+          const encodedEmail = Buffer.from(rawEmail)
+            .toString('base64')
+            .replace(/\+/g, '-')
+            .replace(/\//g, '_')
+            .replace(/=+$/, '');
+
+          const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ raw: encodedEmail }),
+          });
+
+          if (res.ok) {
+            const data = (await res.json()) as any;
+            return { success: true, messageId: data.id, provider: 'GOOGLE_GMAIL' };
+          } else {
+            const errData = (await res.json()) as any;
+            console.warn('[Gmail Send] API error:', errData);
+          }
+        } catch (gmailErr) {
+          console.error('[Gmail Send Exception]:', gmailErr);
+        }
+      }
+    }
+
+    // 2. Fallback / Forwarding: Dispatch via Resend transactional email with Reply-To
+    const resendResult = await ResendEmailService.sendEmail({
+      to: toEmail,
+      subject: cleanSubject,
+      text: body,
+      replyTo: conn?.connected_email || conn?.inbound_address,
+    });
+
+    return {
+      success: resendResult.success,
+      messageId: resendResult.id || undefined,
+      provider: 'RESEND_FALLBACK',
+    };
+  }
+
+  /**
+   * Authoritative inbound email processing pipeline:
+   * 1. Multi-tenant organization resolution
+   * 2. Anti-looping & anti-self-reply guardrails
+   * 3. Deduplication
+   * 4. Contextual AI response generation
+   * 5. Outbound email dispatch
    */
   static async processInboundEmail(payload: InboundEmailPayload): Promise<{
     success: boolean;
@@ -110,19 +200,45 @@ export class EmailService {
     aiReplySent?: boolean;
     message?: string;
   }> {
-    // 1. Identify organization by webhookToken or inbound toEmail
+    const fromEmail = (payload.fromEmail || '').toLowerCase().trim();
+    const toEmail = (payload.toEmail || '').toLowerCase().trim();
+    const subject = payload.subject || 'Inquiry';
+    const textBody = (payload.textBody || '').trim();
+
+    if (!fromEmail || !textBody) {
+      return { success: false, message: 'fromEmail and textBody are required.' };
+    }
+
+    // 1. Identify organization by webhookToken, inbound_address, or connected_email
     let conn: any = null;
 
     if (payload.webhookToken) {
       conn = await db.getOne(
-        'SELECT organization_id, is_active FROM email_connections WHERE webhook_token = $1',
+        'SELECT organization_id, is_active, connected_email, inbound_address, provider_type, status FROM email_connections WHERE webhook_token = $1',
         [payload.webhookToken]
       );
-    } else if (payload.toEmail) {
+    }
+
+    if (!conn && toEmail) {
       conn = await db.getOne(
-        'SELECT organization_id, is_active FROM email_connections WHERE inbound_address = $1',
-        [payload.toEmail]
+        'SELECT organization_id, is_active, connected_email, inbound_address, provider_type, status FROM email_connections WHERE LOWER(inbound_address) = $1 OR LOWER(connected_email) = $1',
+        [toEmail]
       );
+    }
+
+    if (!conn && toEmail.includes('+')) {
+      // Check slug-based matching: inbox+slug@onceclic.com
+      const slugMatch = toEmail.match(/inbox\+([a-zA-Z0-9_-]+)@/);
+      if (slugMatch && slugMatch[1]) {
+        const slug = slugMatch[1];
+        const org = await db.getOne('SELECT id FROM organizations WHERE slug = $1', [slug]);
+        if (org) {
+          conn = await db.getOne(
+            'SELECT organization_id, is_active, connected_email, inbound_address, provider_type, status FROM email_connections WHERE organization_id = $1',
+            [org.id]
+          );
+        }
+      }
     }
 
     if (!conn) {
@@ -131,42 +247,86 @@ export class EmailService {
 
     const organizationId = conn.organization_id;
 
+    // 2. Anti-Looping & Anti-Self-Reply Protection
+    // Do NOT reply if the email is sent from the organization's own connected mailbox
+    if (conn.connected_email && fromEmail === conn.connected_email.toLowerCase()) {
+      console.log(`[Email Pipeline] Skipping email from self (${fromEmail}) to prevent loops.`);
+      return { success: true, message: 'Skipped self-sent message.' };
+    }
+
+    if (conn.inbound_address && fromEmail === conn.inbound_address.toLowerCase()) {
+      console.log(`[Email Pipeline] Skipping email from inbound address (${fromEmail}) to prevent loops.`);
+      return { success: true, message: 'Skipped self-sent message.' };
+    }
+
+    // Do NOT reply to known bounce/daemon/no-reply mailboxes
+    const isDaemon =
+      fromEmail.includes('mailer-daemon') ||
+      fromEmail.includes('no-reply') ||
+      fromEmail.includes('noreply') ||
+      fromEmail.includes('postmaster') ||
+      fromEmail.includes('auto-reply') ||
+      fromEmail.includes('bounce');
+
+    if (isDaemon) {
+      console.log(`[Email Pipeline] Skipping system/daemon email from ${fromEmail}.`);
+      return { success: true, message: 'Skipped daemon message.' };
+    }
+
+    // 3. Log Inbound Email Audit Event
     await AuditService.log({
       organizationId,
       action: AuditAction.EMAIL_RECEIVED,
       entityType: 'EMAIL',
-      metadata: { from: payload.fromEmail, subject: payload.subject },
+      metadata: { from: fromEmail, to: toEmail, subject },
     });
 
-    // 2. Create or find conversation
+    // 4. Create or lookup active conversation for this customer
     const conversation = await ConversationService.getOrCreateConversation({
       organizationId,
       channel: ConversationChannel.EMAIL,
-      customerName: payload.fromName || payload.fromEmail.split('@')[0],
-      customerEmail: payload.fromEmail,
+      customerName: payload.fromName || fromEmail.split('@')[0],
+      customerEmail: fromEmail,
     });
 
-    // 3. Process email message through AI receptionist pipeline
-    const clientMessageId = `email_${uuidv4()}`;
+    // 5. Deduplication & Idempotency: Use deterministic clientMessageId
+    const rawMsgId = payload.messageId || `${fromEmail}_${subject}_${textBody.substring(0, 60)}`;
+    const clientMessageId = `email_${Buffer.from(rawMsgId).toString('base64').substring(0, 32)}`;
+
+    // 6. Process message through AI Receptionist pipeline (grounded in Org knowledge & guardrails)
     const result = await ConversationService.handleCustomerMessage({
       organizationId,
       conversationId: conversation.id,
-      content: `Subject: ${payload.subject}\n\n${payload.textBody}`,
+      content: `Subject: ${subject}\n\n${textBody}`,
       clientMessageId,
       customerName: payload.fromName,
-      customerEmail: payload.fromEmail,
+      customerEmail: fromEmail,
     });
 
     let aiReplySent = false;
-    if (result.aiMessage && conn.is_active) {
-      // Outbound email would be dispatched here via SMTP/SendGrid
-      aiReplySent = true;
+
+    // 7. Dispatch AI Reply via Connected Mailbox (or fallback)
+    if (result.aiMessage && result.aiMessage.content) {
+      const dispatchRes = await this.sendEmailReply({
+        organizationId,
+        toEmail: fromEmail,
+        subject,
+        body: result.aiMessage.content,
+        inReplyToMessageId: payload.messageId,
+      });
+
+      aiReplySent = dispatchRes.success;
 
       await AuditService.log({
         organizationId,
         action: AuditAction.EMAIL_SENT,
         entityType: 'EMAIL',
-        metadata: { to: payload.fromEmail, conversationId: conversation.id },
+        metadata: {
+          to: fromEmail,
+          conversationId: conversation.id,
+          provider: dispatchRes.provider,
+          messageId: dispatchRes.messageId,
+        },
       });
     }
 

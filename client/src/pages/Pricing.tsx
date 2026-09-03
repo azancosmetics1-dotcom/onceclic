@@ -18,8 +18,8 @@ export const Pricing: React.FC = () => {
 
   const faqs = [
     {
-      q: 'How does the 7-day free trial work?',
-      a: 'You get full access to all ONCEClic Pro features immediately upon creating your account. No payment is taken upfront. After 7 days, your subscription continues at $49/month via Paddle recurring billing.',
+      q: 'How does the 7-day trial work?',
+      a: 'You get full access to all ONCEClic Pro features for just $1 for your first 7 days. After 7 days, your subscription continues at $49/month via Paddle recurring billing. You can manage or cancel your subscription at any time via the Paddle customer portal.',
     },
     {
       q: 'What happens when my trial expires?',
@@ -73,8 +73,8 @@ export const Pricing: React.FC = () => {
           <div className="mt-6 mb-8 flex items-baseline space-x-2">
             <span className="text-5xl font-black text-white">$49</span>
             <span className="text-slate-400 text-sm font-medium">/ month</span>
-            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full ml-2">
-              7 Days Free
+            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full ml-2">
+              $1 for 7 Days
             </span>
           </div>
 
@@ -82,7 +82,7 @@ export const Pricing: React.FC = () => {
             to="/signup"
             className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-center block transition shadow-lg shadow-emerald-500/20 mb-8"
           >
-            Start 7-Day Free Trial
+            Start Pro ($1 for 7 Days)
           </Link>
 
           <p className="text-xs text-center text-slate-400 mb-6 flex items-center justify-center space-x-1.5">

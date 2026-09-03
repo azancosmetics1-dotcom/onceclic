@@ -159,6 +159,9 @@ export function validateProductionConfig() {
     if (!config.jwtSecret || config.jwtSecret.includes('dev_mode_only') || config.jwtSecret.includes('placeholder')) {
       missing.push('AUTH_SECRET');
     }
+    if (!process.env.EMAIL_ENCRYPTION_KEY || process.env.EMAIL_ENCRYPTION_KEY.includes('placeholder')) {
+      missing.push('EMAIL_ENCRYPTION_KEY');
+    }
     if (missing.length > 0) {
       throw new Error(
         `[Config] Production startup validation failed. Missing required production environment variables: ${missing.join(', ')}`
@@ -181,6 +184,12 @@ export async function startServer() {
     console.log(`  Paddle Billing: ${config.paddle.isConfigured ? 'Ready' : 'Requires PADDLE_WEBHOOK_SECRET'}`);
     console.log(`==================================================`);
   });
+
+  // Start background workers (Gmail Sync)
+  if (config.google.isConfigured || config.nodeEnv !== 'test') {
+    const { EmailSyncService } = require('./services/EmailSyncService');
+    EmailSyncService.startPolling(30000);
+  }
 
   return { app, server };
 }

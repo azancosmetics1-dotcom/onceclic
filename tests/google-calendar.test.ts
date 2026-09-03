@@ -26,7 +26,7 @@ export async function runGoogleCalendarTests() {
   const prevClientId = config.google.clientId;
   config.google.clientId = config.google.clientId || 'mock_google_client_id_12345.apps.googleusercontent.com';
 
-  const authUrlData = IntegrationService.getGoogleCalendarAuthUrl(orgId, '/app/integrations');
+  const authUrlData = await IntegrationService.getGoogleCalendarAuthUrl(orgId, userId, '/app/integrations');
   assert.ok(authUrlData.url.includes('accounts.google.com'), 'Auth URL points to Google accounts endpoint');
   assert.ok(authUrlData.url.includes('calendar.events'), 'Auth URL requests calendar.events scope');
   assert.ok(authUrlData.state, 'Auth URL contains signed CSRF state');

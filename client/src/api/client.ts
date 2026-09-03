@@ -22,7 +22,7 @@ import {
 } from '@onceclic/shared';
 
 const getApiBase = (): string => {
-  const envUrl = (import.meta as any).env?.VITE_API_URL;
+  const envUrl = (import.meta as any).env?.VITE_API_URL || (import.meta as any).env?.VITE_BACKEND_URL;
   if (!envUrl) return '/api';
   const clean = envUrl.replace(/\/+$/, '');
   return clean.endsWith('/api') ? clean : `${clean}/api`;
@@ -318,6 +318,18 @@ class ApiClient {
     return this.request('/billing/config');
   }
 
+  async createCustomerPortalSession(): Promise<{ url: string }> {
+    return this.request('/billing/portal-session', {
+      method: 'POST',
+    });
+  }
+
+  async cancelSubscription(): Promise<{ success: boolean; status: string; scheduledChange?: string }> {
+    return this.request('/billing/cancel', {
+      method: 'POST',
+    });
+  }
+
   // Public Chat (Customer Facing)
   async getPublicOrg(slug: string): Promise<any> {
     return this.request(`/public/chat/org/${slug}`);
@@ -395,11 +407,8 @@ class ApiClient {
     return this.request('/integrations/email');
   }
 
-  async connectEmailIntegration(email: string): Promise<EmailIntegrationConfig> {
-    return this.request('/integrations/email/connect', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    });
+  async getGoogleEmailAuthUrl(returnUrl?: string): Promise<{ url: string; state: string }> {
+    return this.request(`/integrations/google-email/auth-url${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ''}`);
   }
 
   async disconnectEmailIntegration(): Promise<EmailIntegrationConfig> {

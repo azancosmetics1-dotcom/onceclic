@@ -48,7 +48,7 @@ export const AppLayout: React.FC = () => {
                 <>
                   <Clock className="w-4 h-4 text-amber-400 shrink-0" />
                   <span>
-                    You are currently on your <strong>7-Day Free Trial</strong> ({billingInfo?.daysRemainingInTrial} days remaining).
+                    You are currently on your <strong>7-Day Trial</strong> ({billingInfo?.daysRemainingInTrial} days remaining).
                   </span>
                 </>
               ) : (
@@ -65,7 +65,7 @@ export const AppLayout: React.FC = () => {
               className="inline-flex items-center space-x-1 px-3 py-1 text-xs font-semibold rounded-md bg-amber-400 text-slate-950 hover:bg-amber-300 transition shadow-sm"
             >
               <CreditCard className="w-3.5 h-3.5" />
-              <span>Upgrade to Pro ($49/mo)</span>
+              <span>Start Pro ($1 for 7 Days)</span>
             </Link>
           </div>
         )}
