@@ -1,5 +1,6 @@
 import { db } from '../db';
 import { IntegrationService } from './IntegrationService';
+import { ComposioService } from './ComposioService';
 import { EmailService } from './EmailService';
 
 export class EmailSyncService {
@@ -68,13 +69,58 @@ export class EmailSyncService {
    * Synchronize inbound emails for a single organization.
    */
   static async syncOrganization(organizationId: string): Promise<{ syncedCount: number; errors: number }> {
+    let syncedCount = 0;
+    let errors = 0;
+
+    // 1. Primary: Composio Managed OAuth Polling
+    if (ComposioService.isAvailable()) {
+      try {
+        const composioMessages = await ComposioService.fetchUnreadEmails(organizationId);
+        if (composioMessages && composioMessages.length > 0) {
+          for (const msg of composioMessages) {
+            try {
+              // Deduplication check
+              const clientMsgId = `email_${Buffer.from(msg.rfcMessageId || msg.id).toString('base64').substring(0, 32)}`;
+              const existing = await db.getOne(
+                "SELECT id FROM conversation_messages WHERE client_message_id = $1 OR client_message_id LIKE $2",
+                [clientMsgId, `%_${msg.id}%`]
+              );
+              if (existing) {
+                continue;
+              }
+
+              await EmailService.processInboundEmail({
+                fromEmail: msg.fromEmail,
+                fromName: msg.fromName,
+                toEmail: msg.toEmail,
+                subject: msg.subject,
+                textBody: msg.textBody,
+                messageId: msg.rfcMessageId || msg.id,
+              });
+              syncedCount++;
+            } catch (msgErr: any) {
+              console.warn(`[EmailSyncService] Error processing Composio email ${msg.id}:`, msgErr.message || msgErr);
+              errors++;
+            }
+          }
+
+          await db.execute(
+            'UPDATE email_connections SET last_synced_at = CURRENT_TIMESTAMP WHERE organization_id = $1',
+            [organizationId]
+          );
+
+          return { syncedCount, errors };
+        }
+      } catch (compErr: any) {
+        console.warn(`[EmailSyncService] Composio sync notice for org ${organizationId}:`, compErr.message || compErr);
+      }
+    }
+
+    // 2. Secondary: Direct Google OAuth token polling
     const accessToken = await IntegrationService.getValidGoogleEmailAccessToken(organizationId);
     if (!accessToken) {
       return { syncedCount: 0, errors: 0 };
     }
-
-    let syncedCount = 0;
-    let errors = 0;
 
     try {
       // 1. Query for recent unread or inbox messages

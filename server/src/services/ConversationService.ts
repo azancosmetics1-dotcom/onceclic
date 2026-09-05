@@ -256,6 +256,14 @@ export class ConversationService {
         [fallbackId, conversationId, organizationId, fallbackNotice]
       );
 
+      await db.execute(
+        `INSERT INTO ai_usage_records (
+           id, organization_id, ai_employee_id, conversation_id, provider, model,
+           prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, success, created_at
+         ) VALUES ($1, $2, $3, $4, 'OpenAI', 'gpt-4o-mini', 0, 0, 0, 0.0, TRUE, CURRENT_TIMESTAMP)`,
+        [uuidv4(), organizationId, aiEmployee?.id || null, conversationId]
+      );
+
       const aiMsg = (await db.getOne<ConversationMessage>(
         `SELECT id, conversation_id as "conversationId", organization_id as "organizationId",
                 role, content, status, grounded, handoff_required as "handoffRequired", created_at as "createdAt"

@@ -32,6 +32,12 @@ export const config = {
     isConfigured: !!process.env.PADDLE_WEBHOOK_SECRET && !process.env.PADDLE_WEBHOOK_SECRET.includes('placeholder'),
   },
 
+  composio: {
+    apiKey: process.env.COMPOSIO_API_KEY || '',
+    isConfigured: !!process.env.COMPOSIO_API_KEY && !process.env.COMPOSIO_API_KEY.includes('placeholder'),
+    baseUrl: process.env.COMPOSIO_BASE_URL || 'https://backend.composio.dev/api',
+  },
+
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',

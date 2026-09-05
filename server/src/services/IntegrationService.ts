@@ -10,6 +10,7 @@ import {
   AuditAction,
 } from '@onceclic/shared';
 import { AuditService } from './AuditService';
+import { ComposioService } from './ComposioService';
 import { encrypt, decrypt } from '../utils/crypto';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -169,7 +170,36 @@ export class IntegrationService {
       );
     }
 
-    const isOAuthConfigured = config.google.isConfigured;
+    // Check Composio status dynamically if configured
+    if (ComposioService.isAvailable()) {
+      try {
+        const composioAccount = await ComposioService.getConnectedAccount(organizationId, 'gmail');
+        if (composioAccount.isConnected) {
+          const emailAddr = composioAccount.email || conn?.connected_email || 'Connected Gmail Account';
+          if (!conn?.is_active || conn?.status !== 'CONNECTED' || !conn?.connected_email) {
+            await db.execute(
+              `UPDATE email_connections
+               SET is_active = TRUE,
+                   status = 'CONNECTED',
+                   connected_email = $1,
+                   provider_type = 'OAUTH',
+                   error_message = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE organization_id = $2`,
+              [emailAddr, organizationId]
+            );
+            conn = await db.getOne(
+              'SELECT id, provider_type, inbound_address, webhook_token, is_active, connected_email, status, last_synced_at, error_message FROM email_connections WHERE organization_id = $1',
+              [organizationId]
+            );
+          }
+        }
+      } catch (composioErr) {
+        console.warn(`[IntegrationService] Error checking Composio email status for ${organizationId}:`, composioErr);
+      }
+    }
+
+    const isOAuthConfigured = config.composio.isConfigured || config.google.isConfigured;
     let status = (conn?.status as IntegrationStatus) || IntegrationStatus.NOT_CONNECTED;
     if (conn?.is_active && conn?.connected_email && conn?.status === 'CONNECTED') {
       status = IntegrationStatus.CONNECTED;
@@ -193,15 +223,50 @@ export class IntegrationService {
   }
 
   /**
-   * Generate Google Email / Gmail OAuth authorization URL with signed, one-time, user+org-bound state token.
+   * Generate Google Email / Gmail OAuth authorization URL.
+   * Prioritizes Composio Managed OAuth (no Google Cloud verification/billing required),
+   * with fallback to direct Google OAuth if configured.
    */
   static async getGoogleEmailAuthUrl(
     organizationId: string,
     userId?: string,
     returnUrl?: string
   ): Promise<{ url: string; state: string }> {
+    const effectiveReturnUrl = returnUrl || '/app/integrations';
+
+    // 1. Primary: Composio Managed OAuth
+    if (ComposioService.isAvailable()) {
+      const callbackUrl = `${config.app.apiUrl}/api/integrations/composio/callback?app=gmail&returnUrl=${encodeURIComponent(
+        effectiveReturnUrl
+      )}&orgId=${encodeURIComponent(organizationId)}`;
+
+      const composioRes = await ComposioService.initiateConnection({
+        organizationId,
+        app: 'gmail',
+        callbackUrl,
+      });
+
+      if (composioRes.success && composioRes.redirectUrl) {
+        // Set connection status to CONNECTING
+        await db.execute(
+          `UPDATE email_connections
+           SET status = 'CONNECTING', error_message = NULL, updated_at = CURRENT_TIMESTAMP
+           WHERE organization_id = $1`,
+          [organizationId]
+        );
+
+        return {
+          url: composioRes.redirectUrl,
+          state: 'composio_managed',
+        };
+      }
+
+      console.warn('[IntegrationService] Composio initiate failed, attempting Google OAuth fallback if available:', composioRes.error);
+    }
+
+    // 2. Secondary: Direct Google OAuth (if configured)
     if (!config.google.clientId) {
-      throw new Error('Google OAuth is not configured on the server. Please provide GOOGLE_CLIENT_ID.');
+      throw new Error('Neither Composio nor Google OAuth is configured. Please provide COMPOSIO_API_KEY or GOOGLE_CLIENT_ID.');
     }
 
     // Generate cryptographically random secret and compute SHA-256 hash for database storage
@@ -209,7 +274,6 @@ export class IntegrationService {
     const stateHash = crypto.createHash('sha256').update(randomSecret).digest('hex');
     const stateId = uuidv4();
     const effectiveUserId = userId || 'system';
-    const effectiveReturnUrl = returnUrl || '/app/integrations';
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes validity
 
     // Store state record for one-time-use validation and replay protection
@@ -461,6 +525,14 @@ export class IntegrationService {
     userId?: string,
     ipAddress?: string
   ): Promise<EmailIntegrationConfig> {
+    if (ComposioService.isAvailable()) {
+      try {
+        await ComposioService.disconnectAccount(organizationId, 'gmail');
+      } catch (err) {
+        console.warn(`[IntegrationService] Error disconnecting Composio email for ${organizationId}:`, err);
+      }
+    }
+
     await db.execute(
       `UPDATE email_connections
        SET is_active = FALSE,
@@ -564,22 +636,48 @@ export class IntegrationService {
   // =========================================================================
 
   /**
-   * Generate Google Calendar OAuth authorization URL with signed state token.
+   * Generate Google Calendar OAuth authorization URL.
+   * Prioritizes Composio Managed OAuth (no Google Cloud billing/verification required),
+   * with fallback to direct Google OAuth.
    */
   static async getGoogleCalendarAuthUrl(
     organizationId: string,
     userId?: string,
     returnUrl?: string
   ): Promise<{ url: string; state: string }> {
+    const effectiveReturnUrl = returnUrl || '/app/integrations';
+
+    // 1. Primary: Composio Managed OAuth
+    if (ComposioService.isAvailable()) {
+      const callbackUrl = `${config.app.apiUrl}/api/integrations/composio/callback?app=googlecalendar&returnUrl=${encodeURIComponent(
+        effectiveReturnUrl
+      )}&orgId=${encodeURIComponent(organizationId)}`;
+
+      const composioRes = await ComposioService.initiateConnection({
+        organizationId,
+        app: 'googlecalendar',
+        callbackUrl,
+      });
+
+      if (composioRes.success && composioRes.redirectUrl) {
+        return {
+          url: composioRes.redirectUrl,
+          state: 'composio_managed',
+        };
+      }
+
+      console.warn('[IntegrationService] Composio initiate failed for calendar, attempting Google OAuth fallback:', composioRes.error);
+    }
+
+    // 2. Secondary: Direct Google OAuth (if configured)
     if (!config.google.clientId) {
-      throw new Error('Google OAuth is not configured on the server. Please provide GOOGLE_CLIENT_ID.');
+      throw new Error('Neither Composio nor Google OAuth is configured. Please provide COMPOSIO_API_KEY or GOOGLE_CLIENT_ID.');
     }
 
     const randomSecret = crypto.randomBytes(32).toString('hex');
     const stateHash = crypto.createHash('sha256').update(randomSecret).digest('hex');
     const stateId = uuidv4();
     const effectiveUserId = userId || 'system';
-    const effectiveReturnUrl = returnUrl || '/app/integrations';
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
     await db.execute(
@@ -772,14 +870,54 @@ export class IntegrationService {
    * Get Google Calendar integration status for an organization.
    */
   static async getGoogleCalendarConfig(organizationId: string): Promise<GoogleCalendarConfig> {
-    const conn = await db.getOne(
+    let conn = await db.getOne(
       `SELECT id, provider, calendar_id as "calendarId", calendar_summary as "calendarSummary",
               is_active as "isActive", last_synced_at as "lastSyncedAt", error_message as "errorMessage"
        FROM calendar_connections WHERE organization_id = $1`,
       [organizationId]
     );
 
-    const isConfigured = config.google.isConfigured;
+    // Check Composio calendar connection dynamically
+    if (ComposioService.isAvailable()) {
+      try {
+        const composioAccount = await ComposioService.getConnectedAccount(organizationId, 'googlecalendar');
+        if (composioAccount.isConnected) {
+          const summary = composioAccount.summary || conn?.calendarSummary || 'Primary Google Calendar';
+          if (!conn?.isActive) {
+            if (conn) {
+              await db.execute(
+                `UPDATE calendar_connections
+                 SET is_active = TRUE,
+                     provider = 'GOOGLE_CALENDAR',
+                     calendar_summary = $1,
+                     error_message = NULL,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE organization_id = $2`,
+                [summary, organizationId]
+              );
+            } else {
+              await db.execute(
+                `INSERT INTO calendar_connections (
+                   id, organization_id, provider, calendar_id, calendar_summary,
+                   is_active, last_synced_at, created_at, updated_at
+                 ) VALUES ($1, $2, 'GOOGLE_CALENDAR', 'primary', $3, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+                [uuidv4(), organizationId, summary]
+              );
+            }
+            conn = await db.getOne(
+              `SELECT id, provider, calendar_id as "calendarId", calendar_summary as "calendarSummary",
+                      is_active as "isActive", last_synced_at as "lastSyncedAt", error_message as "errorMessage"
+               FROM calendar_connections WHERE organization_id = $1`,
+              [organizationId]
+            );
+          }
+        }
+      } catch (composioErr) {
+        console.warn(`[IntegrationService] Error checking Composio calendar status for ${organizationId}:`, composioErr);
+      }
+    }
+
+    const isConfigured = config.composio.isConfigured || config.google.isConfigured;
 
     let status = IntegrationStatus.NOT_CONNECTED;
     if (conn) {
@@ -806,6 +944,14 @@ export class IntegrationService {
     userId?: string,
     ipAddress?: string
   ): Promise<GoogleCalendarConfig> {
+    if (ComposioService.isAvailable()) {
+      try {
+        await ComposioService.disconnectAccount(organizationId, 'googlecalendar');
+      } catch (err) {
+        console.warn(`[IntegrationService] Error disconnecting Composio calendar for ${organizationId}:`, err);
+      }
+    }
+
     await db.execute(
       `UPDATE calendar_connections
        SET is_active = FALSE,
@@ -907,6 +1053,19 @@ export class IntegrationService {
     timeMin: string, // ISO 8601
     timeMax: string  // ISO 8601
   ): Promise<Array<{ start: number; end: number }>> {
+    // 1. Primary: Composio Managed OAuth
+    if (ComposioService.isAvailable()) {
+      try {
+        const busyPeriods = await ComposioService.getCalendarBusyPeriods(organizationId, timeMin, timeMax);
+        if (busyPeriods && busyPeriods.length > 0) {
+          return busyPeriods;
+        }
+      } catch (composioErr) {
+        console.warn('[IntegrationService] Composio free-busy check notice:', composioErr);
+      }
+    }
+
+    // 2. Secondary: Direct Google OAuth token fallback
     const accessToken = await this.getValidAccessToken(organizationId);
     if (!accessToken) {
       return [];
@@ -988,6 +1147,7 @@ export class IntegrationService {
     let startTime = '';
     let endTime = '';
     let notes = '';
+    let timezone = 'UTC';
 
     if (typeof param1 === 'string') {
       organizationId = param1;
@@ -999,6 +1159,7 @@ export class IntegrationService {
       startTime = param2?.startTime || '';
       endTime = param2?.endTime || '';
       notes = param2?.notes || '';
+      timezone = param2?.timezone || 'UTC';
     } else {
       organizationId = param1.organizationId;
       appointmentId = param1.appointmentId || param1.id || '';
@@ -1009,8 +1170,48 @@ export class IntegrationService {
       startTime = param1.startTime;
       endTime = param1.endTime;
       notes = param1.notes || '';
+      timezone = param1.timezone || 'UTC';
     }
 
+    // 1. Primary: Composio Managed OAuth
+    if (ComposioService.isAvailable()) {
+      try {
+        const composioRes = await ComposioService.createCalendarEvent(organizationId, {
+          appointmentId,
+          serviceName,
+          customerName,
+          customerEmail,
+          customerPhone,
+          startTime,
+          endTime,
+          notes,
+          timezone,
+        });
+
+        if (composioRes.success && composioRes.eventId) {
+          if (appointmentId) {
+            await db.execute(
+              'UPDATE appointments SET google_calendar_event_id = $1, calendar_sync_status = $2, calendar_sync_error = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
+              [composioRes.eventId, 'SYNCED', appointmentId]
+            );
+          }
+
+          await AuditService.log({
+            organizationId,
+            action: AuditAction.GOOGLE_CALENDAR_EVENT_CREATED,
+            entityType: 'APPOINTMENT',
+            entityId: appointmentId,
+            metadata: { googleCalendarEventId: composioRes.eventId, serviceName, startTime, provider: 'COMPOSIO' },
+          });
+
+          return { success: true, eventId: composioRes.eventId };
+        }
+      } catch (composioErr) {
+        console.warn('[IntegrationService] Composio create event error, trying direct OAuth fallback:', composioErr);
+      }
+    }
+
+    // 2. Secondary: Direct Google OAuth token fallback
     const accessToken = await this.getValidAccessToken(organizationId);
     if (!accessToken) {
       return { success: false, error: 'Google Calendar not connected or token expired.' };
@@ -1135,6 +1336,24 @@ export class IntegrationService {
       endTime = param1.endTime;
     }
 
+    // 1. Primary: Composio Managed OAuth
+    if (ComposioService.isAvailable() && googleCalendarEventId) {
+      try {
+        const compRes = await ComposioService.updateCalendarEvent(organizationId, googleCalendarEventId, {
+          serviceName,
+          customerName,
+          startTime,
+          endTime,
+        });
+        if (compRes.success) {
+          return { success: true, eventId: googleCalendarEventId };
+        }
+      } catch (compErr) {
+        console.warn('[IntegrationService] Composio update event error:', compErr);
+      }
+    }
+
+    // 2. Secondary: Direct Google OAuth token fallback
     const accessToken = await this.getValidAccessToken(organizationId);
     if (!accessToken || !googleCalendarEventId) {
       return { success: false, error: 'Google Calendar not connected or missing event ID.' };
@@ -1178,6 +1397,26 @@ export class IntegrationService {
     appointmentId: string,
     googleCalendarEventId: string
   ): Promise<{ success: boolean; error?: string }> {
+    // 1. Primary: Composio Managed OAuth
+    if (ComposioService.isAvailable() && googleCalendarEventId) {
+      try {
+        const compRes = await ComposioService.deleteCalendarEvent(organizationId, googleCalendarEventId);
+        if (compRes.success) {
+          await AuditService.log({
+            organizationId,
+            action: AuditAction.GOOGLE_CALENDAR_EVENT_DELETED,
+            entityType: 'APPOINTMENT',
+            entityId: appointmentId,
+            metadata: { googleCalendarEventId, provider: 'COMPOSIO' },
+          });
+          return { success: true };
+        }
+      } catch (compErr) {
+        console.warn('[IntegrationService] Composio delete event error:', compErr);
+      }
+    }
+
+    // 2. Secondary: Direct Google OAuth token fallback
     const accessToken = await this.getValidAccessToken(organizationId);
     if (!accessToken || !googleCalendarEventId) {
       return { success: false, error: 'Cannot delete event: no access token or event ID.' };
@@ -1214,6 +1453,93 @@ export class IntegrationService {
     } catch (err: any) {
       console.error('[Google Calendar Delete Event Exception]', err.message || err);
       return { success: false, error: err.message };
+    }
+  }
+
+  /**
+   * Handle Composio OAuth callback return, verify account status, update DB, and log audit action.
+   */
+  static async handleComposioCallback(params: {
+    app: 'gmail' | 'googlecalendar';
+    orgId: string;
+    returnUrl?: string;
+    ipAddress?: string;
+  }): Promise<{ returnUrl: string; connectedItem?: string }> {
+    const { app, orgId, returnUrl, ipAddress } = params;
+    const effectiveReturnUrl = returnUrl || '/app/integrations';
+
+    if (!orgId) {
+      return { returnUrl: effectiveReturnUrl };
+    }
+
+    try {
+      const account = await ComposioService.getConnectedAccount(orgId, app);
+
+      if (app === 'gmail') {
+        const emailAddr = account.email || 'Connected Gmail Account';
+        await db.execute(
+          `UPDATE email_connections
+           SET is_active = TRUE,
+               status = 'CONNECTED',
+               connected_email = $1,
+               provider_type = 'OAUTH',
+               error_message = NULL,
+               last_synced_at = CURRENT_TIMESTAMP,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE organization_id = $2`,
+          [emailAddr, orgId]
+        );
+
+        await AuditService.log({
+          organizationId: orgId,
+          action: AuditAction.EMAIL_CONNECTED,
+          entityType: 'ORGANIZATION',
+          entityId: orgId,
+          metadata: { connectedEmail: emailAddr, provider: 'COMPOSIO_MANAGED' },
+          ipAddress,
+        });
+
+        return { returnUrl: effectiveReturnUrl, connectedItem: emailAddr };
+      } else {
+        const summary = account.summary || 'Primary Google Calendar';
+        const existing = await db.getOne('SELECT id FROM calendar_connections WHERE organization_id = $1', [orgId]);
+
+        if (existing) {
+          await db.execute(
+            `UPDATE calendar_connections
+             SET is_active = TRUE,
+                 provider = 'GOOGLE_CALENDAR',
+                 calendar_summary = $1,
+                 error_message = NULL,
+                 last_synced_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE organization_id = $2`,
+            [summary, orgId]
+          );
+        } else {
+          await db.execute(
+            `INSERT INTO calendar_connections (
+               id, organization_id, provider, calendar_id, calendar_summary,
+               is_active, last_synced_at, created_at, updated_at
+             ) VALUES ($1, $2, 'GOOGLE_CALENDAR', 'primary', $3, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [uuidv4(), orgId, summary]
+          );
+        }
+
+        await AuditService.log({
+          organizationId: orgId,
+          action: AuditAction.GOOGLE_CALENDAR_CONNECTED,
+          entityType: 'INTEGRATION',
+          entityId: orgId,
+          metadata: { calendarSummary: summary, provider: 'COMPOSIO_MANAGED' },
+          ipAddress,
+        });
+
+        return { returnUrl: effectiveReturnUrl, connectedItem: summary };
+      }
+    } catch (err: any) {
+      console.error('[IntegrationService] Error handling Composio callback:', err);
+      return { returnUrl: effectiveReturnUrl };
     }
   }
 }

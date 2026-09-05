@@ -229,6 +229,33 @@ class EmbeddedDatabase implements IDatabase {
 
     let rows = Array.from(tableData.values());
 
+    // Basic JOIN handling for organization_memberships and organizations
+    if (table === 'organization_memberships' && /JOIN organizations/i.test(sql)) {
+      const orgTable = this.tables.get('organizations');
+      if (orgTable) {
+        rows = rows.map(r => {
+          const org = orgTable.get(r.organization_id) || Array.from(orgTable.values()).find(o => o.id === r.organization_id);
+          if (org) {
+            return {
+              ...r,
+              membership_id: r.id,
+              org_id: org.id,
+              org_name: org.name,
+              org_slug: org.slug,
+              business_type: org.business_type,
+              phone: org.phone,
+              org_email: org.email,
+              website: org.website,
+              address: org.address,
+              timezone: org.timezone,
+              is_active: org.is_active,
+            };
+          }
+          return r;
+        });
+      }
+    }
+
     // Basic WHERE filter parser
     if (/WHERE/i.test(sql)) {
       rows = rows.filter(row => this.evaluateWhere(sql, row, params));
@@ -275,7 +302,11 @@ class EmbeddedDatabase implements IDatabase {
           if (aliasMatch) {
             const rawCol = aliasMatch[1].toLowerCase();
             const alias = aliasMatch[2];
-            projected[alias] = r[rawCol] !== undefined ? r[rawCol] : null;
+            if (r[alias] !== undefined) {
+              projected[alias] = r[alias];
+            } else {
+              projected[alias] = r[rawCol] !== undefined ? r[rawCol] : null;
+            }
             projected[rawCol] = r[rawCol] !== undefined ? r[rawCol] : null;
           } else {
             let rawCol = def.replace(/^[a-zA-Z0-9_.]+\./, '').trim().toLowerCase();
@@ -337,6 +368,9 @@ class EmbeddedDatabase implements IDatabase {
     }
     if (!row.created_at) row.created_at = new Date().toISOString();
     if (!row.updated_at) row.updated_at = new Date().toISOString();
+    if (table === 'oauth_states' && row.consumed_at === undefined) row.consumed_at = null;
+    if (table === 'email_connections' && row.error_message === undefined) row.error_message = null;
+    if (table === 'calendar_connections' && row.error_message === undefined) row.error_message = null;
 
     // Check unique constraints
     if (table === 'users' && row.email) {
@@ -383,17 +417,54 @@ class EmbeddedDatabase implements IDatabase {
     const setMatch = sql.match(/SET\s+(.+?)\s+WHERE/i);
     if (!setMatch) return { rows: [], rowCount: 0 };
 
-    const setClauses = setMatch[1].split(',').map(s => s.trim());
+    const setClauseStr = setMatch[1];
+    const setClauses: string[] = [];
+    let currentClause = '';
+    let parenDepth = 0;
+    for (const char of setClauseStr) {
+      if (char === '(') parenDepth++;
+      else if (char === ')') parenDepth--;
+      if (char === ',' && parenDepth === 0) {
+        setClauses.push(currentClause.trim());
+        currentClause = '';
+      } else {
+        currentClause += char;
+      }
+    }
+    if (currentClause.trim()) setClauses.push(currentClause.trim());
+
     let updatedCount = 0;
     const updatedRows: any[] = [];
 
     for (const [id, row] of tableData.entries()) {
       if (this.evaluateWhere(sql, row, params)) {
         setClauses.forEach(clause => {
-          const parts = clause.split('=');
-          const col = parts[0].trim().toLowerCase();
-          const valPlaceholder = parts[1].trim();
-          if (valPlaceholder.startsWith('$')) {
+          const eqIdx = clause.indexOf('=');
+          if (eqIdx === -1) return;
+          const col = clause.substring(0, eqIdx).trim().toLowerCase();
+          const valPlaceholder = clause.substring(eqIdx + 1).trim();
+
+          if (/^COALESCE\(/i.test(valPlaceholder)) {
+            const inner = valPlaceholder.replace(/^COALESCE\(/i, '').replace(/\)$/, '');
+            const innerParts = inner.split(',').map(s => s.trim());
+            let resolvedVal: any = null;
+            for (const part of innerParts) {
+              if (part.startsWith('$')) {
+                const pIdx = parseInt(part.substring(1), 10) - 1;
+                if (params[pIdx] !== undefined && params[pIdx] !== null) {
+                  resolvedVal = params[pIdx];
+                  break;
+                }
+              } else if (part.toLowerCase() === col) {
+                resolvedVal = row[col];
+                break;
+              } else {
+                resolvedVal = part.replace(/'/g, '');
+                break;
+              }
+            }
+            row[col] = resolvedVal;
+          } else if (valPlaceholder.startsWith('$')) {
             const pIdx = parseInt(valPlaceholder.substring(1), 10) - 1;
             row[col] = params[pIdx];
           } else if (valPlaceholder.toUpperCase() === 'CURRENT_TIMESTAMP' || valPlaceholder.toUpperCase() === 'NOW()') {
@@ -402,6 +473,8 @@ class EmbeddedDatabase implements IDatabase {
             row[col] = true;
           } else if (valPlaceholder.toUpperCase() === 'FALSE') {
             row[col] = false;
+          } else if (valPlaceholder.toUpperCase() === 'NULL') {
+            row[col] = null;
           } else {
             row[col] = valPlaceholder.replace(/'/g, '');
           }
@@ -436,67 +509,97 @@ class EmbeddedDatabase implements IDatabase {
     const whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+ORDER BY|\s+LIMIT|\s+GROUP BY|$)/i);
     if (!whereMatch) return true;
 
-    const whereClause = whereMatch[1];
-    // Split by AND
-    const conditions = whereClause.split(/\s+AND\s+/i);
+    const whereClause = whereMatch[1].trim();
 
+    // Check if there are top-level OR clauses (outside parentheses or simple OR)
+    const orBranches = whereClause.split(/\s+OR\s+/i);
+    if (orBranches.length > 1) {
+      return orBranches.some(branch => this.evaluateAndConditions(branch.replace(/^\(|\)$/g, '').trim(), row, params));
+    }
+
+    return this.evaluateAndConditions(whereClause, row, params);
+  }
+
+  private evaluateAndConditions(clause: string, row: any, params: any[]): boolean {
+    const conditions = clause.split(/\s+AND\s+/i);
     for (const cond of conditions) {
-      // Check IN condition e.g. status IN ('CONFIRMED', 'REQUESTED')
-      const inMatch = cond.match(/([a-zA-Z0-9_.]+)\s+IN\s*\(([^)]+)\)/i);
-      if (inMatch) {
-        let col = inMatch[1].trim().toLowerCase();
-        if (col.includes('.')) col = col.split('.')[1];
-        const allowedValues = inMatch[2].split(',').map(v => v.trim().replace(/'/g, ''));
-        const rowVal = String(row[col] || '');
-        if (!allowedValues.includes(rowVal)) return false;
-        continue;
+      if (!this.evaluateSingleCondition(cond.trim(), row, params)) {
+        return false;
       }
+    }
+    return true;
+  }
 
-      const eqMatch = cond.match(/([a-zA-Z0-9_.]+)\s*(=|!=|<>|LIKE|ILIKE|>=|<=|>|<|IS)\s*(.+)/i);
-      if (!eqMatch) continue;
-
-      let col = eqMatch[1].trim().toLowerCase();
+  private evaluateSingleCondition(cond: string, row: any, params: any[]): boolean {
+    // Check IN condition e.g. status IN ('CONFIRMED', 'REQUESTED')
+    const inMatch = cond.match(/([a-zA-Z0-9_.()]+)\s+IN\s*\(([^)]+)\)/i);
+    if (inMatch) {
+      let col = inMatch[1].trim().toLowerCase();
+      if (col.startsWith('lower(') && col.endsWith(')')) {
+        col = col.substring(6, col.length - 1).trim();
+      }
       if (col.includes('.')) col = col.split('.')[1];
-      const op = eqMatch[2].trim().toUpperCase();
-      let targetValStr = eqMatch[3].trim();
+      const allowedValues = inMatch[2].split(',').map(v => v.trim().replace(/'/g, ''));
+      const rowVal = String(row[col] || '');
+      return allowedValues.includes(rowVal);
+    }
 
-      let targetVal: any;
-      if (targetValStr.startsWith('$')) {
-        const pIdx = parseInt(targetValStr.substring(1), 10) - 1;
-        targetVal = params[pIdx];
-      } else if (targetValStr === 'NULL') {
-        targetVal = null;
-      } else if (targetValStr === 'TRUE') {
-        targetVal = true;
-      } else if (targetValStr === 'FALSE') {
-        targetVal = false;
-      } else if (/^\d+(\.\d+)?$/.test(targetValStr)) {
-        targetVal = Number(targetValStr);
-      } else {
-        targetVal = targetValStr.replace(/'/g, '');
-      }
+    const eqMatch = cond.match(/([a-zA-Z0-9_.()]+)\s*(=|!=|<>|LIKE|ILIKE|>=|<=|>|<|IS)\s*(.+)/i);
+    if (!eqMatch) return true;
 
-      const rowVal = row[col];
+    let col = eqMatch[1].trim().toLowerCase();
+    let isLowerCol = false;
+    if (col.startsWith('lower(') && col.endsWith(')')) {
+      isLowerCol = true;
+      col = col.substring(6, col.length - 1).trim();
+    }
+    if (col.includes('.')) col = col.split('.')[1];
+    const op = eqMatch[2].trim().toUpperCase();
+    let targetValStr = eqMatch[3].trim();
 
-      if (op === '=') {
-        if (rowVal != targetVal) return false;
-      } else if (op === '!=' || op === '<>') {
-        if (rowVal == targetVal) return false;
-      } else if (op === 'IS') {
-        if (targetVal === null && rowVal !== null && rowVal !== undefined) return false;
-      } else if (op === 'LIKE' || op === 'ILIKE') {
-        const pattern = String(targetVal).replace(/%/g, '.*');
-        const regex = new RegExp(pattern, op === 'ILIKE' ? 'i' : '');
-        if (!regex.test(String(rowVal || ''))) return false;
-      } else if (op === '>=') {
-        if (rowVal < targetVal) return false;
-      } else if (op === '<=') {
-        if (rowVal > targetVal) return false;
-      } else if (op === '>') {
-        if (rowVal <= targetVal) return false;
-      } else if (op === '<') {
-        if (rowVal >= targetVal) return false;
-      }
+    let targetVal: any;
+    if (targetValStr.startsWith('$')) {
+      const pIdx = parseInt(targetValStr.substring(1), 10) - 1;
+      targetVal = params[pIdx];
+    } else if (targetValStr === 'NULL') {
+      targetVal = null;
+    } else if (targetValStr === 'TRUE') {
+      targetVal = true;
+    } else if (targetValStr === 'FALSE') {
+      targetVal = false;
+    } else if (/^\d+(\.\d+)?$/.test(targetValStr)) {
+      targetVal = Number(targetValStr);
+    } else {
+      targetVal = targetValStr.replace(/'/g, '');
+    }
+
+    let rowVal = row[col];
+    if (isLowerCol && typeof rowVal === 'string') {
+      rowVal = rowVal.toLowerCase();
+    }
+    if (isLowerCol && typeof targetVal === 'string') {
+      targetVal = targetVal.toLowerCase();
+    }
+
+    if (op === '=') {
+      return rowVal == targetVal;
+    } else if (op === '!=' || op === '<>') {
+      return rowVal != targetVal;
+    } else if (op === 'IS') {
+      if (targetVal === null) return rowVal === null || rowVal === undefined;
+      return rowVal === targetVal;
+    } else if (op === 'LIKE' || op === 'ILIKE') {
+      const pattern = String(targetVal).replace(/%/g, '.*');
+      const regex = new RegExp(pattern, op === 'ILIKE' ? 'i' : '');
+      return regex.test(String(rowVal || ''));
+    } else if (op === '>=') {
+      return rowVal >= targetVal;
+    } else if (op === '<=') {
+      return rowVal <= targetVal;
+    } else if (op === '>') {
+      return rowVal > targetVal;
+    } else if (op === '<') {
+      return rowVal < targetVal;
     }
 
     return true;

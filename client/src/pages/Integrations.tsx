@@ -231,7 +231,7 @@ export const IntegrationsPage: React.FC = () => {
             <div>
               <span className="text-sm font-semibold text-white block">Sync Bookings with Google Calendar</span>
               <span className="text-xs text-slate-400 mt-1 block">
-                Connect your business Google account so appointments booked by your AI receptionist appear in your calendar instantly.
+                Connect your Google account with 1 click so appointments booked by your AI receptionist appear in your calendar instantly without requiring Google Cloud Console setup.
               </span>
             </div>
             <button
@@ -240,7 +240,7 @@ export const IntegrationsPage: React.FC = () => {
               className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition disabled:opacity-50 flex-shrink-0"
             >
               {connectingCalendar ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />}
-              Connect with Google Calendar
+              Connect Google Calendar
             </button>
           </div>
         )}
@@ -399,7 +399,7 @@ export const IntegrationsPage: React.FC = () => {
                   Connect Gmail Mailbox
                 </label>
                 <p className="text-xs text-slate-400 mb-3">
-                  Click the button below to authorize ONCEClic with your Google account. You will be redirected to Google's consent screen. Only Gmail read and send permissions are requested.
+                  Click the button below to authorize ONCEClic with your Google account. You will be redirected to the secure Google consent screen. No Google Cloud project setup or payment verification is required.
                 </p>
               </div>
               <button
@@ -408,7 +408,7 @@ export const IntegrationsPage: React.FC = () => {
                 className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition disabled:opacity-50"
               >
                 {connectingEmail ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-                Connect with Google Gmail
+                Connect Gmail
               </button>
             </div>
           </div>

@@ -3,6 +3,7 @@ import { EmailConnection, ConversationChannel, AuditAction, IntegrationStatus } 
 import { ConversationService } from './ConversationService';
 import { AuditService } from './AuditService';
 import { IntegrationService } from './IntegrationService';
+import { ComposioService } from './ComposioService';
 import { ResendEmailService } from './ResendEmailService';
 import { config } from '../config';
 import { v4 as uuidv4 } from 'uuid';
@@ -122,7 +123,31 @@ export class EmailService {
 
     const cleanSubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
 
-    // 1. If connected via Google Gmail OAuth, dispatch directly from customer's authorized Gmail mailbox
+    // 1. Primary: If connected via Composio Managed OAuth, dispatch via Composio Gmail tool
+    if (ComposioService.isAvailable() && conn?.provider_type === 'OAUTH' && conn.is_active) {
+      try {
+        const compRes = await ComposioService.sendGmailReply({
+          organizationId,
+          toEmail,
+          subject: cleanSubject,
+          body,
+          inReplyToMessageId,
+        });
+
+        if (compRes.success) {
+          return {
+            success: true,
+            messageId: compRes.messageId || 'sent_via_composio',
+            provider: 'COMPOSIO_GMAIL',
+          };
+        }
+        console.warn('[EmailService] Composio send failed, trying direct OAuth fallback:', compRes.error);
+      } catch (compErr: any) {
+        console.warn('[EmailService] Composio send exception:', compErr.message || compErr);
+      }
+    }
+
+    // 2. Secondary: Direct Google Gmail OAuth token dispatch
     if (conn?.provider_type === 'OAUTH' && conn.connected_email) {
       const accessToken = await IntegrationService.getValidGoogleEmailAccessToken(organizationId);
       if (accessToken) {
@@ -170,7 +195,7 @@ export class EmailService {
       }
     }
 
-    // 2. Fallback / Forwarding: Dispatch via Resend transactional email with Reply-To
+    // 3. Fallback / Forwarding: Dispatch via Resend transactional email with Reply-To
     const resendResult = await ResendEmailService.sendEmail({
       to: toEmail,
       subject: cleanSubject,

@@ -50,10 +50,55 @@ router.get('/google-email/callback', async (req: Request, res: Response, next) =
     const ip = req.ip || req.socket.remoteAddress;
     const result = await IntegrationService.handleGoogleEmailCallback(String(code), String(state), undefined, ip);
 
-    return res.redirect(`${config.app.url}${result.returnUrl}?email_connected=true&email=${encodeURIComponent(result.connectedEmail)}`);
+    return res.redirect(
+      `${config.app.url}${result.returnUrl}?email_connected=true&email=${encodeURIComponent(result.connectedEmail)}`
+    );
   } catch (err: any) {
     console.error('[Google Email Callback Error]', err);
-    return res.redirect(`${config.app.url}/app/integrations?error=${encodeURIComponent(err.message || 'email_oauth_failed')}`);
+    return res.redirect(`${config.app.url}/app/integrations?error=${encodeURIComponent(err.message || 'oauth_failed')}`);
+  }
+});
+
+// ------------------------------------------
+// Public Callback for Composio Managed OAuth
+// ------------------------------------------
+router.get('/composio/callback', async (req: Request, res: Response, next) => {
+  try {
+    const { app, orgId, returnUrl, error } = req.query;
+    const effectiveReturn = returnUrl ? String(returnUrl) : '/app/integrations';
+
+    if (error) {
+      return res.redirect(`${config.app.url}${effectiveReturn}?error=${encodeURIComponent(String(error))}`);
+    }
+
+    if (!orgId || !app) {
+      return res.redirect(`${config.app.url}${effectiveReturn}?error=missing_composio_params`);
+    }
+
+    const appType = String(app) === 'googlecalendar' ? 'googlecalendar' : 'gmail';
+    const ip = req.ip || req.socket.remoteAddress;
+
+    const result = await IntegrationService.handleComposioCallback({
+      app: appType,
+      orgId: String(orgId),
+      returnUrl: effectiveReturn,
+      ipAddress: ip,
+    });
+
+    if (appType === 'gmail') {
+      return res.redirect(
+        `${config.app.url}${result.returnUrl}?email_connected=true${
+          result.connectedItem ? `&email=${encodeURIComponent(result.connectedItem)}` : ''
+        }`
+      );
+    } else {
+      return res.redirect(`${config.app.url}${result.returnUrl}?calendar_connected=true`);
+    }
+  } catch (err: any) {
+    console.error('[Composio Callback Error]', err);
+    return res.redirect(
+      `${config.app.url}/app/integrations?error=${encodeURIComponent(err.message || 'composio_connection_failed')}`
+    );
   }
 });
 
