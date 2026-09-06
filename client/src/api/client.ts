@@ -80,12 +80,21 @@ class ApiClient {
       headers['x-organization-id'] = orgId;
     }
 
-    const response = await fetch(`${API_BASE}${endpoint}`, {
+    const finalUrl = `${API_BASE}${endpoint}`;
+    const response = await fetch(finalUrl, {
       ...options,
       headers,
     });
 
     const contentType = response.headers.get('content-type') || '';
+    console.log('[ApiClient Diagnostic]', {
+      url: finalUrl,
+      status: response.status,
+      contentType,
+      hasAuthorization: !!headers['Authorization'],
+      hasOrgId: !!headers['x-organization-id'],
+    });
+
     let data: any;
 
     if (contentType.includes('application/json')) {
@@ -435,14 +444,7 @@ class ApiClient {
 
   async getGoogleEmailAuthUrl(returnUrl?: string): Promise<{ url: string; state: string }> {
     const query = returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : '';
-    try {
-      return await this.request(`/integrations/google-email/auth-url${query}`);
-    } catch (err: any) {
-      if (err?.status === 404 || err?.message?.includes('404')) {
-        return await this.request(`/email/auth-url${query}`);
-      }
-      throw err;
-    }
+    return this.request(`/integrations/google-email/auth-url${query}`);
   }
 
   async disconnectEmailIntegration(): Promise<EmailIntegrationConfig> {
