@@ -111,19 +111,23 @@ router.use(tenantIsolationMiddleware);
 // ------------------------------------------
 
 // Get Google Calendar authorization URL
-router.get(['/google-calendar/auth-url', '/google-calendar/auth'], requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const { returnUrl } = req.query;
-    const result = await IntegrationService.getGoogleCalendarAuthUrl(
-      req.organizationId!,
-      req.user?.id,
-      returnUrl ? String(returnUrl) : undefined
-    );
-    res.json({ success: true, data: result });
-  } catch (err) {
-    next(err);
+router.get(
+  ['/google-calendar/auth-url', '/google-calendar/auth', '/calendar/auth-url', '/calendar/auth'],
+  requirePermission('integrations:manage'),
+  async (req: Request, res: Response, next) => {
+    try {
+      const { returnUrl } = req.query;
+      const result = await IntegrationService.getGoogleCalendarAuthUrl(
+        req.organizationId!,
+        req.user?.id,
+        returnUrl ? String(returnUrl) : undefined
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
 
 // Get Google Calendar connection status
 router.get('/google-calendar', requirePermission('integrations:read'), async (req: Request, res: Response, next) => {
@@ -187,19 +191,23 @@ router.post('/website/disconnect', requirePermission('integrations:manage'), asy
 // ------------------------------------------
 
 // Get Google Email / Gmail OAuth authorization URL
-router.get(['/google-email/auth-url', '/google-email/auth'], requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const { returnUrl } = req.query;
-    const result = await IntegrationService.getGoogleEmailAuthUrl(
-      req.organizationId!,
-      req.user?.id,
-      returnUrl ? String(returnUrl) : undefined
-    );
-    res.json({ success: true, data: result });
-  } catch (err) {
-    next(err);
+router.get(
+  ['/google-email/auth-url', '/google-email/auth', '/email/auth-url', '/email/auth', '/gmail/auth-url', '/gmail/auth'],
+  requirePermission('integrations:manage'),
+  async (req: Request, res: Response, next) => {
+    try {
+      const { returnUrl } = req.query;
+      const result = await IntegrationService.getGoogleEmailAuthUrl(
+        req.organizationId!,
+        req.user?.id,
+        returnUrl ? String(returnUrl) : undefined
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
   }
-});
+);
 
 // Get email connection status
 router.get('/email', requirePermission('integrations:read'), async (req: Request, res: Response, next) => {

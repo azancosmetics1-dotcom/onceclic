@@ -97,7 +97,9 @@ class ApiClient {
     } else {
       const text = await response.text();
       const preview = text.substring(0, 100).replace(/\s+/g, ' ');
-      throw new Error(`API endpoint ${endpoint} returned unexpected response (${response.status}): ${preview}`);
+      const err = new Error(`API endpoint ${endpoint} returned unexpected response (${response.status}): ${preview}`);
+      (err as any).status = response.status;
+      throw err;
     }
 
     if (!response.ok || !data.success) {
@@ -432,7 +434,15 @@ class ApiClient {
   }
 
   async getGoogleEmailAuthUrl(returnUrl?: string): Promise<{ url: string; state: string }> {
-    return this.request(`/integrations/google-email/auth-url${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ''}`);
+    const query = returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : '';
+    try {
+      return await this.request(`/integrations/google-email/auth-url${query}`);
+    } catch (err: any) {
+      if (err?.status === 404 || err?.message?.includes('404')) {
+        return await this.request(`/email/auth-url${query}`);
+      }
+      throw err;
+    }
   }
 
   async disconnectEmailIntegration(): Promise<EmailIntegrationConfig> {
@@ -445,7 +455,15 @@ class ApiClient {
   }
 
   async getGoogleCalendarAuthUrl(returnUrl?: string): Promise<{ url: string; state: string }> {
-    return this.request(`/integrations/google-calendar/auth-url${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ''}`);
+    const query = returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : '';
+    try {
+      return await this.request(`/integrations/google-calendar/auth-url${query}`);
+    } catch (err: any) {
+      if (err?.status === 404 || err?.message?.includes('404')) {
+        return await this.request(`/integrations/calendar/auth-url${query}`);
+      }
+      throw err;
+    }
   }
 
   async disconnectGoogleCalendarIntegration(): Promise<GoogleCalendarConfig> {

@@ -147,6 +147,24 @@ app.use('/api/public/chat', publicChatRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/integrations', integrationRoutes);
 
+// Fallback JSON 404 handler for API routes
+app.use('/api', (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `API endpoint not found: ${req.method} ${req.originalUrl}`,
+    code: 'NOT_FOUND',
+  });
+});
+
+// Fallback JSON 404 handler for all other unhandled requests
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: `Not found: ${req.method} ${req.originalUrl}`,
+    code: 'NOT_FOUND',
+  });
+});
+
 // Error Handler
 app.use(errorHandler);
 
