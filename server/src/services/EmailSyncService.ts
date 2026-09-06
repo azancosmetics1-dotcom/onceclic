@@ -79,17 +79,18 @@ export class EmailSyncService {
         if (composioMessages && composioMessages.length > 0) {
           for (const msg of composioMessages) {
             try {
-              // Deduplication check
+              // Deduplication check scoped to organization
               const clientMsgId = `email_${Buffer.from(msg.rfcMessageId || msg.id).toString('base64').substring(0, 32)}`;
               const existing = await db.getOne(
-                "SELECT id FROM conversation_messages WHERE client_message_id = $1 OR client_message_id LIKE $2",
-                [clientMsgId, `%_${msg.id}%`]
+                "SELECT id FROM conversation_messages WHERE organization_id = $1 AND (client_message_id = $2 OR client_message_id LIKE $3)",
+                [organizationId, clientMsgId, `%_${msg.id}%`]
               );
               if (existing) {
                 continue;
               }
 
-              await EmailService.processInboundEmail({
+              const res = await EmailService.processInboundEmail({
+                organizationId,
                 fromEmail: msg.fromEmail,
                 fromName: msg.fromName,
                 toEmail: msg.toEmail,
@@ -97,9 +98,12 @@ export class EmailSyncService {
                 textBody: msg.textBody,
                 messageId: msg.rfcMessageId || msg.id,
               });
+              if (!res.success) {
+                console.warn(`[EmailSyncService] processInboundEmail unfulfilled:`, res.message);
+              }
               syncedCount++;
             } catch (msgErr: any) {
-              console.warn(`[EmailSyncService] Error processing Composio email ${msg.id}:`, msgErr.message || msgErr);
+              console.error(`[EmailSyncService] Error processing Composio email ${msg.id}:`, msgErr);
               errors++;
             }
           }
@@ -110,9 +114,11 @@ export class EmailSyncService {
           );
 
           return { syncedCount, errors };
+        } else {
+          console.warn(`[EmailSyncService] composioMessages empty:`, composioMessages);
         }
       } catch (compErr: any) {
-        console.warn(`[EmailSyncService] Composio sync notice for org ${organizationId}:`, compErr.message || compErr);
+        console.error(`[EmailSyncService] Composio sync exception for org ${organizationId}:`, compErr);
       }
     }
 

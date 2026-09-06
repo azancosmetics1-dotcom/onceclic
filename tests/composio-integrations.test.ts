@@ -7,9 +7,11 @@ import { ConversationService } from '../server/src/services/ConversationService'
 import { getDatabase } from '../server/src/db';
 import { IntegrationStatus, ConversationChannel } from '@onceclic/shared';
 import { config } from '../server/src/config';
+import { v4 as uuidv4 } from 'uuid';
 
 export async function runComposioIntegrationTests() {
   console.log('--- Running Composio Managed OAuth & Tools Integration Tests ---');
+  EmailSyncService.stopPolling();
   const db = getDatabase();
   await db.runMigrations();
 
@@ -43,6 +45,21 @@ export async function runComposioIntegrationTests() {
   // Configure mock Composio API key for test environment
   const originalApiKey = config.composio.apiKey;
   config.composio.apiKey = 'comp_test_api_key_valid_123';
+
+  const { aiProvider } = await import('../server/src/services/AIProvider');
+  const originalGenerateResponse = aiProvider.generateResponse;
+  const originalGenerateEmbedding = aiProvider.generateEmbedding;
+  aiProvider.generateResponse = async () => ({
+    content: 'Thank you for reaching out. We have appointment slots available this Friday.',
+    promptTokens: 10,
+    completionTokens: 20,
+    totalTokens: 30,
+    estimatedCostUsd: 0.0001,
+    model: 'gpt-4o-mini',
+    provider: 'OpenAI',
+    handoffRequired: false,
+  });
+  aiProvider.generateEmbedding = async () => new Array(1536).fill(0.01);
 
   // 3. Mock Composio HTTP responses for Connect Link, Connected Account, Tools
   const originalFetch = global.fetch;
@@ -120,12 +137,12 @@ export async function runComposioIntegrationTests() {
             JSON.stringify({
               data: [
                 {
-                  id: 'msg_tenant_a_101',
+                  id: `msg_tenant_a_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
                   from: 'Alice Patient <alice@patient.org>',
                   to: 'dentist@tenant-a.com',
                   subject: 'Need an urgent teeth cleaning',
                   body: 'Hi, do you have any available slots this Friday?',
-                  message_id: 'rfc_msg_101_tenant_a',
+                  message_id: `rfc_msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
                 },
               ],
             }),
@@ -184,6 +201,32 @@ export async function runComposioIntegrationTests() {
         ok: true,
         status: 200,
         text: async () => JSON.stringify({ data: { success: true } }),
+      } as any;
+    }
+
+    // 3H. Mock OpenAI responses for deterministic AI pipeline testing
+    if (urlStr.includes('api.openai.com')) {
+      if (urlStr.includes('/embeddings')) {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify({ data: [{ embedding: new Array(1536).fill(0.01) }], usage: { total_tokens: 5 } }),
+        } as any;
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: 'Thank you for reaching out to Dr. John Doe. We have appointment slots available this Friday.',
+                },
+              },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+          }),
       } as any;
     }
 
@@ -265,7 +308,7 @@ export async function runComposioIntegrationTests() {
       `INSERT INTO availability_rules (
          id, organization_id, day_of_week, start_time, end_time, slot_duration_minutes, buffer_minutes, is_available, created_at, updated_at
        ) VALUES ($1, $2, 4, '09:00', '17:00', 30, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      ['rule_tenant_a_thurs', orgAId]
+      [uuidv4(), orgAId]
     );
 
     const availableSlots = await AppointmentService.getAvailableSlots(orgAId, '2026-09-10', 30);
@@ -329,5 +372,17 @@ export async function runComposioIntegrationTests() {
   } finally {
     global.fetch = originalFetch;
     config.composio.apiKey = originalApiKey;
+    aiProvider.generateResponse = originalGenerateResponse;
+    aiProvider.generateEmbedding = originalGenerateEmbedding;
   }
 }
+
+if (process.argv[1] && process.argv[1].includes('composio-integrations.test')) {
+  runComposioIntegrationTests()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}
+

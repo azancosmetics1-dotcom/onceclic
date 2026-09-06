@@ -111,7 +111,7 @@ router.use(tenantIsolationMiddleware);
 // ------------------------------------------
 
 // Get Google Calendar authorization URL
-router.get('/google-calendar/auth-url', requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
+router.get(['/google-calendar/auth-url', '/google-calendar/auth'], requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
   try {
     const { returnUrl } = req.query;
     const result = await IntegrationService.getGoogleCalendarAuthUrl(
@@ -187,7 +187,7 @@ router.post('/website/disconnect', requirePermission('integrations:manage'), asy
 // ------------------------------------------
 
 // Get Google Email / Gmail OAuth authorization URL
-router.get('/google-email/auth-url', requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
+router.get(['/google-email/auth-url', '/google-email/auth'], requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
   try {
     const { returnUrl } = req.query;
     const result = await IntegrationService.getGoogleEmailAuthUrl(

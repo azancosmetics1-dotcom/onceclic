@@ -1,1 +1,9 @@
+# Proxy all /api/* requests to the Railway backend
+# This must come BEFORE the SPA catch-all rule.
+# The 200 status + ! force flag ensures requests are proxied even for paths
+# that match static files, and prevents the SPA catch-all from intercepting
+# API calls (which would return index.html, causing "Unexpected token '<'" errors).
+/api/*  https://api.onceclic.com/api/:splat  200!
+
+# SPA catch-all: serve index.html for all other routes (client-side routing)
 /*    /index.html   200

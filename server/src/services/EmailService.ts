@@ -9,6 +9,7 @@ import { config } from '../config';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface InboundEmailPayload {
+  organizationId?: string;
   fromEmail: string;
   fromName?: string;
   toEmail?: string;
@@ -234,10 +235,17 @@ export class EmailService {
       return { success: false, message: 'fromEmail and textBody are required.' };
     }
 
-    // 1. Identify organization by webhookToken, inbound_address, or connected_email
+    // 1. Identify organization by payload.organizationId, webhookToken, inbound_address, or connected_email
     let conn: any = null;
 
-    if (payload.webhookToken) {
+    if (payload.organizationId) {
+      conn = await db.getOne(
+        'SELECT organization_id, is_active, connected_email, inbound_address, provider_type, status FROM email_connections WHERE organization_id = $1',
+        [payload.organizationId]
+      );
+    }
+
+    if (!conn && payload.webhookToken) {
       conn = await db.getOne(
         'SELECT organization_id, is_active, connected_email, inbound_address, provider_type, status FROM email_connections WHERE webhook_token = $1',
         [payload.webhookToken]

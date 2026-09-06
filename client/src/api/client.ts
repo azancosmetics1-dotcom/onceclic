@@ -23,9 +23,20 @@ import {
 
 const getApiBase = (): string => {
   const envUrl = (import.meta as any).env?.VITE_API_URL || (import.meta as any).env?.VITE_BACKEND_URL;
-  if (!envUrl) return '/api';
-  const clean = envUrl.replace(/\/+$/, '');
-  return clean.endsWith('/api') ? clean : `${clean}/api`;
+  if (envUrl) {
+    const clean = envUrl.replace(/\/+$/, '');
+    return clean.endsWith('/api') ? clean : `${clean}/api`;
+  }
+
+  // In production browser environments (onceclic.com / netlify), route directly to Railway backend API
+  if (typeof window !== 'undefined' && window.location) {
+    const host = window.location.hostname;
+    if (host === 'onceclic.com' || host.endsWith('.onceclic.com') || host.endsWith('.netlify.app')) {
+      return 'https://api.onceclic.com/api';
+    }
+  }
+
+  return '/api';
 };
 
 const API_BASE = getApiBase();
@@ -74,7 +85,20 @@ class ApiClient {
       headers,
     });
 
-    const data = await response.json();
+    const contentType = response.headers.get('content-type') || '';
+    let data: any;
+
+    if (contentType.includes('application/json')) {
+      try {
+        data = await response.json();
+      } catch {
+        throw new Error(`Failed to parse JSON response from ${endpoint} (HTTP ${response.status})`);
+      }
+    } else {
+      const text = await response.text();
+      const preview = text.substring(0, 100).replace(/\s+/g, ' ');
+      throw new Error(`API endpoint ${endpoint} returned unexpected response (${response.status}): ${preview}`);
+    }
 
     if (!response.ok || !data.success) {
       const errorMsg = data.error || `Request failed with status ${response.status}`;

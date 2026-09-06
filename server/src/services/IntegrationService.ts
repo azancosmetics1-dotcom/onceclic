@@ -247,13 +247,27 @@ export class IntegrationService {
       });
 
       if (composioRes.success && composioRes.redirectUrl) {
-        // Set connection status to CONNECTING
-        await db.execute(
-          `UPDATE email_connections
-           SET status = 'CONNECTING', error_message = NULL, updated_at = CURRENT_TIMESTAMP
-           WHERE organization_id = $1`,
-          [organizationId]
-        );
+        // Ensure email connection record exists and set status to CONNECTING
+        const existing = await db.getOne('SELECT id FROM email_connections WHERE organization_id = $1', [organizationId]);
+        if (existing) {
+          await db.execute(
+            `UPDATE email_connections
+             SET status = 'CONNECTING', error_message = NULL, updated_at = CURRENT_TIMESTAMP
+             WHERE organization_id = $1`,
+            [organizationId]
+          );
+        } else {
+          const connId = uuidv4();
+          const webhookToken = `whk_${uuidv4().replace(/-/g, '')}`;
+          const inboundAddress = `inbox+${organizationId.substring(0, 8)}@onceclic.com`;
+          await db.execute(
+            `INSERT INTO email_connections (
+               id, organization_id, provider_type, inbound_address, webhook_token,
+               is_active, status, created_at, updated_at
+             ) VALUES ($1, $2, 'OAUTH', $3, $4, FALSE, 'CONNECTING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [connId, organizationId, inboundAddress, webhookToken]
+          );
+        }
 
         return {
           url: composioRes.redirectUrl,
@@ -1477,18 +1491,32 @@ export class IntegrationService {
 
       if (app === 'gmail') {
         const emailAddr = account.email || 'Connected Gmail Account';
-        await db.execute(
-          `UPDATE email_connections
-           SET is_active = TRUE,
-               status = 'CONNECTED',
-               connected_email = $1,
-               provider_type = 'OAUTH',
-               error_message = NULL,
-               last_synced_at = CURRENT_TIMESTAMP,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE organization_id = $2`,
-          [emailAddr, orgId]
-        );
+        const existing = await db.getOne('SELECT id FROM email_connections WHERE organization_id = $1', [orgId]);
+        if (existing) {
+          await db.execute(
+            `UPDATE email_connections
+             SET is_active = TRUE,
+                 status = 'CONNECTED',
+                 connected_email = $1,
+                 provider_type = 'OAUTH',
+                 error_message = NULL,
+                 last_synced_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE organization_id = $2`,
+            [emailAddr, orgId]
+          );
+        } else {
+          const connId = uuidv4();
+          const webhookToken = `whk_${uuidv4().replace(/-/g, '')}`;
+          const inboundAddress = `inbox+${orgId.substring(0, 8)}@onceclic.com`;
+          await db.execute(
+            `INSERT INTO email_connections (
+               id, organization_id, provider_type, inbound_address, webhook_token,
+               is_active, status, connected_email, last_synced_at, created_at, updated_at
+             ) VALUES ($1, $2, 'OAUTH', $3, $4, TRUE, 'CONNECTED', $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [connId, orgId, inboundAddress, webhookToken, emailAddr]
+          );
+        }
 
         await AuditService.log({
           organizationId: orgId,
