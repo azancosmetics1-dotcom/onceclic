@@ -177,9 +177,6 @@ export function validateProductionConfig() {
     if (!config.jwtSecret || config.jwtSecret.includes('dev_mode_only') || config.jwtSecret.includes('placeholder')) {
       missing.push('AUTH_SECRET');
     }
-    if (!process.env.EMAIL_ENCRYPTION_KEY || process.env.EMAIL_ENCRYPTION_KEY.includes('placeholder')) {
-      missing.push('EMAIL_ENCRYPTION_KEY');
-    }
     if (missing.length > 0) {
       throw new Error(
         `[Config] Production startup validation failed. Missing required production environment variables: ${missing.join(', ')}`

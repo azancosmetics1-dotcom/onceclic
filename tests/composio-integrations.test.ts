@@ -15,6 +15,21 @@ export async function runComposioIntegrationTests() {
   const db = getDatabase();
   await db.runMigrations();
 
+  const { aiProvider } = await import('../server/src/services/AIProvider');
+  const originalGenerateResponse = aiProvider.generateResponse;
+  const originalGenerateEmbedding = aiProvider.generateEmbedding;
+  aiProvider.generateResponse = async () => ({
+    content: 'Thank you for reaching out. We have appointment slots available this Friday.',
+    promptTokens: 10,
+    completionTokens: 20,
+    totalTokens: 30,
+    estimatedCostUsd: 0.0001,
+    model: 'gpt-4o-mini',
+    provider: 'OpenAI',
+    handoffRequired: false,
+  });
+  aiProvider.generateEmbedding = async () => new Array(1536).fill(0.01);
+
   // 1. Create two separate test organizations for strict tenant isolation testing
   const userA = await AuthService.register({
     email: `comp_a_${Date.now()}@example.com`,
@@ -45,21 +60,6 @@ export async function runComposioIntegrationTests() {
   // Configure mock Composio API key for test environment
   const originalApiKey = config.composio.apiKey;
   config.composio.apiKey = 'comp_test_api_key_valid_123';
-
-  const { aiProvider } = await import('../server/src/services/AIProvider');
-  const originalGenerateResponse = aiProvider.generateResponse;
-  const originalGenerateEmbedding = aiProvider.generateEmbedding;
-  aiProvider.generateResponse = async () => ({
-    content: 'Thank you for reaching out. We have appointment slots available this Friday.',
-    promptTokens: 10,
-    completionTokens: 20,
-    totalTokens: 30,
-    estimatedCostUsd: 0.0001,
-    model: 'gpt-4o-mini',
-    provider: 'OpenAI',
-    handoffRequired: false,
-  });
-  aiProvider.generateEmbedding = async () => new Array(1536).fill(0.01);
 
   // 3. Mock Composio HTTP responses for Connect Link, Connected Account, Tools
   const originalFetch = global.fetch;

@@ -33,16 +33,9 @@ export function getEncryptionKey(): Buffer {
     return crypto.createHash('sha256').update(rawKey).digest();
   }
 
-  // In production, strictly fail if EMAIL_ENCRYPTION_KEY is missing
-  if (config.nodeEnv === 'production') {
-    throw new Error(
-      '[Crypto] FATAL: EMAIL_ENCRYPTION_KEY is required in production. Must be a secure 32-byte secret.'
-    );
-  }
-
-  // Fallback dev/test key (derived from jwtSecret or static dev string)
-  const devSeed = config.jwtSecret || 'onceclic_dev_encryption_secret_key_32b';
-  return crypto.createHash('sha256').update(devSeed).digest();
+  // In production or development, if EMAIL_ENCRYPTION_KEY is omitted, derive a deterministic 32-byte key from AUTH_SECRET / jwtSecret
+  const seed = config.jwtSecret || 'onceclic_encryption_secret_master_seed';
+  return crypto.createHash('sha256').update(seed + '_email_enc_master').digest();
 }
 
 /**

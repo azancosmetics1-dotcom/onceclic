@@ -56,7 +56,7 @@ export const config = {
   app: {
     url: (process.env.FRONTEND_URL || process.env.APP_URL || (process.env.NODE_ENV === 'production' ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
     frontendUrl: (process.env.FRONTEND_URL || process.env.APP_URL || (process.env.NODE_ENV === 'production' ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
-    apiUrl: process.env.API_URL || 'http://localhost:5000',
+    apiUrl: (process.env.API_URL || (process.env.NODE_ENV === 'production' ? 'https://api.onceclic.com' : 'http://localhost:5000')).replace(/\/+$/, ''),
     corsOrigin: process.env.CORS_ORIGIN || '*',
   },
   frontendUrl: (process.env.FRONTEND_URL || process.env.APP_URL || (process.env.NODE_ENV === 'production' ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
