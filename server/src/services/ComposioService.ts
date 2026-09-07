@@ -46,6 +46,53 @@ export class ComposioService {
   }
 
   /**
+   * Safely format and serialize any Composio error into a human-readable string without exposing credentials.
+   */
+  private static formatError(errorData: any, status?: number): string {
+    if (!errorData) {
+      return status ? `Composio API error HTTP ${status}` : 'Unknown Composio error';
+    }
+    if (typeof errorData === 'string') {
+      return errorData;
+    }
+    if (typeof errorData === 'object') {
+      if (typeof errorData.message === 'string' && errorData.message) {
+        return errorData.message;
+      }
+      if (typeof errorData.error === 'string' && errorData.error) {
+        return errorData.error;
+      }
+      if (errorData.error && typeof errorData.error === 'object') {
+        if (typeof errorData.error.message === 'string' && errorData.error.message) {
+          return errorData.error.message;
+        }
+        if (typeof errorData.error.detail === 'string' && errorData.error.detail) {
+          return errorData.error.detail;
+        }
+      }
+      if (typeof errorData.detail === 'string' && errorData.detail) {
+        return errorData.detail;
+      }
+      if (Array.isArray(errorData.detail)) {
+        return errorData.detail
+          .map((d: any) => (typeof d === 'string' ? d : d.msg || d.message || JSON.stringify(d)))
+          .join('; ');
+      }
+      if (Array.isArray(errorData.errors)) {
+        return errorData.errors
+          .map((d: any) => (typeof d === 'string' ? d : d.msg || d.message || JSON.stringify(d)))
+          .join('; ');
+      }
+      try {
+        return JSON.stringify(errorData);
+      } catch {
+        return String(errorData);
+      }
+    }
+    return String(errorData);
+  }
+
+  /**
    * Internal helper for Composio HTTP requests with authentication headers.
    */
   private static async request<T = any>(
@@ -85,26 +132,24 @@ export class ComposioService {
       }
 
       if (!res.ok) {
-        let errorMsg =
-          responseData?.message ||
-          responseData?.error ||
-          responseData?.detail ||
-          responseData?.errors ||
-          responseData?.text ||
-          `Composio API error HTTP ${res.status}`;
-        if (typeof errorMsg === 'object') {
-          try {
-            errorMsg = errorMsg.message || errorMsg.detail || errorMsg.error || JSON.stringify(errorMsg);
-          } catch {
-            errorMsg = String(errorMsg);
-          }
-        }
-        return { ok: false, status: res.status, data: responseData, error: String(errorMsg) };
+        const errorMsg = this.formatError(responseData, res.status);
+        console.error(`[ComposioService] API Error on ${options.method || 'GET'} ${cleanEndpoint}:`, {
+          status: res.status,
+          statusText: res.statusText,
+          error: errorMsg,
+          responseData: typeof responseData === 'object' ? JSON.stringify(responseData) : responseData,
+        });
+        return { ok: false, status: res.status, data: responseData, error: errorMsg };
       }
 
       return { ok: true, status: res.status, data: responseData };
     } catch (err: any) {
-      console.error(`[ComposioService] Request exception to ${endpoint}:`, err);
+      console.error(`[ComposioService] Request exception to ${endpoint}:`, {
+        name: err.name,
+        message: err.message,
+        code: err.code,
+        stack: err.stack,
+      });
       return { ok: false, status: 500, data: null as any, error: err.message || 'Network error connecting to Composio' };
     }
   }
@@ -156,7 +201,7 @@ export class ComposioService {
           return slug === cleanTarget || slug.includes(cleanTarget) || (cleanTarget === 'googlecalendar' && slug.includes('calendar'));
         });
 
-        const configId = match?.id || match?.uuid || (items.length === 1 ? (items[0]?.id || items[0]?.uuid) : null);
+        const configId = match?.id || match?.nanoid || match?.uuid || (items.length === 1 ? (items[0]?.id || items[0]?.nanoid || items[0]?.uuid) : null);
         if (configId) {
           this.authConfigCache.set(targetSlug, configId);
           return configId;
@@ -167,16 +212,17 @@ export class ComposioService {
       const createRes = await this.request<any>('/v3.1/auth_configs', {
         method: 'POST',
         body: JSON.stringify({
-          toolkit: targetSlug,
-          options: {
+          toolkit: {
+            slug: targetSlug,
+          },
+          auth_config: {
             type: 'use_composio_managed_auth',
-            name: app === 'googlecalendar' ? 'Google Calendar' : 'Gmail',
           },
         }),
       });
 
       if (createRes.ok && createRes.data) {
-        const newId = createRes.data.id || createRes.data.uuid || createRes.data.nanoid;
+        const newId = createRes.data.id || createRes.data.nanoid || createRes.data.uuid || createRes.data.auth_config_id;
         if (newId) {
           this.authConfigCache.set(targetSlug, newId);
           return newId;
@@ -206,16 +252,14 @@ export class ComposioService {
 
     // 1. Resolve Auth Config ID if available
     const authConfigId = await this.getAuthConfigId(params.app);
-
-    // 2. Primary: Attempt v3.1 Auth Link Session
-    const candidateConfigIds = authConfigId ? [authConfigId, appSlug] : [appSlug];
     let lastError = '';
 
-    for (const cfgId of candidateConfigIds) {
+    // 2. Primary: Attempt v3.1 Auth Link Session with resolved auth_config_id
+    if (authConfigId) {
       const v3Res = await this.request('/v3.1/connected_accounts/link', {
         method: 'POST',
         body: JSON.stringify({
-          auth_config_id: cfgId,
+          auth_config_id: authConfigId,
           user_id: entityId,
           callback_url: params.callbackUrl,
         }),
@@ -231,7 +275,28 @@ export class ComposioService {
       }
     }
 
-    // 3. Secondary: Attempt v1/connectedAccounts initiate
+    // 3. Secondary: Attempt v3.1 with app slug if auth config resolution didn't yield an ID
+    if (!authConfigId) {
+      const v3SlugRes = await this.request('/v3.1/connected_accounts/link', {
+        method: 'POST',
+        body: JSON.stringify({
+          auth_config_id: appSlug,
+          user_id: entityId,
+          callback_url: params.callbackUrl,
+        }),
+      });
+
+      if (v3SlugRes.ok && (v3SlugRes.data?.redirect_url || v3SlugRes.data?.redirectUrl || v3SlugRes.data?.url || v3SlugRes.data?.link)) {
+        const redirectUrl =
+          v3SlugRes.data.redirect_url || v3SlugRes.data.redirectUrl || v3SlugRes.data.url || v3SlugRes.data.link;
+        return { success: true, redirectUrl };
+      }
+      if (v3SlugRes.error) {
+        lastError = v3SlugRes.error;
+      }
+    }
+
+    // 4. Tertiary: Fallback to legacy v1/connectedAccounts initiate
     const v1Res = await this.request('/v1/connectedAccounts', {
       method: 'POST',
       body: JSON.stringify({
