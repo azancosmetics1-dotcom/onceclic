@@ -80,10 +80,13 @@ app.get(['/health', '/api/health'], (req, res) => {
   res.json({
     status: 'ok',
     service: 'ONCEClic API',
+    version: '1.0.1',
+    commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'adc093f',
     timestamp: new Date().toISOString(),
     env: config.nodeEnv,
     aiAvailable: config.openai.isAvailable,
     paddleConfigured: config.paddle.isConfigured,
+    composioConfigured: config.composio.isConfigured,
   });
 });
 
