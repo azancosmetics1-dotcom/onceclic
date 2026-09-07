@@ -201,7 +201,9 @@ export class ComposioService {
           return slug === cleanTarget || slug.includes(cleanTarget) || (cleanTarget === 'googlecalendar' && slug.includes('calendar'));
         });
 
-        const configId = match?.id || match?.nanoid || match?.uuid || (items.length === 1 ? (items[0]?.id || items[0]?.nanoid || items[0]?.uuid) : null);
+        // IMPORTANT: Only use a match if its slug actually matches the requested app.
+        // Do NOT fall back to "the only item" — that would return a Calendar config for Gmail requests.
+        const configId = match?.id || match?.nanoid || match?.uuid || null;
         if (configId) {
           this.authConfigCache.set(targetSlug, configId);
           return configId;

@@ -243,6 +243,17 @@ export class IntegrationService {
       effectiveReturnUrl
     )}&orgId=${encodeURIComponent(organizationId)}`;
 
+    // Safety guard: callbackUrl must NEVER point to localhost in production.
+    // If it does, it means API_URL / NODE_ENV is misconfigured in Railway.
+    if (config.isProduction && callbackUrl.includes('localhost')) {
+      const msg = `[IntegrationService] FATAL: Composio Gmail callback URL resolves to localhost in production! ` +
+        `Set API_URL=https://api.onceclic.com in Railway environment variables. ` +
+        `Resolved apiUrl=${config.app.apiUrl}`;
+      console.error(msg);
+      throw new Error(msg);
+    }
+    console.log(`[IntegrationService] Composio Gmail callback URL: ${callbackUrl}`);
+
     const composioRes = await ComposioService.initiateConnection({
       organizationId,
       app: 'gmail',
@@ -614,6 +625,17 @@ export class IntegrationService {
     const callbackUrl = `${config.app.apiUrl}/api/integrations/composio/callback?app=googlecalendar&returnUrl=${encodeURIComponent(
       effectiveReturnUrl
     )}&orgId=${encodeURIComponent(organizationId)}`;
+
+    // Safety guard: callbackUrl must NEVER point to localhost in production.
+    // If it does, it means API_URL / NODE_ENV is misconfigured in Railway.
+    if (config.isProduction && callbackUrl.includes('localhost')) {
+      const msg = `[IntegrationService] FATAL: Composio Google Calendar callback URL resolves to localhost in production! ` +
+        `Set API_URL=https://api.onceclic.com in Railway environment variables. ` +
+        `Resolved apiUrl=${config.app.apiUrl}`;
+      console.error(msg);
+      throw new Error(msg);
+    }
+    console.log(`[IntegrationService] Composio Google Calendar callback URL: ${callbackUrl}`);
 
     const composioRes = await ComposioService.initiateConnection({
       organizationId,

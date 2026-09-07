@@ -1,9 +1,16 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+// Detect production environment: explicit NODE_ENV=production OR any Railway deployment signal
+const isProduction =
+  process.env.NODE_ENV === 'production' ||
+  !!process.env.RAILWAY_ENVIRONMENT ||
+  !!process.env.RAILWAY_PUBLIC_DOMAIN ||
+  !!process.env.RAILWAY_SERVICE_NAME;
+
 export const config = {
   port: parseInt(process.env.PORT || '5000', 10),
-  nodeEnv: process.env.NODE_ENV || 'development',
+  nodeEnv: process.env.NODE_ENV || (isProduction ? 'production' : 'development'),
   jwtSecret: process.env.AUTH_SECRET || process.env.JWT_SECRET || 'onceclic_super_secret_jwt_key_2026_dev_mode_only',
   jwtExpiresIn: '7d',
   
@@ -41,9 +48,10 @@ export const config = {
   google: {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-    callbackUrl: process.env.GOOGLE_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:5000'}/api/auth/google/callback`,
-    calendarCallbackUrl: process.env.GOOGLE_CALENDAR_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:5000'}/api/integrations/google-calendar/callback`,
-    emailCallbackUrl: process.env.GOOGLE_EMAIL_CALLBACK_URL || `${process.env.API_URL || 'http://localhost:5000'}/api/integrations/google-email/callback`,
+    callbackUrl: process.env.GOOGLE_CALLBACK_URL || `${process.env.API_URL || (isProduction ? 'https://api.onceclic.com' : 'http://localhost:5000')}/api/auth/google/callback`,
+    calendarCallbackUrl: process.env.GOOGLE_CALENDAR_CALLBACK_URL || `${process.env.API_URL || (isProduction ? 'https://api.onceclic.com' : 'http://localhost:5000')}/api/integrations/google-calendar/callback`,
+    emailCallbackUrl: process.env.GOOGLE_EMAIL_CALLBACK_URL || `${process.env.API_URL || (isProduction ? 'https://api.onceclic.com' : 'http://localhost:5000')}/api/integrations/google-email/callback`,
+    isProduction,
     isConfigured: !!process.env.GOOGLE_CLIENT_ID && !process.env.GOOGLE_CLIENT_ID.includes('placeholder') && !!process.env.GOOGLE_CLIENT_SECRET && !process.env.GOOGLE_CLIENT_SECRET.includes('placeholder'),
   },
 
@@ -54,12 +62,14 @@ export const config = {
   },
 
   app: {
-    url: (process.env.FRONTEND_URL || process.env.APP_URL || (process.env.NODE_ENV === 'production' ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
-    frontendUrl: (process.env.FRONTEND_URL || process.env.APP_URL || (process.env.NODE_ENV === 'production' ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
-    apiUrl: (process.env.API_URL || (process.env.NODE_ENV === 'production' ? 'https://api.onceclic.com' : 'http://localhost:5000')).replace(/\/+$/, ''),
+    url: (process.env.FRONTEND_URL || process.env.APP_URL || (isProduction ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
+    frontendUrl: (process.env.FRONTEND_URL || process.env.APP_URL || (isProduction ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
+    apiUrl: (process.env.API_URL || (isProduction ? 'https://api.onceclic.com' : 'http://localhost:5000')).replace(/\/+$/, ''),
     corsOrigin: process.env.CORS_ORIGIN || '*',
+    isProduction,
   },
-  frontendUrl: (process.env.FRONTEND_URL || process.env.APP_URL || (process.env.NODE_ENV === 'production' ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
+  frontendUrl: (process.env.FRONTEND_URL || process.env.APP_URL || (isProduction ? 'https://onceclic.com' : 'http://localhost:3000')).replace(/\/+$/, ''),
+  isProduction,
 
   billing: {
     planName: 'ONCEClic Pro',
