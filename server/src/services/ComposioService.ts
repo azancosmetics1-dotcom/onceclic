@@ -85,12 +85,21 @@ export class ComposioService {
       }
 
       if (!res.ok) {
-        const errorMsg =
+        let errorMsg =
           responseData?.message ||
           responseData?.error ||
           responseData?.detail ||
+          responseData?.errors ||
+          responseData?.text ||
           `Composio API error HTTP ${res.status}`;
-        return { ok: false, status: res.status, data: responseData, error: errorMsg };
+        if (typeof errorMsg === 'object') {
+          try {
+            errorMsg = errorMsg.message || errorMsg.detail || errorMsg.error || JSON.stringify(errorMsg);
+          } catch {
+            errorMsg = String(errorMsg);
+          }
+        }
+        return { ok: false, status: res.status, data: responseData, error: String(errorMsg) };
       }
 
       return { ok: true, status: res.status, data: responseData };
@@ -103,7 +112,7 @@ export class ComposioService {
   private static authConfigCache: Map<string, string> = new Map();
 
   /**
-   * Resolve the Composio Auth Config ID for a given toolkit/app.
+   * Resolve or provision the Composio Auth Config ID for a given toolkit/app.
    */
   static async getAuthConfigId(app: 'gmail' | 'googlecalendar'): Promise<string | null> {
     const targetSlug = app === 'googlecalendar' ? 'googlecalendar' : 'gmail';
@@ -123,7 +132,7 @@ export class ComposioService {
 
       // 2. If empty, query list of all auth configs
       if (items.length === 0) {
-        const allRes = await this.request<any>('/v3.1/auth_configs?limit=50');
+        const allRes = await this.request<any>('/v3.1/auth_configs?limit=100');
         if (allRes.ok && allRes.data) {
           if (Array.isArray(allRes.data)) items = allRes.data;
           else if (Array.isArray(allRes.data.items)) items = allRes.data.items;
@@ -153,8 +162,28 @@ export class ComposioService {
           return configId;
         }
       }
+
+      // 3. If no existing config found, provision a managed auth config for this toolkit
+      const createRes = await this.request<any>('/v3.1/auth_configs', {
+        method: 'POST',
+        body: JSON.stringify({
+          toolkit: targetSlug,
+          options: {
+            type: 'use_composio_managed_auth',
+            name: app === 'googlecalendar' ? 'Google Calendar' : 'Gmail',
+          },
+        }),
+      });
+
+      if (createRes.ok && createRes.data) {
+        const newId = createRes.data.id || createRes.data.uuid || createRes.data.nanoid;
+        if (newId) {
+          this.authConfigCache.set(targetSlug, newId);
+          return newId;
+        }
+      }
     } catch (err) {
-      console.warn(`[ComposioService] Failed to query auth_configs for ${app}:`, err);
+      console.warn(`[ComposioService] Failed to resolve auth_configs for ${app}:`, err);
     }
 
     return null;
