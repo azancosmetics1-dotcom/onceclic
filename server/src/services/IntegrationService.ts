@@ -223,9 +223,8 @@ export class IntegrationService {
   }
 
   /**
-   * Generate Google Email / Gmail OAuth authorization URL.
-   * Prioritizes Composio Managed OAuth (no Google Cloud verification/billing required),
-   * with fallback to direct Google OAuth if configured.
+   * Generate Google Email / Gmail OAuth authorization URL using Composio Managed OAuth.
+   * Eliminates Google Cloud app verification/billing requirements for end customers.
    */
   static async getGoogleEmailAuthUrl(
     organizationId: string,
@@ -234,108 +233,54 @@ export class IntegrationService {
   ): Promise<{ url: string; state: string }> {
     const effectiveReturnUrl = returnUrl || '/app/integrations';
 
-    // 1. Primary: Composio Managed OAuth
-    if (ComposioService.isAvailable()) {
-      const callbackUrl = `${config.app.apiUrl}/api/integrations/composio/callback?app=gmail&returnUrl=${encodeURIComponent(
-        effectiveReturnUrl
-      )}&orgId=${encodeURIComponent(organizationId)}`;
-
-      const composioRes = await ComposioService.initiateConnection({
-        organizationId,
-        app: 'gmail',
-        callbackUrl,
-      });
-
-      if (composioRes.success && composioRes.redirectUrl) {
-        // Ensure email connection record exists and set status to CONNECTING
-        const existing = await db.getOne('SELECT id FROM email_connections WHERE organization_id = $1', [organizationId]);
-        if (existing) {
-          await db.execute(
-            `UPDATE email_connections
-             SET status = 'CONNECTING', error_message = NULL, updated_at = CURRENT_TIMESTAMP
-             WHERE organization_id = $1`,
-            [organizationId]
-          );
-        } else {
-          const connId = uuidv4();
-          const webhookToken = `whk_${uuidv4().replace(/-/g, '')}`;
-          const inboundAddress = `inbox+${organizationId.substring(0, 8)}@onceclic.com`;
-          await db.execute(
-            `INSERT INTO email_connections (
-               id, organization_id, provider_type, inbound_address, webhook_token,
-               is_active, status, created_at, updated_at
-             ) VALUES ($1, $2, 'OAUTH', $3, $4, FALSE, 'CONNECTING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-            [connId, organizationId, inboundAddress, webhookToken]
-          );
-        }
-
-        return {
-          url: composioRes.redirectUrl,
-          state: 'composio_managed',
-        };
-      }
-
-      console.warn('[IntegrationService] Composio initiate failed, attempting Google OAuth fallback if available:', composioRes.error);
+    if (!ComposioService.isAvailable()) {
+      throw new Error(
+        'COMPOSIO_API_KEY is not configured on the server. Please set COMPOSIO_API_KEY in server environment variables to enable Gmail integration.'
+      );
     }
 
-    // 2. Secondary: Direct Google OAuth (if configured)
-    if (!config.google.clientId) {
-      throw new Error('Neither Composio nor Google OAuth is configured. Please provide COMPOSIO_API_KEY or GOOGLE_CLIENT_ID.');
+    const callbackUrl = `${config.app.apiUrl}/api/integrations/composio/callback?app=gmail&returnUrl=${encodeURIComponent(
+      effectiveReturnUrl
+    )}&orgId=${encodeURIComponent(organizationId)}`;
+
+    const composioRes = await ComposioService.initiateConnection({
+      organizationId,
+      app: 'gmail',
+      callbackUrl,
+    });
+
+    if (!composioRes.success || !composioRes.redirectUrl) {
+      throw new Error(
+        `Failed to generate Composio Managed OAuth Connect Link for Gmail: ${composioRes.error || 'Unknown error'}`
+      );
     }
 
-    // Generate cryptographically random secret and compute SHA-256 hash for database storage
-    const randomSecret = crypto.randomBytes(32).toString('hex');
-    const stateHash = crypto.createHash('sha256').update(randomSecret).digest('hex');
-    const stateId = uuidv4();
-    const effectiveUserId = userId || 'system';
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes validity
+    // Ensure email connection record exists and set status to CONNECTING
+    const existing = await db.getOne('SELECT id FROM email_connections WHERE organization_id = $1', [organizationId]);
+    if (existing) {
+      await db.execute(
+        `UPDATE email_connections
+         SET status = 'CONNECTING', error_message = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE organization_id = $1`,
+        [organizationId]
+      );
+    } else {
+      const connId = uuidv4();
+      const webhookToken = `whk_${uuidv4().replace(/-/g, '')}`;
+      const inboundAddress = `inbox+${organizationId.substring(0, 8)}@onceclic.com`;
+      await db.execute(
+        `INSERT INTO email_connections (
+           id, organization_id, provider_type, inbound_address, webhook_token,
+           is_active, status, created_at, updated_at
+         ) VALUES ($1, $2, 'OAUTH', $3, $4, FALSE, 'CONNECTING', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [connId, organizationId, inboundAddress, webhookToken]
+      );
+    }
 
-    // Store state record for one-time-use validation and replay protection
-    await db.execute(
-      `INSERT INTO oauth_states (
-         id, state_hash, organization_id, user_id, provider, return_url, expires_at, created_at
-       ) VALUES ($1, $2, $3, $4, 'GOOGLE_EMAIL', $5, $6, CURRENT_TIMESTAMP)`,
-      [stateId, stateHash, organizationId, effectiveUserId, effectiveReturnUrl, expiresAt]
-    );
-
-    // Update connection status to CONNECTING
-    await db.execute(
-      `UPDATE email_connections
-       SET status = 'CONNECTING', error_message = NULL, updated_at = CURRENT_TIMESTAMP
-       WHERE organization_id = $1`,
-      [organizationId]
-    );
-
-    const stateToken = jwt.sign(
-      {
-        stateId,
-        stateHash,
-        secret: randomSecret,
-        organizationId,
-        userId: effectiveUserId,
-        returnUrl: effectiveReturnUrl,
-        type: 'google_email_oauth_state',
-      },
-      config.jwtSecret,
-      { expiresIn: '15m' }
-    );
-
-    const redirectUri = config.google.emailCallbackUrl;
-    const scope = [
-      'https://www.googleapis.com/auth/gmail.readonly',
-      'https://www.googleapis.com/auth/gmail.send',
-      'openid',
-      'email',
-      'profile',
-    ].join(' ');
-
-    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
-      config.google.clientId
-    )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(
-      scope
-    )}&access_type=offline&prompt=consent&state=${encodeURIComponent(stateToken)}`;
-
-    return { url, state: stateToken };
+    return {
+      url: composioRes.redirectUrl,
+      state: 'composio_managed',
+    };
   }
 
   /**
@@ -650,9 +595,8 @@ export class IntegrationService {
   // =========================================================================
 
   /**
-   * Generate Google Calendar OAuth authorization URL.
-   * Prioritizes Composio Managed OAuth (no Google Cloud billing/verification required),
-   * with fallback to direct Google OAuth.
+   * Generate Google Calendar OAuth authorization URL using Composio Managed OAuth.
+   * Eliminates Google Cloud app verification/billing requirements for end customers.
    */
   static async getGoogleCalendarAuthUrl(
     organizationId: string,
@@ -661,76 +605,32 @@ export class IntegrationService {
   ): Promise<{ url: string; state: string }> {
     const effectiveReturnUrl = returnUrl || '/app/integrations';
 
-    // 1. Primary: Composio Managed OAuth
-    if (ComposioService.isAvailable()) {
-      const callbackUrl = `${config.app.apiUrl}/api/integrations/composio/callback?app=googlecalendar&returnUrl=${encodeURIComponent(
-        effectiveReturnUrl
-      )}&orgId=${encodeURIComponent(organizationId)}`;
-
-      const composioRes = await ComposioService.initiateConnection({
-        organizationId,
-        app: 'googlecalendar',
-        callbackUrl,
-      });
-
-      if (composioRes.success && composioRes.redirectUrl) {
-        return {
-          url: composioRes.redirectUrl,
-          state: 'composio_managed',
-        };
-      }
-
-      console.warn('[IntegrationService] Composio initiate failed for calendar, attempting Google OAuth fallback:', composioRes.error);
+    if (!ComposioService.isAvailable()) {
+      throw new Error(
+        'COMPOSIO_API_KEY is not configured on the server. Please set COMPOSIO_API_KEY in server environment variables to enable Google Calendar integration.'
+      );
     }
 
-    // 2. Secondary: Direct Google OAuth (if configured)
-    if (!config.google.clientId) {
-      throw new Error('Neither Composio nor Google OAuth is configured. Please provide COMPOSIO_API_KEY or GOOGLE_CLIENT_ID.');
+    const callbackUrl = `${config.app.apiUrl}/api/integrations/composio/callback?app=googlecalendar&returnUrl=${encodeURIComponent(
+      effectiveReturnUrl
+    )}&orgId=${encodeURIComponent(organizationId)}`;
+
+    const composioRes = await ComposioService.initiateConnection({
+      organizationId,
+      app: 'googlecalendar',
+      callbackUrl,
+    });
+
+    if (!composioRes.success || !composioRes.redirectUrl) {
+      throw new Error(
+        `Failed to generate Composio Managed OAuth Connect Link for Google Calendar: ${composioRes.error || 'Unknown error'}`
+      );
     }
 
-    const randomSecret = crypto.randomBytes(32).toString('hex');
-    const stateHash = crypto.createHash('sha256').update(randomSecret).digest('hex');
-    const stateId = uuidv4();
-    const effectiveUserId = userId || 'system';
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
-
-    await db.execute(
-      `INSERT INTO oauth_states (
-         id, state_hash, organization_id, user_id, provider, return_url, expires_at, created_at
-       ) VALUES ($1, $2, $3, $4, 'GOOGLE_CALENDAR', $5, $6, CURRENT_TIMESTAMP)`,
-      [stateId, stateHash, organizationId, effectiveUserId, effectiveReturnUrl, expiresAt]
-    );
-
-    const stateToken = jwt.sign(
-      {
-        stateId,
-        stateHash,
-        secret: randomSecret,
-        organizationId,
-        userId: effectiveUserId,
-        returnUrl: effectiveReturnUrl,
-        type: 'google_calendar_oauth_state',
-      },
-      config.jwtSecret,
-      { expiresIn: '15m' }
-    );
-
-    const redirectUri = config.google.calendarCallbackUrl;
-    const scope = [
-      'https://www.googleapis.com/auth/calendar.events',
-      'https://www.googleapis.com/auth/calendar.readonly',
-      'openid',
-      'email',
-      'profile',
-    ].join(' ');
-
-    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
-      config.google.clientId
-    )}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(
-      scope
-    )}&access_type=offline&prompt=consent&state=${encodeURIComponent(stateToken)}`;
-
-    return { url, state: stateToken };
+    return {
+      url: composioRes.redirectUrl,
+      state: 'composio_managed',
+    };
   }
 
   /**

@@ -72,6 +72,25 @@ export async function runComposioIntegrationTests() {
     const urlStr = String(url);
     const bodyObj = init?.body ? JSON.parse(String(init.body)) : {};
 
+    // 3A-1. Auth Config discovery
+    if (urlStr.includes('/v3.1/auth_configs')) {
+      const isCal = urlStr.includes('googlecalendar');
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            items: [
+              {
+                id: isCal ? 'ac_mock_cal_123' : 'ac_mock_gmail_123',
+                is_composio_managed: true,
+                toolkit: { slug: isCal ? 'googlecalendar' : 'gmail' },
+              },
+            ],
+          }),
+      } as any;
+    }
+
     // 3A. Connect Link generation (v3.1 and v1 endpoints)
     if (urlStr.includes('/v3.1/connected_accounts/link') || urlStr.includes('/v1/connectedAccounts')) {
       const app = bodyObj.auth_config_id || bodyObj.appName;

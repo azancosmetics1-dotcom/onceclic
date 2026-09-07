@@ -100,6 +100,66 @@ export class ComposioService {
     }
   }
 
+  private static authConfigCache: Map<string, string> = new Map();
+
+  /**
+   * Resolve the Composio Auth Config ID for a given toolkit/app.
+   */
+  static async getAuthConfigId(app: 'gmail' | 'googlecalendar'): Promise<string | null> {
+    const targetSlug = app === 'googlecalendar' ? 'googlecalendar' : 'gmail';
+    if (this.authConfigCache.has(targetSlug)) {
+      return this.authConfigCache.get(targetSlug)!;
+    }
+
+    try {
+      // 1. Try querying with toolkit_slug filter
+      const res = await this.request<any>(`/v3.1/auth_configs?toolkit_slug=${targetSlug}`);
+      let items: any[] = [];
+      if (res.ok && res.data) {
+        if (Array.isArray(res.data)) items = res.data;
+        else if (Array.isArray(res.data.items)) items = res.data.items;
+        else if (Array.isArray(res.data.data)) items = res.data.data;
+      }
+
+      // 2. If empty, query list of all auth configs
+      if (items.length === 0) {
+        const allRes = await this.request<any>('/v3.1/auth_configs?limit=50');
+        if (allRes.ok && allRes.data) {
+          if (Array.isArray(allRes.data)) items = allRes.data;
+          else if (Array.isArray(allRes.data.items)) items = allRes.data.items;
+          else if (Array.isArray(allRes.data.data)) items = allRes.data.data;
+        }
+      }
+
+      if (items.length > 0) {
+        const cleanTarget = targetSlug.replace(/[^a-z]/g, '');
+        const match = items.find((cfg) => {
+          const slug = (
+            cfg.toolkit?.slug ||
+            cfg.toolkit ||
+            cfg.toolkit_slug ||
+            cfg.appName ||
+            cfg.name ||
+            ''
+          )
+            .toLowerCase()
+            .replace(/[^a-z]/g, '');
+          return slug === cleanTarget || slug.includes(cleanTarget) || (cleanTarget === 'googlecalendar' && slug.includes('calendar'));
+        });
+
+        const configId = match?.id || match?.uuid || (items.length === 1 ? (items[0]?.id || items[0]?.uuid) : null);
+        if (configId) {
+          this.authConfigCache.set(targetSlug, configId);
+          return configId;
+        }
+      }
+    } catch (err) {
+      console.warn(`[ComposioService] Failed to query auth_configs for ${app}:`, err);
+    }
+
+    return null;
+  }
+
   // =========================================================================
   // 1. CONNECTION MANAGEMENT (MANAGED OAUTH CONNECT LINKS)
   // =========================================================================
@@ -115,23 +175,34 @@ export class ComposioService {
     const entityId = this.getEntityId(params.organizationId);
     const appSlug = params.app === 'googlecalendar' ? 'googlecalendar' : 'gmail';
 
-    // Primary: Attempt v3.1 Auth Link Session
-    const v3Res = await this.request('/v3.1/connected_accounts/link', {
-      method: 'POST',
-      body: JSON.stringify({
-        auth_config_id: appSlug,
-        user_id: entityId,
-        callback_url: params.callbackUrl,
-      }),
-    });
+    // 1. Resolve Auth Config ID if available
+    const authConfigId = await this.getAuthConfigId(params.app);
 
-    if (v3Res.ok && (v3Res.data?.redirect_url || v3Res.data?.redirectUrl || v3Res.data?.url || v3Res.data?.link)) {
-      const redirectUrl =
-        v3Res.data.redirect_url || v3Res.data.redirectUrl || v3Res.data.url || v3Res.data.link;
-      return { success: true, redirectUrl };
+    // 2. Primary: Attempt v3.1 Auth Link Session
+    const candidateConfigIds = authConfigId ? [authConfigId, appSlug] : [appSlug];
+    let lastError = '';
+
+    for (const cfgId of candidateConfigIds) {
+      const v3Res = await this.request('/v3.1/connected_accounts/link', {
+        method: 'POST',
+        body: JSON.stringify({
+          auth_config_id: cfgId,
+          user_id: entityId,
+          callback_url: params.callbackUrl,
+        }),
+      });
+
+      if (v3Res.ok && (v3Res.data?.redirect_url || v3Res.data?.redirectUrl || v3Res.data?.url || v3Res.data?.link)) {
+        const redirectUrl =
+          v3Res.data.redirect_url || v3Res.data.redirectUrl || v3Res.data.url || v3Res.data.link;
+        return { success: true, redirectUrl };
+      }
+      if (v3Res.error) {
+        lastError = v3Res.error;
+      }
     }
 
-    // Secondary: Attempt v1/connectedAccounts initiate
+    // 3. Secondary: Attempt v1/connectedAccounts initiate
     const v1Res = await this.request('/v1/connectedAccounts', {
       method: 'POST',
       body: JSON.stringify({
@@ -149,7 +220,7 @@ export class ComposioService {
     }
 
     const errMsg =
-      v3Res.error ||
+      lastError ||
       v1Res.error ||
       'Failed to generate Composio Managed OAuth Connect Link. Please verify COMPOSIO_API_KEY.';
     console.error(`[ComposioService] Initiate connection error for ${params.app}:`, errMsg);
