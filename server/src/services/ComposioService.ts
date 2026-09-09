@@ -370,14 +370,16 @@ export class ComposioService {
 
     // Find account matching the requested app
     const match = accounts.find((acc) => {
-      const accApp = (
-        acc.app ||
+      const rawApp =
+        acc.toolkit?.slug ||
+        acc.auth_config?.toolkit?.slug ||
+        (typeof acc.toolkit === 'string' ? acc.toolkit : '') ||
         acc.appName ||
-        acc.toolkit ||
+        acc.app ||
         acc.auth_config_id ||
         acc.appUniqueId ||
-        ''
-      )
+        '';
+      const accApp = String(rawApp)
         .toLowerCase()
         .replace(/[^a-z]/g, '');
       const targetApp = appSlug.toLowerCase().replace(/[^a-z]/g, '');
