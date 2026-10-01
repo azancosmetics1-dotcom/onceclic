@@ -5,6 +5,8 @@
 [build.environment]
   NODE_VERSION = "20"
   VITE_API_URL = "https://api.onceclic.com"
+  SECRETS_SCAN_OMIT_PATHS = ".env.example"
+  SECRETS_SCAN_OMIT_KEYS = "VITE_PADDLE_PRICE_ID,VITE_PADDLE_CLIENT_TOKEN,VITE_API_URL,VITE_PADDLE_ENVIRONMENT"
 
 # Proxy /api/* to Railway backend — must precede the SPA catch-all
 [[redirects]]
