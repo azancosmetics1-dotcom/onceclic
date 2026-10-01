@@ -13,6 +13,7 @@ import { KnowledgeService } from './KnowledgeService';
 import { AuditService } from './AuditService';
 import { AIBudgetService } from './AIBudgetService';
 import { BusinessDataCompletenessService } from './BusinessDataCompletenessService';
+import { PublicKnowledgeGroundingService } from './PublicKnowledgeGroundingService';
 import { config } from '../config';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -698,6 +699,14 @@ export class ConversationService {
       aiEmployee,
     });
 
+    const isOnceclicOrg =
+      (org?.name || '').toLowerCase().includes('onceclic') ||
+      (org?.slug || '').toLowerCase().includes('onceclic');
+
+    const publicKnowledgeContext = isOnceclicOrg
+      ? PublicKnowledgeGroundingService.getGroundingContext(content)
+      : '';
+
     return `You are ${aiEmployee?.name || 'Luna'}, the official AI Receptionist for "${org?.name || 'our business'}" (${org?.business_type || 'services'}).
 Tone: ${aiEmployee?.tone || 'professional, helpful, friendly, and concise'}.
 Personality & Role: ${aiEmployee?.personality || 'You assist visitors and customers with questions, appointments/reservations, and general business info.'}
@@ -739,6 +748,7 @@ ${aiEmployee?.instructions || 'Be helpful and guide customers toward booking or 
 
 RETRIEVED KNOWLEDGE BASE FACTS:
 ${relevantChunks.map((c, i) => `[Fact ${i + 1} - ${c.sourceTitle}]:\n${c.chunkContent}`).join('\n\n')}
+${publicKnowledgeContext ? `\n${publicKnowledgeContext}` : ''}
 
 CRITICAL MISSING-DATA & ANTI-HALLUCINATION RULES:
 1. STRICT DATA GROUNDING: You must answer customer questions using ONLY the verified business data and retrieved knowledge base facts provided above.
