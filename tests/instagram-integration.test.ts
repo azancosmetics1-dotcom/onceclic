@@ -103,6 +103,12 @@ export async function runInstagramIntegrationTests() {
     businessName: 'Apex Dental Care',
   });
   clinicOrgId = clinicOwner.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: clinicOwner.user.id,
+    organizationId: clinicOrgId,
+    industry: 'Clinic',
+    businessKnowledge: 'Apex Dental Care is open Monday to Friday 9 AM to 5 PM. Address: 1 Dental Street. Phone: 555-0001.',
+  });
 
   // Setup Test Organization 2: Italian Restaurant
   const restaurantOwner = await AuthService.register({
@@ -112,6 +118,12 @@ export async function runInstagramIntegrationTests() {
     businessName: 'Bella Italia Ristorante',
   });
   const restaurantOrgId = restaurantOwner.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: restaurantOwner.user.id,
+    organizationId: restaurantOrgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Bella Italia Ristorante is open daily 11 AM to 10 PM. Address: 2 Italian Avenue. Reservations welcome.',
+  });
 
   // Setup Test Organization 3: Luxury Hair Salon
   const salonOwner = await AuthService.register({
@@ -121,6 +133,12 @@ export async function runInstagramIntegrationTests() {
     businessName: 'Luxe Hair & Spa Studio',
   });
   const salonOrgId = salonOwner.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: salonOwner.user.id,
+    organizationId: salonOrgId,
+    industry: 'Salon',
+    businessKnowledge: 'Luxe Hair & Spa Studio is open Tuesday to Saturday 10 AM to 7 PM. Address: 3 Spa Boulevard.',
+  });
 
   // Update business types in database for accurate testing
   await db.execute(`UPDATE organizations SET business_type = 'Dental Clinic' WHERE id = $1`, [clinicOrgId]);

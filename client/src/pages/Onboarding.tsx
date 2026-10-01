@@ -201,49 +201,20 @@ export const Onboarding: React.FC = () => {
             }
           : null;
 
-      // 3. Update Organization & Business Settings
-      await api.updateOrgCurrent({
-        name: finalName,
-        businessType: ind.dbType,
+      const comprehensiveKnowledge = `${businessKnowledge.trim()}\n\nAddress: ${address.trim() || 'Not specified'}\nOpening Hours: ${openingHoursStr}\nServices: ${serviceName || ind.defaultServiceName} (${parsedPrice > 0 ? `$${parsedPrice}` : 'Free'})\nAdditional Details: ${additionalNotes.trim() || 'None'}`;
+
+      // 3. Atomically complete onboarding: validates industry + knowledge, indexes knowledge chunks, starts 7-day free trial
+      await api.completeOnboarding({
+        industry: ind.title,
+        businessKnowledge: comprehensiveKnowledge,
+        businessName: finalName,
         address: address.trim() || undefined,
-        websiteChatEnabled: true,
-        emailAnsweringEnabled: true,
         services: initialServices,
         reservationSettings: reservationSettings || undefined,
-        contactInstructions: `For any specialized inquiries, you can reach out directly via chat or email.`,
+        openingHoursStr,
       });
 
-      // 4. Update AI Receptionist
-      const aiRole =
-        selectedIndustry === 'CLINIC'
-          ? 'Medical & Clinic Receptionist'
-          : selectedIndustry === 'RESTAURANT'
-          ? 'Restaurant Host & Receptionist'
-          : 'Salon & Spa Receptionist';
-
-      const aiInstructions =
-        selectedIndustry === 'CLINIC'
-          ? `You are the AI receptionist for ${finalName}. Help patients understand available treatments and prices, and direct them to schedule an appointment. Never offer clinical diagnoses.`
-          : selectedIndustry === 'RESTAURANT'
-          ? `You are the AI host for ${finalName}. Help guests with table reservations, party sizes, and menu questions. Use reservation terminology.`
-          : `You are the AI receptionist for ${finalName}. Help clients book styling and beauty appointments, explain service durations and pricing.`;
-
-      await api.updateAIEmployee({
-        name: 'Luna',
-        roleTitle: aiRole,
-        instructions: aiInstructions,
-        businessContext: `Business: ${finalName}. Address: ${address || 'Configured online'}. Industry: ${ind.dbType}. Hours: ${openingHoursStr}.`,
-        status: 'ACTIVE' as any,
-      });
-
-      // 5. Add Required Business Knowledge to Knowledge Base & Embeddings
-      await api.addKnowledgeSource({
-        sourceType: 'BUSINESS_INFO' as any,
-        title: `${finalName} - Core Business Knowledge`,
-        rawContent: `${businessKnowledge.trim()}\n\nAddress: ${address.trim() || 'Not specified'}\nOpening Hours: ${openingHoursStr}\nServices: ${serviceName} (${parsedPrice > 0 ? `$${parsedPrice}` : 'Free'})\nAdditional Details: ${additionalNotes.trim() || 'None'}`,
-      });
-
-      // 6. Refresh profile and navigate to dashboard
+      // 4. Refresh profile and navigate to dashboard
       await refreshProfile();
       navigate('/app');
     } catch (err: any) {
@@ -253,6 +224,7 @@ export const Onboarding: React.FC = () => {
       setSaving(false);
     }
   };
+
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between py-6 sm:py-10 px-3.5 sm:px-6 lg:px-8 selection:bg-emerald-500 selection:text-slate-950">

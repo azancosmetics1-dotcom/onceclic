@@ -1726,14 +1726,17 @@ export class IntegrationService {
     senderUsername?: string;
     text: string;
     messageId?: string;
-  }): Promise<{ success: boolean; aiReplySent?: boolean; replyText?: string; conversationId?: string }> {
+  }): Promise<{ success: boolean; aiReplySent?: boolean; replyText?: string; conversationId?: string; ignoredDuplicate?: boolean; error?: string }> {
     const { organizationId, senderId, senderUsername, text, messageId } = params;
 
     if (!organizationId || !senderId || !text || !text.trim()) {
-      return { success: false };
+      return { success: false, error: 'Missing required parameters' };
     }
 
-    // 1. Idempotency Check via processed_webhook_events
+    console.log('[ChannelSync] Instagram inbound message detected');
+    console.log('[ChannelSync] Organization resolved');
+
+    // 1. Idempotency Check via processed_webhook_events (do NOT mark processed yet)
     if (messageId) {
       const existingEvent = await db.getOne(
         'SELECT event_id FROM processed_webhook_events WHERE event_id = $1',
@@ -1741,14 +1744,8 @@ export class IntegrationService {
       );
       if (existingEvent) {
         console.log(`[Instagram Inbound] Duplicate message ${messageId} already processed. Skipping.`);
-        return { success: true, aiReplySent: false };
+        return { success: true, aiReplySent: false, ignoredDuplicate: true };
       }
-
-      await db.execute(
-        `INSERT INTO processed_webhook_events (event_id, event_type, occurred_at, processed_at)
-         VALUES ($1, 'instagram_message', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        [messageId]
-      );
     }
 
     // 2. Audit log inbound message
@@ -1767,6 +1764,7 @@ export class IntegrationService {
       customerName: senderUsername || `Instagram User ${senderId.slice(-4)}`,
       customerPhone: senderId,
     });
+    console.log('[ChannelSync] Conversation created');
 
     // 4. Generate AI response via shared ConversationService
     const { aiMessage } = await ConversationService.handleCustomerMessage({
@@ -1779,6 +1777,7 @@ export class IntegrationService {
 
     // 5. Send outbound reply via Composio if AI message was generated
     if (aiMessage && aiMessage.content) {
+      console.log('[ChannelSync] AI response generated');
       const sendRes = await ComposioService.sendInstagramReply({
         organizationId,
         recipientId: senderId,
@@ -1786,6 +1785,17 @@ export class IntegrationService {
       });
 
       if (sendRes.success) {
+        console.log('[ChannelSync] Instagram reply sent');
+        // Mark inbound event as successfully processed ONLY after successful dispatch
+        if (messageId) {
+          await db.execute(
+            `INSERT INTO processed_webhook_events (event_id, event_type, occurred_at, processed_at)
+             VALUES ($1, 'instagram_message', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT (event_id) DO NOTHING`,
+            [messageId]
+          );
+        }
+
         await AuditService.log({
           organizationId,
           action: AuditAction.INSTAGRAM_MESSAGE_SENT,
@@ -1796,7 +1806,7 @@ export class IntegrationService {
         return { success: true, aiReplySent: true, replyText: aiMessage.content, conversationId: conv.id };
       } else {
         console.warn(`[Instagram Inbound] Outbound reply failed for ${organizationId}:`, sendRes.error);
-        return { success: true, aiReplySent: false, replyText: aiMessage.content, conversationId: conv.id };
+        return { success: false, aiReplySent: false, replyText: aiMessage.content, conversationId: conv.id, error: sendRes.error };
       }
     }
 
@@ -1937,14 +1947,17 @@ export class IntegrationService {
     senderName?: string;
     text: string;
     messageId?: string;
-  }): Promise<{ success: boolean; aiReplySent?: boolean; replyText?: string; conversationId?: string }> {
+  }): Promise<{ success: boolean; aiReplySent?: boolean; replyText?: string; conversationId?: string; ignoredDuplicate?: boolean; error?: string }> {
     const { organizationId, senderId, senderName, text, messageId } = params;
 
     if (!organizationId || !senderId || !text || !text.trim()) {
-      return { success: false };
+      return { success: false, error: 'Missing required parameters' };
     }
 
-    // 1. Idempotency Check via processed_webhook_events
+    console.log('[ChannelSync] Facebook inbound message detected');
+    console.log('[ChannelSync] Organization resolved');
+
+    // 1. Idempotency Check via processed_webhook_events (do NOT mark processed yet)
     if (messageId) {
       const existingEvent = await db.getOne(
         'SELECT event_id FROM processed_webhook_events WHERE event_id = $1',
@@ -1952,14 +1965,8 @@ export class IntegrationService {
       );
       if (existingEvent) {
         console.log(`[Facebook Inbound] Duplicate message ${messageId} already processed. Skipping.`);
-        return { success: true, aiReplySent: false };
+        return { success: true, aiReplySent: false, ignoredDuplicate: true };
       }
-
-      await db.execute(
-        `INSERT INTO processed_webhook_events (event_id, event_type, occurred_at, processed_at)
-         VALUES ($1, 'facebook_message', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        [messageId]
-      );
     }
 
     // 2. Audit log inbound message
@@ -1978,6 +1985,7 @@ export class IntegrationService {
       customerName: senderName || `Facebook User ${senderId.slice(-4)}`,
       customerPhone: senderId,
     });
+    console.log('[ChannelSync] Conversation created');
 
     // 4. Generate AI response via shared ConversationService
     const { aiMessage } = await ConversationService.handleCustomerMessage({
@@ -1990,6 +1998,7 @@ export class IntegrationService {
 
     // 5. Send outbound reply via Composio if AI message was generated
     if (aiMessage && aiMessage.content) {
+      console.log('[ChannelSync] AI response generated');
       const sendRes = await ComposioService.sendFacebookReply({
         organizationId,
         recipientId: senderId,
@@ -1997,6 +2006,17 @@ export class IntegrationService {
       });
 
       if (sendRes.success) {
+        console.log('[ChannelSync] Facebook reply sent');
+        // Mark inbound event as successfully processed ONLY after successful dispatch
+        if (messageId) {
+          await db.execute(
+            `INSERT INTO processed_webhook_events (event_id, event_type, occurred_at, processed_at)
+             VALUES ($1, 'facebook_message', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+             ON CONFLICT (event_id) DO NOTHING`,
+            [messageId]
+          );
+        }
+
         await AuditService.log({
           organizationId,
           action: AuditAction.FACEBOOK_MESSAGE_SENT,
@@ -2007,7 +2027,7 @@ export class IntegrationService {
         return { success: true, aiReplySent: true, replyText: aiMessage.content, conversationId: conv.id };
       } else {
         console.warn(`[Facebook Inbound] Outbound reply failed for ${organizationId}:`, sendRes.error);
-        return { success: true, aiReplySent: false, replyText: aiMessage.content, conversationId: conv.id };
+        return { success: false, aiReplySent: false, replyText: aiMessage.content, conversationId: conv.id, error: sendRes.error };
       }
     }
 

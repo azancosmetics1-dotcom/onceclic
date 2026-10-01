@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Outlet, Link } from 'react-router-dom';
+import { Outlet, Link, Navigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
@@ -29,6 +29,11 @@ export const AppLayout: React.FC = () => {
         <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
+  }
+
+  // Redirect to onboarding if business industry & knowledge have not been configured
+  if (organization && (organization.businessType === 'ONBOARDING_REQUIRED' || !organization.businessType)) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   const showTrialBanner = billingInfo && !billingInfo.isPro;

@@ -200,6 +200,21 @@ class ApiClient {
     });
   }
 
+  async completeOnboarding(data: {
+    industry: string;
+    businessKnowledge: string;
+    businessName?: string;
+    address?: string;
+    services?: any[];
+    reservationSettings?: any;
+    openingHoursStr?: string;
+  }): Promise<{ organization: Organization; trial: any }> {
+    return this.request('/orgs/onboarding', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async getMembers(): Promise<Array<{ id: string; role: string; userId: string; email: string; fullName: string }>> {
     return this.request('/orgs/members');
   }

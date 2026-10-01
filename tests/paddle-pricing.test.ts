@@ -38,6 +38,14 @@ export async function runPaddlePricingTests() {
   });
   const orgId = auth.organization!.id;
 
+  // Complete onboarding to activate trial (trial is started as part of onboarding completion)
+  await AuthService.completeOnboarding({
+    userId: auth.user.id,
+    organizationId: orgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Trial test restaurant is open daily 9 AM to 9 PM. Located at 1 Test Avenue.',
+  });
+
   const subTrial = await PaddleBillingService.getSubscription(orgId);
   if (subTrial.subscription?.status !== SubscriptionStatus.TRIALING) {
     throw new Error(`Expected status TRIALING, got ${subTrial.subscription?.status}`);
@@ -168,6 +176,12 @@ export async function runPaddlePricingTests() {
     businessName: 'Exp Org',
   });
   const expOrgId = expAuth.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: expAuth.user.id,
+    organizationId: expOrgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Exp Org Restaurant is open daily 9 AM to 9 PM. Located at 1 Expired Street.',
+  });
 
   // Simulate 7 days elapsed with no payment method
   await db.execute(
@@ -201,6 +215,12 @@ export async function runPaddlePricingTests() {
     businessName: 'Fail Org',
   });
   const failOrgId = failOrgAuth.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: failOrgAuth.user.id,
+    organizationId: failOrgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Fail Org Restaurant is open daily 9 AM to 9 PM. Located at 1 Fail Street.',
+  });
 
   // Simulate trial expired
   await db.execute(

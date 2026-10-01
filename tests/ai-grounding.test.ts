@@ -27,6 +27,14 @@ export async function runAIGroundingTests() {
   const orgId = auth.organization!.id;
   const userId = auth.user.id;
 
+  // Activate trial via onboarding so subscription and AI budget are live
+  await AuthService.completeOnboarding({
+    userId,
+    organizationId: orgId,
+    industry: 'Clinic',
+    businessKnowledge: 'AI Grounding Lab is open Monday to Friday 9 AM to 6 PM. Located at 1 Grounding Street.',
+  });
+
   try {
     // 3. Add knowledge source & test embedding chunk generation
     const source = await KnowledgeService.addSource({

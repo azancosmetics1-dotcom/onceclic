@@ -175,6 +175,12 @@ export async function runChannelRealWorldVerificationTests() {
     });
     await AuthService.verifyEmail(userA.verificationToken!);
     const orgAId = userA.organization!.id;
+    await AuthService.completeOnboarding({
+      userId: userA.user.id,
+      organizationId: orgAId,
+      industry: 'Clinic',
+      businessKnowledge: 'Apex Dental Clinic is open Monday to Friday 9 AM to 5 PM. Address: 742 Evergreen Terrace. Teeth Whitening $150, Dental Cleaning $80.',
+    });
 
     await db.execute(
       `UPDATE organizations
@@ -215,6 +221,12 @@ export async function runChannelRealWorldVerificationTests() {
     });
     await AuthService.verifyEmail(userB.verificationToken!);
     const orgBId = userB.organization!.id;
+    await AuthService.completeOnboarding({
+      userId: userB.user.id,
+      organizationId: orgBId,
+      industry: 'Restaurant',
+      businessKnowledge: 'Sakura Dining Lounge is open daily 11 AM to 10 PM. Address: 100 Sakura Blvd, Tokyo District. Authentic Japanese cuisine.',
+    });
 
     await db.execute(
       `UPDATE organizations

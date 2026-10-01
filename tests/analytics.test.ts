@@ -30,6 +30,20 @@ export async function runAnalyticsTests() {
   const orgAId = userA.organization!.id;
   const orgBId = userB.organization!.id;
 
+  // Activate trials via onboarding
+  await AuthService.completeOnboarding({
+    userId: userA.user.id,
+    organizationId: orgAId,
+    industry: 'Clinic',
+    businessKnowledge: 'Clinic Alpha is open Monday to Friday 9 AM to 5 PM. Located at 1 Alpha Street.',
+  });
+  await AuthService.completeOnboarding({
+    userId: userB.user.id,
+    organizationId: orgBId,
+    industry: 'Clinic',
+    businessKnowledge: 'Clinic Beta is open Monday to Friday 10 AM to 6 PM. Located at 2 Beta Street.',
+  });
+
   // 2. Empty state check for Org A
   const emptyAnalytics = await AnalyticsService.getOrganizationAnalytics({
     organizationId: orgAId,

@@ -38,6 +38,12 @@ export async function runAIBusinessDataVerificationTests() {
   });
   const clinicOrgId = clinicAuth.organization!.id;
   const clinicSlug = clinicAuth.organization!.slug;
+  await AuthService.completeOnboarding({
+    userId: clinicAuth.user.id,
+    organizationId: clinicOrgId,
+    industry: 'Clinic',
+    businessKnowledge: 'Beacon Dental Clinic is open Monday to Friday 8 AM to 5 PM. Teeth Whitening $299, Dental Cleaning $120. Address: 456 Healthcare Blvd, Boston.',
+  });
 
   await db.execute(
     `UPDATE organizations
@@ -87,6 +93,12 @@ export async function runAIBusinessDataVerificationTests() {
   });
   const restaurantOrgId = restaurantAuth.organization!.id;
   const restaurantSlug = restaurantAuth.organization!.slug;
+  await AuthService.completeOnboarding({
+    userId: restaurantAuth.user.id,
+    organizationId: restaurantOrgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Osteria Bella Vista is open Tuesday to Sunday 5 PM to 11 PM. Address: 789 Culinary Lane, New York. Chef Tasting Menu $110.',
+  });
 
   await db.execute(
     `UPDATE organizations
@@ -141,6 +153,12 @@ export async function runAIBusinessDataVerificationTests() {
   });
   const salonOrgId = salonAuth.organization!.id;
   const salonSlug = salonAuth.organization!.slug;
+  await AuthService.completeOnboarding({
+    userId: salonAuth.user.id,
+    organizationId: salonOrgId,
+    industry: 'Salon',
+    businessKnowledge: 'Luxe Hair & Glow Studio is open Tuesday to Saturday 10 AM to 7 PM. Address: 101 Beauty Way, Los Angeles. Haircuts and styling services.',
+  });
 
   await db.execute(
     `UPDATE organizations
@@ -494,6 +512,17 @@ export async function runAIBusinessDataVerificationTests() {
     businessName: 'Virtual Apex Coaching',
   });
   const noAddrOrgId = unconfiguredAddrOrg.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: unconfiguredAddrOrg.user.id,
+    organizationId: noAddrOrgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Virtual Apex Coaching is an online-only coaching service. Sessions available 7 days a week via video call.',
+  });
+  // Clear address so we can test the "NOT CONFIGURED" behavior
+  await (await import('../server/src/db')).db.execute(
+    `UPDATE organizations SET address = NULL WHERE id = $1`,
+    [noAddrOrgId]
+  );
 
   const noAddrPrompt = await ConversationService.buildSystemPrompt(noAddrOrgId, ConversationChannel.WEB);
   if (!noAddrPrompt.includes('Physical Address: NOT CONFIGURED') && !noAddrPrompt.includes('No physical address is configured')) {

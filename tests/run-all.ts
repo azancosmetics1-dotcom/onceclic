@@ -1,5 +1,6 @@
 process.env.USE_EMBEDDED_DB = 'true';
 process.env.NODE_ENV = 'test';
+process.env.AI_PROVIDER = 'mock';
 
 async function runAllTests() {
   // 1. Mandatory Executable Preflight Safety Check (Fails closed)
@@ -7,9 +8,21 @@ async function runAllTests() {
   assertSafeTestEnvironment();
   printPreflightSummary();
 
+  console.log('====================================================');
+  console.log('ENVIRONMENT: LOCAL/TEST');
+  console.log('AI PROVIDER FOR TESTS: MOCK');
+  console.log('REAL GEMINI API CALLS EXPECTED: 0');
+  console.log('PRODUCTION DATABASE: NO');
+  console.log('PRODUCTION COMPOSIO: NO');
+  console.log('PRODUCTION PADDLE: NO');
+  console.log('PRODUCTION DEPLOYMENT: NO');
+  console.log('====================================================\n');
+
   const { runEnvironmentGuardTests } = await import('./environment-guard.test');
   const { getDatabase } = await import('../server/src/db');
   const { runAuthTests } = await import('./auth.test');
+  const { runSignupIndustryKnowledgeTests } = await import('./signup-industry-knowledge.test');
+  const { runRealChannelAIReplyTests } = await import('./real-channel-ai-reply.test');
   const { runTenantIsolationTests } = await import('./tenant-isolation.test');
   const { runAppointmentTests } = await import('./appointments.test');
   const { runPaddleWebhookTests } = await import('./paddle-webhooks.test');
@@ -30,19 +43,6 @@ async function runAllTests() {
   const { runIndustryBookingAndSocialTests } = await import('./industry-booking-and-social.test');
   const { runGeminiProviderTests } = await import('./gemini-provider.test');
 
-  const { aiProvider } = await import('../server/src/services/AIProvider');
-  aiProvider.generateEmbedding = async () => new Array(1536).fill(0.01);
-  aiProvider.generateResponse = async () => ({
-    content: 'Thank you for reaching out to us. We are here to assist you.',
-    promptTokens: 10,
-    completionTokens: 20,
-    totalTokens: 30,
-    estimatedCostUsd: 0.0001,
-    model: 'gpt-4o-mini',
-    provider: 'OpenAI',
-    handoffRequired: false,
-  });
-
   const start = Date.now();
   const db = getDatabase();
   await db.runMigrations();
@@ -51,6 +51,10 @@ async function runAllTests() {
     await runEnvironmentGuardTests();
     console.log('');
     await runAuthTests();
+    console.log('');
+    await runSignupIndustryKnowledgeTests();
+    console.log('');
+    await runRealChannelAIReplyTests();
     console.log('');
 
     await runTenantIsolationTests();
@@ -144,3 +148,4 @@ async function runAllTests() {
 }
 
 runAllTests();
+

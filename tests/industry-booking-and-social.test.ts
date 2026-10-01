@@ -104,6 +104,12 @@ export async function runIndustryBookingAndSocialTests() {
       businessName: 'City Dental Care',
     });
     clinicOrgId = clinicOwner.organization!.id;
+    await AuthService.completeOnboarding({
+      userId: clinicOwner.user.id,
+      organizationId: clinicOrgId,
+      industry: 'Clinic',
+      businessKnowledge: 'City Dental Care is open Monday to Friday 9 AM to 5 PM. Address: 456 Healthcare Blvd, Suite 200, Boston, MA. Consultations start at $50.',
+    });
     await db.execute(
       `UPDATE organizations SET business_type = $1, address = $2 WHERE id = $3`,
       ['Dental Clinic', '456 Healthcare Blvd, Suite 200, Boston, MA', clinicOrgId]
@@ -116,6 +122,12 @@ export async function runIndustryBookingAndSocialTests() {
       businessName: 'Grand Bistro & Lounge',
     });
     restaurantOrgId = restaurantOwner.organization!.id;
+    await AuthService.completeOnboarding({
+      userId: restaurantOwner.user.id,
+      organizationId: restaurantOrgId,
+      industry: 'Restaurant',
+      businessKnowledge: 'Grand Bistro & Lounge is open daily 11 AM to 11 PM. Address: 789 Culinary Lane, New York, NY. Reservations recommended.',
+    });
     await db.execute(
       `UPDATE organizations SET business_type = $1, address = $2 WHERE id = $3`,
       ['Restaurant & Bar', '789 Culinary Lane, New York, NY', restaurantOrgId]
@@ -128,10 +140,17 @@ export async function runIndustryBookingAndSocialTests() {
       businessName: 'Luxe Hair & Spa',
     });
     salonOrgId = salonOwner.organization!.id;
+    await AuthService.completeOnboarding({
+      userId: salonOwner.user.id,
+      organizationId: salonOrgId,
+      industry: 'Salon',
+      businessKnowledge: 'Luxe Hair & Spa is open Tuesday to Saturday 10 AM to 7 PM. Address: 101 Beauty Way, Los Angeles, CA. Book appointments online.',
+    });
     await db.execute(
       `UPDATE organizations SET business_type = $1, address = $2 WHERE id = $3`,
       ['Hair Salon & Spa', '101 Beauty Way, Los Angeles, CA', salonOrgId]
     );
+
 
     // 2. Test AI System Prompt Grounding & Industry Terminology
     console.log('Testing AI System Prompt Industry Grounding...');

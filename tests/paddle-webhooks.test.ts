@@ -17,6 +17,14 @@ export async function runPaddleWebhookTests() {
 
   const orgId = auth.organization!.id;
 
+  // Complete onboarding to activate trial (industry + knowledge are required before trial starts)
+  await AuthService.completeOnboarding({
+    userId: auth.user.id,
+    organizationId: orgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Paddle SaaS Test Restaurant is open daily from 9 AM to 9 PM. Address: 1 Paddle Lane.',
+  });
+
   // 1. Initial State: Trialing with Pro access granted
   const subInit = await PaddleBillingService.getSubscription(orgId);
   if (subInit.subscription?.status !== SubscriptionStatus.TRIALING) {

@@ -25,6 +25,14 @@ export async function runTrialSecurityTests() {
   const orgId1 = auth1.organization!.id;
   const userId1 = auth1.user.id;
 
+  // Complete onboarding to activate the 7-day trial
+  await AuthService.completeOnboarding({
+    userId: userId1,
+    organizationId: orgId1,
+    industry: 'Clinic',
+    businessKnowledge: 'Security Clinic 1 is open Monday to Friday 9 AM to 5 PM. Address: 1 Security Road.',
+  });
+
   const sub1 = await PaddleBillingService.getSubscription(orgId1);
   if (sub1.subscription?.status !== SubscriptionStatus.TRIALING) {
     throw new Error(`Expected status TRIALING on first trial redemption, got ${sub1.subscription?.status}`);
@@ -131,6 +139,12 @@ export async function runTrialSecurityTests() {
     businessName: 'Second Org',
   });
   const orgId2 = auth2.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: auth2.user.id,
+    organizationId: orgId2,
+    industry: 'Restaurant',
+    businessKnowledge: 'Second Org Restaurant is open daily 9 AM to 9 PM. Located at 2 Second Street.',
+  });
 
   let crossOrgError: any = null;
   try {
@@ -180,6 +194,12 @@ export async function runTrialSecurityTests() {
   });
   const raceOrgId = raceAuth.organization!.id;
   const raceUserId = raceAuth.user.id;
+  await AuthService.completeOnboarding({
+    userId: raceUserId,
+    organizationId: raceOrgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Race Org Restaurant is open daily 9 AM to 9 PM. Located at 8 Race Street.',
+  });
 
   // Clear any pre-existing redemption for test isolation
   await db.execute(`DELETE FROM trial_redemptions WHERE normalized_email = $1`, [raceEmail.toLowerCase()]);
@@ -220,6 +240,18 @@ export async function runTrialSecurityTests() {
     password: 'password123',
     fullName: 'Owner B',
     businessName: 'Tenant B',
+  });
+  await AuthService.completeOnboarding({
+    userId: authOrgA.user.id,
+    organizationId: authOrgA.organization!.id,
+    industry: 'Clinic',
+    businessKnowledge: 'Tenant A Clinic is open Monday to Friday 9 AM to 5 PM. Located at 1 Tenant Street.',
+  });
+  await AuthService.completeOnboarding({
+    userId: authOrgB.user.id,
+    organizationId: authOrgB.organization!.id,
+    industry: 'Clinic',
+    businessKnowledge: 'Tenant B Clinic is open Monday to Friday 10 AM to 6 PM. Located at 2 Tenant Avenue.',
   });
 
   const tenantARedemptions = await db.query(

@@ -1,7 +1,7 @@
 import { AuthService } from '../server/src/services/AuthService';
 import { AIBudgetService } from '../server/src/services/AIBudgetService';
 import { PaddleBillingService } from '../server/src/services/PaddleBillingService';
-import { aiProvider } from '../server/src/services/AIProvider';
+import { aiProvider, GeminiProvider } from '../server/src/services/AIProvider';
 import { config } from '../server/src/config';
 import { db } from '../server/src/db';
 import { SubscriptionStatus } from '@onceclic/shared';
@@ -16,6 +16,14 @@ export async function runAIBudgetTests() {
     businessName: 'Budget Org',
   });
   const orgId = auth.organization!.id;
+
+  // Activate trial via onboarding (required before subscription/budget are live)
+  await AuthService.completeOnboarding({
+    userId: auth.user.id,
+    organizationId: orgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Budget Org Restaurant is open daily 9 AM to 9 PM. Located at 1 Budget Street.',
+  });
 
   // 1. Trial starts with $0 AI usage
   const spent0 = await AIBudgetService.getOrganizationSpentUsd(orgId);
@@ -51,7 +59,9 @@ export async function runAIBudgetTests() {
   // 4. AI cost is calculated from token usage
   // Model: gpt-4o-mini ($0.15/1M prompt, $0.60/1M completion)
   // 1,000,000 prompt tokens + 1,000,000 completion tokens = $0.15 + $0.60 = $0.75
-  const estimatedCost = aiProvider.estimateCost('gpt-4o-mini', 1000000, 1000000);
+  // Use a real GeminiProvider instance for cost estimation (MockAIProvider returns fixed tiny cost)
+  const realProvider = new GeminiProvider('mock_key_for_cost_test', 'gemini-3.5-flash-lite');
+  const estimatedCost = realProvider.estimateCost('gpt-4o-mini', 1000000, 1000000);
   if (Math.abs(estimatedCost - 0.75) > 0.001) {
     throw new Error(`Expected estimated cost for 1M/1M gpt-4o-mini to be $0.75, got ${estimatedCost}`);
   }
@@ -100,6 +110,12 @@ export async function runAIBudgetTests() {
     businessName: 'AI Race Org',
   });
   const raceOrgId = orgRace.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: orgRace.user.id,
+    organizationId: raceOrgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'AI Race Org is open daily 9 AM to 9 PM. Located at 1 Race Street.',
+  });
 
   // Add usage to $0.48 (only $0.02 remaining)
   await db.execute(
@@ -173,6 +189,12 @@ export async function runAIBudgetTests() {
     businessName: 'Expired Org',
   });
   const expOrgId = orgExpired.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: orgExpired.user.id,
+    organizationId: expOrgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Expired Org is open daily 9 AM to 9 PM. Located at 1 Expired Street.',
+  });
 
   // Manually expire the trial by setting trial_ends_at in the past
   const pastDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();

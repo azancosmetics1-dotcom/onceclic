@@ -601,44 +601,34 @@ export class ComposioService {
   static async fetchUnreadEmails(organizationId: string): Promise<ComposioEmailMessage[]> {
     if (!this.isAvailable()) return [];
 
-    // Try fetching emails using GMAIL_FETCH_EMAILS or GMAIL_LIST_MESSAGES
-    const execRes = await this.executeTool({
-      organizationId,
-      toolSlug: 'GMAIL_FETCH_EMAILS',
-      args: {
-        query: 'is:unread',
-        max_results: 15,
-      },
-    });
-
+    const toolSlugs = ['GMAIL_FETCH_EMAILS', 'GMAIL_LIST_MESSAGES', 'GMAIL_USERS_MESSAGES_LIST'];
     let rawList: any[] = [];
-    if (execRes.success && execRes.data) {
-      if (Array.isArray(execRes.data)) {
-        rawList = execRes.data;
-      } else if (Array.isArray(execRes.data.messages)) {
-        rawList = execRes.data.messages;
-      } else if (Array.isArray(execRes.data.emails)) {
-        rawList = execRes.data.emails;
-      } else if (Array.isArray(execRes.data.data)) {
-        rawList = execRes.data.data;
-      }
-    } else {
-      // Fallback to GMAIL_LIST_MESSAGES
-      const listRes = await this.executeTool({
+
+    for (const slug of toolSlugs) {
+      const execRes = await this.executeTool({
         organizationId,
-        toolSlug: 'GMAIL_LIST_MESSAGES',
+        toolSlug: slug,
         args: {
+          query: 'is:unread',
           q: 'is:unread',
+          max_results: 15,
           maxResults: 15,
         },
       });
 
-      if (listRes.success && listRes.data) {
-        if (Array.isArray(listRes.data.messages)) {
-          rawList = listRes.data.messages;
-        } else if (Array.isArray(listRes.data)) {
-          rawList = listRes.data;
+      if (execRes.success && execRes.data) {
+        if (Array.isArray(execRes.data)) {
+          rawList = execRes.data;
+        } else if (Array.isArray(execRes.data.messages)) {
+          rawList = execRes.data.messages;
+        } else if (Array.isArray(execRes.data.emails)) {
+          rawList = execRes.data.emails;
+        } else if (Array.isArray(execRes.data.data)) {
+          rawList = execRes.data.data;
+        } else if (Array.isArray(execRes.data.items)) {
+          rawList = execRes.data.items;
         }
+        if (rawList.length > 0) break;
       }
     }
 
@@ -702,30 +692,40 @@ export class ComposioService {
 
     const args: Record<string, any> = {
       recipient_email: params.toEmail,
+      recipient: params.toEmail,
       to: params.toEmail,
       subject: cleanSubject,
       body: params.body,
+      message: params.body,
     };
 
     if (params.threadId) {
       args.thread_id = params.threadId;
+      args.threadId = params.threadId;
     }
     if (params.inReplyToMessageId) {
       args.in_reply_to = params.inReplyToMessageId;
+      args.inReplyTo = params.inReplyToMessageId;
     }
 
-    const execRes = await this.executeTool({
-      organizationId: params.organizationId,
-      toolSlug: 'GMAIL_SEND_EMAIL',
-      args,
-    });
+    const toolSlugs = ['GMAIL_SEND_EMAIL', 'GMAIL_USERS_MESSAGES_SEND', 'GMAIL_REPLY_TO_THREAD'];
+    let lastError = '';
 
-    if (execRes.success) {
-      const messageId = execRes.data?.id || execRes.data?.message_id || execRes.data?.messageId || 'sent_via_composio';
-      return { success: true, messageId };
+    for (const toolSlug of toolSlugs) {
+      const execRes = await this.executeTool({
+        organizationId: params.organizationId,
+        toolSlug,
+        args,
+      });
+
+      if (execRes.success) {
+        const messageId = execRes.data?.id || execRes.data?.message_id || execRes.data?.messageId || 'sent_via_composio';
+        return { success: true, messageId };
+      }
+      lastError = execRes.error || `Tool ${toolSlug} failed`;
     }
 
-    return { success: false, error: execRes.error };
+    return { success: false, error: lastError };
   }
 
   // =========================================================================
@@ -922,23 +922,34 @@ export class ComposioService {
   static async fetchInstagramMessages(organizationId: string): Promise<ComposioInstagramMessage[]> {
     if (!this.isAvailable()) return [];
 
-    // Attempt INSTAGRAM_LIST_ALL_CONVERSATIONS or INSTAGRAM_GET_PAGE_CONVERSATIONS
-    const execRes = await this.executeTool({
-      organizationId,
-      toolSlug: 'INSTAGRAM_LIST_ALL_CONVERSATIONS',
-      args: {},
-    });
+    const toolSlugs = [
+      'INSTAGRAM_LIST_ALL_CONVERSATIONS',
+      'INSTAGRAM_GET_PAGE_CONVERSATIONS',
+      'INSTAGRAM_LIST_CONVERSATIONS',
+      'INSTAGRAM_GET_CONVERSATIONS',
+    ];
 
     let rawList: any[] = [];
-    if (execRes.success && execRes.data) {
-      if (Array.isArray(execRes.data)) {
-        rawList = execRes.data;
-      } else if (Array.isArray(execRes.data.data)) {
-        rawList = execRes.data.data;
-      } else if (Array.isArray(execRes.data.conversations)) {
-        rawList = execRes.data.conversations;
-      } else if (Array.isArray(execRes.data.messages)) {
-        rawList = execRes.data.messages;
+    for (const slug of toolSlugs) {
+      const execRes = await this.executeTool({
+        organizationId,
+        toolSlug: slug,
+        args: {},
+      });
+
+      if (execRes.success && execRes.data) {
+        if (Array.isArray(execRes.data)) {
+          rawList = execRes.data;
+        } else if (Array.isArray(execRes.data.data)) {
+          rawList = execRes.data.data;
+        } else if (Array.isArray(execRes.data.conversations)) {
+          rawList = execRes.data.conversations;
+        } else if (Array.isArray(execRes.data.messages)) {
+          rawList = execRes.data.messages;
+        } else if (Array.isArray(execRes.data.items)) {
+          rawList = execRes.data.items;
+        }
+        if (rawList.length > 0) break;
       }
     }
 
@@ -985,23 +996,36 @@ export class ComposioService {
 
     const args: Record<string, any> = {
       recipient_id: params.recipientId,
+      recipientId: params.recipientId,
       recipient: { id: params.recipientId },
       message: { text: params.text },
       text: params.text,
     };
 
-    const execRes = await this.executeTool({
-      organizationId: params.organizationId,
-      toolSlug: 'INSTAGRAM_SEND_TEXT_MESSAGE',
-      args,
-    });
+    const toolSlugs = [
+      'INSTAGRAM_SEND_TEXT_MESSAGE',
+      'INSTAGRAM_SEND_MESSAGE',
+      'INSTAGRAM_CREATE_MESSAGE',
+      'INSTAGRAM_MESSAGES_SEND',
+    ];
 
-    if (execRes.success) {
-      const messageId = execRes.data?.id || execRes.data?.message_id || execRes.data?.mid || 'sent_via_composio_instagram';
-      return { success: true, messageId };
+    let lastError = '';
+    for (const toolSlug of toolSlugs) {
+      const execRes = await this.executeTool({
+        organizationId: params.organizationId,
+        toolSlug,
+        args,
+      });
+
+      if (execRes.success) {
+        const messageId =
+          execRes.data?.id || execRes.data?.message_id || execRes.data?.mid || 'sent_via_composio_instagram';
+        return { success: true, messageId };
+      }
+      lastError = execRes.error || `Tool ${toolSlug} failed`;
     }
 
-    return { success: false, error: execRes.error || 'Failed to send Instagram reply.' };
+    return { success: false, error: lastError || 'Failed to send Instagram reply.' };
   }
 
   // =========================================================================
@@ -1014,22 +1038,33 @@ export class ComposioService {
   static async fetchFacebookMessages(organizationId: string): Promise<ComposioFacebookMessage[]> {
     if (!this.isAvailable()) return [];
 
-    const execRes = await this.executeTool({
-      organizationId,
-      toolSlug: 'FACEBOOK_LIST_PAGE_CONVERSATIONS',
-      args: {},
-    });
+    const toolSlugs = [
+      'FACEBOOK_LIST_PAGE_CONVERSATIONS',
+      'FACEBOOK_GET_PAGE_CONVERSATIONS',
+      'FACEBOOK_LIST_CONVERSATIONS',
+    ];
 
     let rawList: any[] = [];
-    if (execRes.success && execRes.data) {
-      if (Array.isArray(execRes.data)) {
-        rawList = execRes.data;
-      } else if (Array.isArray(execRes.data.data)) {
-        rawList = execRes.data.data;
-      } else if (Array.isArray(execRes.data.conversations)) {
-        rawList = execRes.data.conversations;
-      } else if (Array.isArray(execRes.data.messages)) {
-        rawList = execRes.data.messages;
+    for (const slug of toolSlugs) {
+      const execRes = await this.executeTool({
+        organizationId,
+        toolSlug: slug,
+        args: {},
+      });
+
+      if (execRes.success && execRes.data) {
+        if (Array.isArray(execRes.data)) {
+          rawList = execRes.data;
+        } else if (Array.isArray(execRes.data.data)) {
+          rawList = execRes.data.data;
+        } else if (Array.isArray(execRes.data.conversations)) {
+          rawList = execRes.data.conversations;
+        } else if (Array.isArray(execRes.data.messages)) {
+          rawList = execRes.data.messages;
+        } else if (Array.isArray(execRes.data.items)) {
+          rawList = execRes.data.items;
+        }
+        if (rawList.length > 0) break;
       }
     }
 
@@ -1076,23 +1111,36 @@ export class ComposioService {
 
     const args: Record<string, any> = {
       recipient_id: params.recipientId,
+      recipientId: params.recipientId,
       recipient: { id: params.recipientId },
       message: { text: params.text },
       text: params.text,
     };
 
-    const execRes = await this.executeTool({
-      organizationId: params.organizationId,
-      toolSlug: 'FACEBOOK_SEND_PAGE_MESSAGE',
-      args,
-    });
+    const toolSlugs = [
+      'FACEBOOK_SEND_PAGE_MESSAGE',
+      'FACEBOOK_SEND_MESSAGE',
+      'FACEBOOK_POST_PAGE_MESSAGE',
+      'FACEBOOK_MESSAGES_SEND',
+    ];
 
-    if (execRes.success) {
-      const messageId = execRes.data?.id || execRes.data?.message_id || execRes.data?.mid || 'sent_via_composio_facebook';
-      return { success: true, messageId };
+    let lastError = '';
+    for (const toolSlug of toolSlugs) {
+      const execRes = await this.executeTool({
+        organizationId: params.organizationId,
+        toolSlug,
+        args,
+      });
+
+      if (execRes.success) {
+        const messageId =
+          execRes.data?.id || execRes.data?.message_id || execRes.data?.mid || 'sent_via_composio_facebook';
+        return { success: true, messageId };
+      }
+      lastError = execRes.error || `Tool ${toolSlug} failed`;
     }
 
-    return { success: false, error: execRes.error || 'Failed to send Facebook message via Composio.' };
+    return { success: false, error: lastError || 'Failed to send Facebook message via Composio.' };
   }
 }
 

@@ -512,11 +512,27 @@ export interface RegisterRequest {
   password: string;
   fullName: string;
   businessName?: string;
+  industry?: string;
+  businessKnowledge?: string;
 }
 
 export interface LoginRequest {
   email: string;
   password: string;
+}
+
+export interface CompleteOnboardingRequest {
+  industry: 'CLINIC' | 'RESTAURANT' | 'SALON' | string;
+  businessName?: string;
+  businessKnowledge: string;
+  address?: string;
+  services?: ServiceItem[];
+  reservationSettings?: RestaurantReservationSettings;
+  businessHours?: DayBusinessHours[];
+  openingHoursStr?: string;
+  serviceName?: string;
+  servicePrice?: number;
+  serviceDuration?: number;
 }
 
 export interface OnboardingStepRequest {

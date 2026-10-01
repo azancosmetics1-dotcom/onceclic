@@ -36,6 +36,12 @@ export async function runFinalProductFlowTests() {
   });
   const clinicOrgId = clinicRegisterRes.organization!.id;
   const clinicSlug = clinicRegisterRes.organization!.slug;
+  await AuthService.completeOnboarding({
+    userId: clinicRegisterRes.user.id,
+    organizationId: clinicOrgId,
+    industry: 'Clinic',
+    businessKnowledge: 'Apex Dental Care in Lahore. Dental cleaning $120. Open Monday to Saturday 9 AM to 6 PM.',
+  });
 
   const restEmail = `rest_onboard_${timestamp}@example.com`;
   const restRegisterRes = await AuthService.register({
@@ -46,6 +52,12 @@ export async function runFinalProductFlowTests() {
   });
   const restOrgId = restRegisterRes.organization!.id;
   const restSlug = restRegisterRes.organization!.slug;
+  await AuthService.completeOnboarding({
+    userId: restRegisterRes.user.id,
+    organizationId: restOrgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Osteria Bella Vista Downtown. Wood-fired pizzas and handmade pastas. Open Monday to Sunday 12 PM to 11 PM.',
+  });
 
   const salonEmail = `salon_onboard_${timestamp}@example.com`;
   const salonRegisterRes = await AuthService.register({
@@ -56,8 +68,15 @@ export async function runFinalProductFlowTests() {
   });
   const salonOrgId = salonRegisterRes.organization!.id;
   const salonSlug = salonRegisterRes.organization!.slug;
+  await AuthService.completeOnboarding({
+    userId: salonRegisterRes.user.id,
+    organizationId: salonOrgId,
+    industry: 'Salon',
+    businessKnowledge: 'Luxe Hair & Beauty Studio West End. Haircuts $65, balayage $180. Tuesday to Sunday 10 AM to 8 PM.',
+  });
 
   console.log('  ✓ 1-3. Registered users for Clinic, Restaurant, and Salon');
+
 
   // Test 5: Required knowledge validation (reject empty / whitespace only)
   const emptyKnowledge = '   ';

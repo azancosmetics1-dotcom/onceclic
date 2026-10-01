@@ -96,6 +96,12 @@ export async function runIntegrationTests() {
     });
     await AuthService.verifyEmail(user.verificationToken!);
     const orgId = user.organization!.id;
+    await AuthService.completeOnboarding({
+      userId: user.user.id,
+      organizationId: orgId,
+      industry: 'Clinic',
+      businessKnowledge: 'Apex Health Clinic is open Monday to Friday 9 AM to 5 PM. Address: 1 Health Drive.',
+    });
 
     // 2. Test Website Configuration
     const initialWeb = await IntegrationService.getWebsiteConfig(orgId);

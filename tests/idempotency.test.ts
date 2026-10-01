@@ -14,6 +14,13 @@ export async function runIdempotencyTests() {
 
   const orgId = auth.organization!.id;
 
+  await AuthService.completeOnboarding({
+    userId: auth.user.id,
+    organizationId: orgId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Idempotency Corp is open daily 9 AM to 9 PM. Located at 1 Idempotency Street.',
+  });
+
   const conv = await ConversationService.getOrCreateConversation({
     organizationId: orgId,
     channel: ConversationChannel.WEB,

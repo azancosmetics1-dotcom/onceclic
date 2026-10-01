@@ -181,4 +181,44 @@ router.post('/members', requirePermission('org:manage'), async (req: Request, re
   }
 });
 
+// Complete Onboarding: Save industry, settings, knowledge chunks, and start 7-day free trial
+const completeOnboardingHandler = async (req: Request, res: Response, next: any) => {
+  try {
+    const { AuthService } = await import('../services/AuthService');
+    const {
+      industry,
+      businessKnowledge,
+      businessName,
+      address,
+      services,
+      reservationSettings,
+      openingHoursStr,
+    } = req.body;
+
+    const result = await AuthService.completeOnboarding({
+      userId: req.user!.id,
+      organizationId: req.organizationId!,
+      industry,
+      businessKnowledge,
+      businessName,
+      address,
+      services,
+      reservationSettings,
+      openingHoursStr,
+    });
+
+    res.json({
+      success: true,
+      message: 'Onboarding completed successfully. 7-Day Free Trial activated.',
+      data: result,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+router.post('/onboarding', requirePermission('settings:manage'), completeOnboardingHandler);
+router.post('/complete-onboarding', requirePermission('settings:manage'), completeOnboardingHandler);
+
 export default router;
+

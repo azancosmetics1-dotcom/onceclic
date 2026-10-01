@@ -53,8 +53,15 @@ export class AuthService {
       [userId, email, passwordHash, params.fullName || 'Business Owner']
     );
 
-    // 2. Setup standard organization, 7-day trial, Luna, settings, availability & knowledge
-    const workspace = await this.setupDefaultWorkspace(userId, params.fullName || 'Business Owner', params.businessName, email);
+    // 2. Setup standard organization, Luna, settings, availability & knowledge
+    const workspace = await this.setupDefaultWorkspace(
+      userId,
+      params.fullName || 'Business Owner',
+      params.businessName,
+      email,
+      params.industry,
+      params.businessKnowledge
+    );
     const orgId = workspace.organization.id;
     const membershipId = workspace.membership.id;
     const businessName = workspace.organization.name;
@@ -138,23 +145,207 @@ export class AuthService {
   }
 
   /**
-   * Helper to initialize default organization, 7-day trial, AI receptionist, business settings, availability, and knowledge base.
+   * Helper to normalize and validate industry type.
+   */
+  static normalizeIndustry(industry: string): 'Clinic' | 'Restaurant' | 'Salon' {
+    if (!industry || typeof industry !== 'string') {
+      throw new Error('Please select a valid industry: Clinic, Restaurant, or Salon.');
+    }
+    const clean = industry.trim().toLowerCase();
+    if (clean.includes('clinic') || clean.includes('health') || clean.includes('medical') || clean.includes('dental')) {
+      return 'Clinic';
+    }
+    if (clean.includes('restaurant') || clean.includes('cafe') || clean.includes('dining') || clean.includes('hospitality')) {
+      return 'Restaurant';
+    }
+    if (clean.includes('salon') || clean.includes('spa') || clean.includes('beauty') || clean.includes('barber')) {
+      return 'Salon';
+    }
+    throw new Error('Please select a valid industry: Clinic, Restaurant, or Salon.');
+  }
+
+  /**
+   * Helper to validate meaningful business knowledge.
+   */
+  static validateBusinessKnowledge(knowledge: string): string {
+    if (!knowledge || typeof knowledge !== 'string') {
+      throw new Error('Business knowledge is required (minimum 15 characters).');
+    }
+    const trimmed = knowledge.trim();
+    if (trimmed.length < 15) {
+      throw new Error('Please provide meaningful business information of at least 15 characters.');
+    }
+    // Block meaningless filler
+    const lower = trimmed.toLowerCase();
+    const fillers = ['hello', 'test', 'abc', '123', 'whitespace', 'asdf', 'qwerty', 'aaaa', 'xxxx'];
+    if (fillers.includes(lower) || /^(.)\1+$/.test(lower) || /^[0-9\s!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]+$/.test(lower)) {
+      throw new Error('Please provide meaningful business details (opening hours, services, prices, or policies).');
+    }
+    return trimmed;
+  }
+
+  /**
+   * Complete business onboarding: validate industry + knowledge, save business settings, create knowledge chunks, and start 7-day trial.
+   */
+  static async completeOnboarding(params: {
+    userId: string;
+    organizationId: string;
+    industry: string;
+    businessKnowledge: string;
+    businessName?: string;
+    address?: string;
+    services?: any[];
+    reservationSettings?: any;
+    openingHoursStr?: string;
+  }): Promise<{ organization: Organization; trial: any }> {
+    const normalizedIndustry = this.normalizeIndustry(params.industry);
+    const validKnowledge = this.validateBusinessKnowledge(params.businessKnowledge);
+
+    const userRecord = await db.getOne('SELECT email FROM users WHERE id = $1', [params.userId]);
+    const email = userRecord?.email;
+
+    // 1. Update organization details
+    if (params.businessName || params.address) {
+      await db.execute(
+        `UPDATE organizations
+         SET business_type = $1,
+             name = COALESCE($2, name),
+             address = COALESCE($3, address),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4`,
+        [normalizedIndustry, params.businessName || null, params.address || null, params.organizationId]
+      );
+    } else {
+      await db.execute(
+        `UPDATE organizations
+         SET business_type = $1,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [normalizedIndustry, params.organizationId]
+      );
+    }
+
+    // 2. Update business settings
+    if (params.services || params.reservationSettings) {
+      await db.execute(
+        `UPDATE business_settings
+         SET services = COALESCE($1, services),
+             reservation_settings = COALESCE($2, reservation_settings),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE organization_id = $3`,
+        [
+          params.services ? JSON.stringify(params.services) : null,
+          params.reservationSettings ? (typeof params.reservationSettings === 'string' ? params.reservationSettings : JSON.stringify(params.reservationSettings)) : null,
+          params.organizationId,
+        ]
+      );
+    }
+
+    // 3. Update AI Employee instructions
+    const orgRecord = await db.getOne('SELECT name, address FROM organizations WHERE id = $1', [params.organizationId]);
+    const bName = orgRecord?.name || 'My Business';
+    const bAddr = orgRecord?.address || params.address || 'Configured online';
+    const bHours = params.openingHoursStr || 'Monday-Friday 9:00 AM - 5:00 PM';
+
+    const aiRole =
+      normalizedIndustry === 'Clinic'
+        ? 'Medical & Clinic Receptionist'
+        : normalizedIndustry === 'Restaurant'
+        ? 'Restaurant Host & Receptionist'
+        : 'Salon & Spa Receptionist';
+
+    const aiInstructions =
+      normalizedIndustry === 'Clinic'
+        ? `You are the AI receptionist for ${bName}. Help patients understand available treatments, consultation fees, and clinic hours. Guide them to schedule appointments. Never provide medical diagnoses.`
+        : normalizedIndustry === 'Restaurant'
+        ? `You are the AI host for ${bName}. Help guests with table reservations, party sizes, dining hours, and menu inquiries.`
+        : `You are the AI receptionist for ${bName}. Help clients book styling, hair, and beauty appointments, and explain service pricing and opening hours.`;
+
+    await db.execute(
+      `UPDATE ai_employees
+       SET role_title = $1,
+           instructions = $2,
+           business_context = $3,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE organization_id = $4`,
+      [
+        aiRole,
+        aiInstructions,
+        `Business: ${bName}. Industry: ${normalizedIndustry}. Address: ${bAddr}. Hours: ${bHours}.`,
+        params.organizationId,
+      ]
+    );
+
+    // 4. Save Knowledge Source & Chunks
+    const knowledgeSource = await KnowledgeService.addSource({
+      organizationId: params.organizationId,
+      sourceType: KnowledgeSourceType.BUSINESS_INFO,
+      title: `${bName} - Verified Business Knowledge`,
+      rawContent: validKnowledge,
+      userId: params.userId,
+    });
+
+    // 5. Verify knowledge exists before starting trial
+    const chunksRes = await db.query(
+      'SELECT id FROM knowledge_chunks WHERE organization_id = $1',
+      [params.organizationId]
+    );
+
+    if (!chunksRes.rows || chunksRes.rows.length === 0) {
+      throw new Error('Failed to index business knowledge. Please try submitting again.');
+    }
+
+    // 6. Start 7-Day Free Trial
+    let trialResult: any = null;
+    if (email) {
+      trialResult = await TrialService.redeemTrial({
+        userId: params.userId,
+        organizationId: params.organizationId,
+        email,
+      });
+    }
+
+    const updatedOrg = await db.getOne<Organization>(
+      `SELECT id, name, slug, business_type as "businessType", phone, email, website, address, timezone, is_active as "isActive", created_at as "createdAt", updated_at as "updatedAt"
+       FROM organizations WHERE id = $1`,
+      [params.organizationId]
+    );
+
+    await AuditService.log({
+      organizationId: params.organizationId,
+      userId: params.userId,
+      action: AuditAction.AI_EMPLOYEE_UPDATED,
+      entityType: 'ORGANIZATION',
+      entityId: params.organizationId,
+      metadata: { industry: normalizedIndustry, knowledgeSourceId: knowledgeSource.id, trialActivated: true },
+    });
+
+    return { organization: updatedOrg!, trial: trialResult };
+  }
+
+  /**
+   * Helper to initialize default organization, AI receptionist, business settings, availability, and knowledge base.
    */
   private static async setupDefaultWorkspace(
     userId: string,
     fullName: string,
     businessNameParam?: string,
-    userEmail?: string
+    userEmail?: string,
+    industryParam?: string,
+    businessKnowledgeParam?: string
   ): Promise<{ organization: Organization; membership: OrganizationMembership }> {
     const orgId = uuidv4();
     const businessName = businessNameParam || `${fullName || 'My'} Business`;
     const slug = `${businessName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-${Math.random().toString(36).substring(2, 6)}`;
 
+    const hasOnboardingData = industryParam && businessKnowledgeParam && businessKnowledgeParam.trim().length >= 15;
+    const initialBusinessType = hasOnboardingData ? this.normalizeIndustry(industryParam) : 'ONBOARDING_REQUIRED';
+
     // 1. Create Organization
     await db.execute(
       `INSERT INTO organizations (id, name, slug, business_type, timezone, is_active, created_at, updated_at)
-       VALUES ($1, $2, $3, 'Professional Services', 'UTC', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [orgId, businessName, slug]
+       VALUES ($1, $2, $3, $4, 'UTC', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [orgId, businessName, slug, initialBusinessType]
     );
 
     // 2. Create Membership (Owner)
@@ -165,24 +356,7 @@ export class AuthService {
       [membershipId, orgId, userId]
     );
 
-    // 3. Create 7-day Trial Subscription (Enforces 1 trial per email)
-    if (userEmail) {
-      const eligibility = await TrialService.checkEligibility(userEmail);
-      if (eligibility.eligible) {
-        await TrialService.redeemTrial({ userId, organizationId: orgId, email: userEmail });
-      } else {
-        await db.execute(
-          `INSERT INTO subscriptions (
-             id, organization_id, status, trial_started_at, trial_ends_at, cancel_at_period_end, created_at, updated_at
-           ) VALUES ($1, $2, 'EXPIRED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-          [uuidv4(), orgId]
-        );
-      }
-    } else {
-      await PaddleBillingService.createTrialSubscription(orgId);
-    }
-
-    // 4. Create Default AI Receptionist
+    // 3. Create Default AI Receptionist
     const aiEmployeeId = uuidv4();
     await db.execute(
       `INSERT INTO ai_employees (
@@ -204,7 +378,7 @@ export class AuthService {
       ]
     );
 
-    // 5. Create Default Business Settings
+    // 4. Create Default Business Settings
     const defaultHours = [
       { dayOfWeek: 0, openTime: '09:00', closeTime: '17:00', isClosed: true },
       { dayOfWeek: 1, openTime: '09:00', closeTime: '17:00', isClosed: false },
@@ -235,7 +409,7 @@ export class AuthService {
       ]
     );
 
-    // 6. Create Default Availability Rules (Mon-Fri)
+    // 5. Create Default Availability Rules (Mon-Fri)
     for (let day = 1; day <= 5; day++) {
       await db.execute(
         `INSERT INTO availability_rules (
@@ -245,20 +419,27 @@ export class AuthService {
       );
     }
 
-    // 7. Create Starter Knowledge Source
-    await KnowledgeService.addSource({
-      organizationId: orgId,
-      sourceType: KnowledgeSourceType.FAQ,
-      title: 'General Business FAQs',
-      rawContent: `Q: What are your regular operating hours?\nA: We are open Monday through Friday from 9:00 AM to 5:00 PM. We are closed on weekends.\n\nQ: How do I book an appointment?\nA: You can book an appointment right here through this chat! Simply ask to schedule a time and provide your name and email.\n\nQ: What is your cancellation policy?\nA: We request at least 24 hours notice for any cancellations or schedule adjustments.`,
-      userId,
-    });
+    // 6. If onboarding data was provided during registration, initialize knowledge and start trial
+    if (hasOnboardingData && userEmail) {
+      await KnowledgeService.addSource({
+        organizationId: orgId,
+        sourceType: KnowledgeSourceType.BUSINESS_INFO,
+        title: `${businessName} - Core Business Knowledge`,
+        rawContent: businessKnowledgeParam!.trim(),
+        userId,
+      });
+
+      const eligibility = await TrialService.checkEligibility(userEmail);
+      if (eligibility.eligible) {
+        await TrialService.redeemTrial({ userId, organizationId: orgId, email: userEmail });
+      }
+    }
 
     const organization: Organization = {
       id: orgId,
       name: businessName,
       slug,
-      businessType: 'Professional Services',
+      businessType: initialBusinessType,
       timezone: 'UTC',
       isActive: true,
       createdAt: new Date().toISOString(),

@@ -287,6 +287,19 @@ export async function runCustomerApiFieldAllowlistTests() {
   const orgAId = authOrgA.organization!.id;
   const orgBId = authOrgB.organization!.id;
 
+  await AuthService.completeOnboarding({
+    userId: authOrgA.user.id,
+    organizationId: orgAId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Organization A Allowlist Test is open daily 9 AM to 9 PM. Located at 1 Test Street.',
+  });
+  await AuthService.completeOnboarding({
+    userId: authOrgB.user.id,
+    organizationId: orgBId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Organization B Allowlist Test is open daily 10 AM to 8 PM. Located at 2 Test Avenue.',
+  });
+
   const rawOrgASub = await PaddleBillingService.getSubscription(orgAId);
   const orgABudgetStatus = await AIBudgetService.checkBudget(orgAId);
   const safeOrgABilling = toCustomerBillingStatus({

@@ -43,6 +43,12 @@ export async function runOwnerNotificationTests() {
       businessName: 'Princeton Diagnostics Clinic',
     });
     const clinicOrgId = clinicAuth.organization!.id;
+    await AuthService.completeOnboarding({
+      userId: clinicAuth.user.id,
+      organizationId: clinicOrgId,
+      industry: 'Clinic',
+      businessKnowledge: 'Princeton Diagnostics Clinic is open Monday to Friday 9 AM to 5 PM. Comprehensive Consultation $150.',
+    });
 
     // Reset dispatched emails after registration
     dispatchedEmails.length = 0;
@@ -131,6 +137,12 @@ export async function runOwnerNotificationTests() {
       businessName: 'Trattoria Bella',
     });
     const restOrgId = restAuth.organization!.id;
+    await AuthService.completeOnboarding({
+      userId: restAuth.user.id,
+      organizationId: restOrgId,
+      industry: 'Restaurant',
+      businessKnowledge: 'Trattoria Bella is open daily 12 PM to 11 PM. Italian cuisine. Reservations recommended for parties over 4.',
+    });
 
     // Reset dispatched emails after registration
     dispatchedEmails.length = 0;
@@ -192,6 +204,12 @@ export async function runOwnerNotificationTests() {
       businessName: 'Sophia Beauty Lounge',
     });
     const salonOrgId = salonAuth.organization!.id;
+    await AuthService.completeOnboarding({
+      userId: salonAuth.user.id,
+      organizationId: salonOrgId,
+      industry: 'Salon',
+      businessKnowledge: 'Sophia Beauty Lounge is open Tuesday to Saturday 10 AM to 7 PM. Balayage & Styling $200. Book online.',
+    });
 
     // Reset dispatched emails after registration
     dispatchedEmails.length = 0;
@@ -346,6 +364,18 @@ export async function runOwnerNotificationTests() {
 
     const orgAId = orgATenant.organization!.id;
     const orgBId = orgBTenant.organization!.id;
+    await AuthService.completeOnboarding({
+      userId: orgATenant.user.id,
+      organizationId: orgAId,
+      industry: 'Salon',
+      businessKnowledge: 'Tenant A MedSpa is open Monday to Friday 9 AM to 6 PM. Facial treatments from $80.',
+    });
+    await AuthService.completeOnboarding({
+      userId: orgBTenant.user.id,
+      organizationId: orgBId,
+      industry: 'Restaurant',
+      businessKnowledge: 'Tenant B AutoCare is open Monday to Saturday 8 AM to 6 PM. Oil change from $30.',
+    });
 
     // Clear verification emails
     dispatchedEmails.length = 0;

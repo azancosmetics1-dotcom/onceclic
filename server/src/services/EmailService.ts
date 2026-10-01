@@ -274,11 +274,33 @@ export class EmailService {
       }
     }
 
+    // Fallback: if organizationId was explicitly provided but no email_connection row exists yet,
+    // verify the org exists and construct a minimal synthetic conn object so we can proceed.
+    // This handles platform-initiated inbound routing (e.g. from Gmail push notifications or
+    // forwarding rules) where the org is identified by ID before an email connection is configured.
+    if (!conn && payload.organizationId) {
+      const org = await db.getOne<{ id: string }>('SELECT id FROM organizations WHERE id = $1', [payload.organizationId]);
+      if (org) {
+        // Auto-initialize the email connection record (idempotent) and use synthetic conn
+        await EmailService.getConnection(payload.organizationId);
+        conn = {
+          organization_id: payload.organizationId,
+          is_active: false,
+          connected_email: null,
+          inbound_address: null,
+          provider_type: 'OAUTH',
+          status: 'NOT_CONNECTED',
+        };
+      }
+    }
+
     if (!conn) {
       return { success: false, message: 'Organization not found for incoming email recipient address.' };
     }
 
     const organizationId = conn.organization_id;
+    console.log('[ChannelSync] Gmail inbound message detected');
+    console.log('[ChannelSync] Organization resolved');
 
     // 2. Anti-Looping & Anti-Self-Reply Protection
     // Do NOT reply if the email is sent from the organization's own connected mailbox
@@ -321,6 +343,7 @@ export class EmailService {
       customerName: payload.fromName || fromEmail.split('@')[0],
       customerEmail: fromEmail,
     });
+    console.log('[ChannelSync] Conversation created');
 
     // 5. Deduplication & Idempotency: Use deterministic clientMessageId
     const rawMsgId = payload.messageId || `${fromEmail}_${subject}_${textBody.substring(0, 60)}`;
@@ -340,6 +363,7 @@ export class EmailService {
 
     // 7. Dispatch AI Reply via Connected Mailbox (or fallback)
     if (result.aiMessage && result.aiMessage.content) {
+      console.log('[ChannelSync] AI response generated');
       const dispatchRes = await this.sendEmailReply({
         organizationId,
         toEmail: fromEmail,
@@ -349,6 +373,11 @@ export class EmailService {
       });
 
       aiReplySent = dispatchRes.success;
+      if (aiReplySent) {
+        console.log('[ChannelSync] Gmail reply sent');
+      } else {
+        console.warn('[ChannelSync] Gmail reply dispatch unfulfilled');
+      }
 
       await AuditService.log({
         organizationId,

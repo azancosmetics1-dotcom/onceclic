@@ -39,6 +39,12 @@ export async function runComposioIntegrationTests() {
   });
   await AuthService.verifyEmail(userA.verificationToken!);
   const orgAId = userA.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: userA.user.id,
+    organizationId: orgAId,
+    industry: 'Clinic',
+    businessKnowledge: 'Tenant A Dental Clinic is open Monday to Friday 9 AM to 5 PM. Address: 1 Dental Road.',
+  });
 
   const userB = await AuthService.register({
     email: `comp_b_${Date.now()}@example.com`,
@@ -48,6 +54,12 @@ export async function runComposioIntegrationTests() {
   });
   await AuthService.verifyEmail(userB.verificationToken!);
   const orgBId = userB.organization!.id;
+  await AuthService.completeOnboarding({
+    userId: userB.user.id,
+    organizationId: orgBId,
+    industry: 'Restaurant',
+    businessKnowledge: 'Tenant B Legal Restaurant is open Monday to Friday 10 AM to 6 PM. Address: 2 Legal Street.',
+  });
 
   // 2. Verify Entity ID multi-tenant isolation
   const entityA = ComposioService.getEntityId(orgAId);

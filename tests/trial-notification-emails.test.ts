@@ -45,6 +45,14 @@ export async function runTrialNotificationEmailTests() {
     const orgId = authRes.organization!.id;
     const userId = authRes.user.id;
 
+    // Complete onboarding to activate trial (creates the subscription row)
+    await AuthService.completeOnboarding({
+      userId,
+      organizationId: orgId,
+      industry: 'Clinic',
+      businessKnowledge: 'Alice Dental Clinic is open Monday to Friday 9 AM to 5 PM. Address: 1 Dental Road. Phone: 555-1234.',
+    });
+
     // Set deterministic timestamps:
     // Trial started: 2026-01-01T10:00:00Z
     // Trial expires: 2026-01-08T10:00:00Z (exactly 7 days)
@@ -222,6 +230,14 @@ export async function runTrialNotificationEmailTests() {
       businessName: 'Bob Dental Spa',
     });
     const concurrentOrgId = concurrentAuth.organization!.id;
+
+    // Activate trial via onboarding (creates the subscription row)
+    await AuthService.completeOnboarding({
+      userId: concurrentAuth.user.id,
+      organizationId: concurrentOrgId,
+      industry: 'Clinic',
+      businessKnowledge: 'Bob Dental Spa is open Monday to Friday 9 AM to 5 PM. Address: 1 Concurrent Lane. Phone: 555-9999.',
+    });
 
     await db.execute(
       `UPDATE subscriptions
