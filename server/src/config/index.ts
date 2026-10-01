@@ -26,7 +26,7 @@ export const config = {
   },
 
   ai: {
-    provider: (process.env.AI_PROVIDER || 'openai').toLowerCase().trim(),
+    provider: (process.env.AI_PROVIDER || 'gemini').toLowerCase().trim(),
   },
 
   openai: {

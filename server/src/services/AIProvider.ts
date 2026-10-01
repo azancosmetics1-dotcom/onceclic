@@ -460,7 +460,7 @@ export class GeminiProvider implements IAIProvider {
  * Creates an AIProvider instance based on requested provider string or system configuration.
  */
 export function createAIProvider(providerName?: string): IAIProvider {
-  const provider = (providerName || config.ai.provider || 'openai').toLowerCase().trim();
+  const provider = (providerName || config.ai.provider || 'gemini').toLowerCase().trim();
   if (provider === 'openai') {
     return new OpenAIProvider();
   } else if (provider === 'gemini') {
@@ -485,7 +485,7 @@ export class DelegatingAIProvider implements IAIProvider {
     if (this.activeProvider) {
       return this.activeProvider;
     }
-    const targetProvider = this.overrideProviderName || config.ai.provider || 'openai';
+    const targetProvider = this.overrideProviderName || config.ai.provider || 'gemini';
     this.activeProvider = createAIProvider(targetProvider);
     return this.activeProvider;
   }
