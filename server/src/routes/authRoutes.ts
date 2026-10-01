@@ -1,9 +1,22 @@
 import { Router, Request, Response } from 'express';
 import { AuthService } from '../services/AuthService';
+import { TrialService } from '../services/TrialService';
 import { authMiddleware } from '../middleware/authMiddleware';
 import { config } from '../config';
 
+import { toCustomerTrialEligibility } from '../serializers/customerSerializers';
+
 const router = Router();
+
+router.get('/trial-eligibility', async (req: Request, res: Response, next) => {
+  try {
+    const email = req.query.email as string;
+    const result = await TrialService.checkEligibility(email);
+    res.json({ success: true, data: toCustomerTrialEligibility(result) });
+  } catch (err) {
+    next(err);
+  }
+});
 
 router.post('/register', async (req: Request, res: Response, next) => {
   try {

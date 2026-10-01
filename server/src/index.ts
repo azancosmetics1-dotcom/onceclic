@@ -84,7 +84,8 @@ app.get(['/health', '/api/health'], (req, res) => {
     commit: process.env.RAILWAY_GIT_COMMIT_SHA || process.env.GIT_COMMIT_SHA || 'adc093f',
     timestamp: new Date().toISOString(),
     env: config.nodeEnv,
-    aiAvailable: config.openai.isAvailable,
+    aiProvider: config.ai.provider,
+    aiAvailable: config.ai.provider === 'gemini' ? config.gemini.isAvailable : config.openai.isAvailable,
     paddleConfigured: config.paddle.isConfigured,
     composioConfigured: config.composio.isConfigured,
   });
@@ -198,15 +199,19 @@ export async function startServer() {
     console.log(`==================================================`);
     console.log(`  ONCEClic Server running on 0.0.0.0:${config.port}`);
     console.log(`  Environment: ${config.nodeEnv}`);
-    console.log(`  AI Provider: OpenAI (${config.openai.isAvailable ? 'Ready' : 'Requires OPENAI_API_KEY'})`);
+    const isAiReady = config.ai.provider === 'gemini' ? config.gemini.isAvailable : config.openai.isAvailable;
+    console.log(`  AI Provider: ${config.ai.provider.toUpperCase()} (${isAiReady ? 'Ready' : 'Requires API Key'})`);
     console.log(`  Paddle Billing: ${config.paddle.isConfigured ? 'Ready' : 'Requires PADDLE_WEBHOOK_SECRET'}`);
     console.log(`==================================================`);
   });
 
-  // Start background workers (Gmail Sync)
+  // Start background workers (Gmail Sync & Trial Notifications)
   if (config.google.isConfigured || config.nodeEnv !== 'test') {
     const { EmailSyncService } = require('./services/EmailSyncService');
     EmailSyncService.startPolling(30000);
+
+    const { TrialNotificationService } = require('./services/TrialNotificationService');
+    TrialNotificationService.startScheduledChecks(3600000); // Check hourly
   }
 
   return { app, server };

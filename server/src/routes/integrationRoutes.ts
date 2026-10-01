@@ -75,7 +75,12 @@ router.get('/composio/callback', async (req: Request, res: Response, next) => {
       return res.redirect(`${config.app.url}${effectiveReturn}?error=missing_composio_params`);
     }
 
-    const appType = String(app) === 'googlecalendar' ? 'googlecalendar' : 'gmail';
+    const rawApp = String(app).toLowerCase();
+    const appType: 'gmail' | 'googlecalendar' | 'instagram' | 'facebook' =
+      rawApp === 'googlecalendar' ? 'googlecalendar'
+      : rawApp === 'instagram' ? 'instagram'
+      : rawApp === 'facebook' ? 'facebook'
+      : 'gmail';
     const ip = req.ip || req.socket.remoteAddress;
 
     const result = await IntegrationService.handleComposioCallback({
@@ -91,6 +96,18 @@ router.get('/composio/callback', async (req: Request, res: Response, next) => {
           result.connectedItem ? `&email=${encodeURIComponent(result.connectedItem)}` : ''
         }`
       );
+    } else if (appType === 'instagram') {
+      return res.redirect(
+        `${config.app.url}${result.returnUrl}?instagram_connected=true${
+          result.connectedItem ? `&username=${encodeURIComponent(result.connectedItem)}` : ''
+        }`
+      );
+    } else if (appType === 'facebook') {
+      return res.redirect(
+        `${config.app.url}${result.returnUrl}?facebook_connected=true${
+          result.connectedItem ? `&page=${encodeURIComponent(result.connectedItem)}` : ''
+        }`
+      );
     } else {
       return res.redirect(`${config.app.url}${result.returnUrl}?calendar_connected=true`);
     }
@@ -101,6 +118,80 @@ router.get('/composio/callback', async (req: Request, res: Response, next) => {
     );
   }
 });
+
+
+// ------------------------------------------
+// Public Inbound Webhook for Instagram Messages
+// ------------------------------------------
+router.post('/instagram/webhook', async (req: Request, res: Response, next) => {
+  try {
+    const payload = req.body || {};
+    const { organizationId, orgId, senderId, senderUsername, text, message, messageId, id } = payload;
+    const effectiveOrgId = organizationId || orgId || (req.query.orgId as string);
+
+    if (!effectiveOrgId) {
+      return res.status(400).json({ success: false, error: 'Missing organizationId' });
+    }
+
+    const effectiveSenderId = senderId || payload.from?.id || payload.sender?.id || 'unknown_ig_user';
+    const effectiveSenderUsername = senderUsername || payload.from?.username || payload.sender?.username;
+    const effectiveText = text || message || payload.content || '';
+    const effectiveMessageId = messageId || id || payload.mid;
+
+    const result = await IntegrationService.handleInstagramInboundMessage({
+      organizationId: effectiveOrgId,
+      senderId: effectiveSenderId,
+      senderUsername: effectiveSenderUsername,
+      text: effectiveText,
+      messageId: effectiveMessageId,
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ------------------------------------------
+// Public Inbound Webhook for Facebook Page Messages
+// ------------------------------------------
+router.post('/facebook/webhook', async (req: Request, res: Response, next) => {
+  try {
+    const payload = req.body || {};
+    const { organizationId, orgId, senderId, senderName, text, message, messageId, id } = payload;
+    const effectiveOrgId = organizationId || orgId || (req.query.orgId as string);
+
+    if (!effectiveOrgId) {
+      return res.status(400).json({ success: false, error: 'Missing organizationId' });
+    }
+
+    const effectiveSenderId = senderId || payload.from?.id || payload.sender?.id || 'unknown_fb_user';
+    const effectiveSenderName = senderName || payload.from?.name || payload.sender?.name;
+    const effectiveText = text || message || payload.content || '';
+    const effectiveMessageId = messageId || id || payload.mid;
+
+    const result = await IntegrationService.handleFacebookInboundMessage({
+      organizationId: effectiveOrgId,
+      senderId: effectiveSenderId,
+      senderName: effectiveSenderName,
+      text: effectiveText,
+      messageId: effectiveMessageId,
+    });
+
+    res.json({ success: true, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+
+import {
+  toCustomerWebsiteConfig,
+  toCustomerEmailConfig,
+  toCustomerCalendarConfig,
+  toCustomerInstagramConfig,
+  toCustomerFacebookConfig,
+} from '../serializers/customerSerializers';
 
 // Protected routes require authentication & tenant isolation
 router.use(authMiddleware);
@@ -133,7 +224,7 @@ router.get(
 router.get('/google-calendar', requirePermission('integrations:read'), async (req: Request, res: Response, next) => {
   try {
     const data = await IntegrationService.getGoogleCalendarConfig(req.organizationId!);
-    res.json({ success: true, data });
+    res.json({ success: true, data: toCustomerCalendarConfig(data) });
   } catch (err) {
     next(err);
   }
@@ -144,7 +235,7 @@ router.post('/google-calendar/disconnect', requirePermission('integrations:manag
   try {
     const ip = req.ip || req.socket.remoteAddress;
     const data = await IntegrationService.disconnectGoogleCalendar(req.organizationId!, req.user?.id, ip);
-    res.json({ success: true, message: 'Google Calendar disconnected.', data });
+    res.json({ success: true, message: 'Google Calendar disconnected.', data: toCustomerCalendarConfig(data) });
   } catch (err) {
     next(err);
   }
@@ -158,7 +249,7 @@ router.post('/google-calendar/disconnect', requirePermission('integrations:manag
 router.get('/website', requirePermission('integrations:read'), async (req: Request, res: Response, next) => {
   try {
     const data = await IntegrationService.getWebsiteConfig(req.organizationId!);
-    res.json({ success: true, data });
+    res.json({ success: true, data: toCustomerWebsiteConfig(data) });
   } catch (err) {
     next(err);
   }
@@ -169,7 +260,7 @@ router.post('/website/verify', requirePermission('integrations:manage'), async (
   try {
     const ip = req.ip || req.socket.remoteAddress;
     const data = await IntegrationService.verifyWebsite(req.organizationId!, req.user?.id, ip);
-    res.json({ success: true, message: 'Website verified successfully.', data });
+    res.json({ success: true, message: 'Website verified successfully.', data: toCustomerWebsiteConfig(data) });
   } catch (err) {
     next(err);
   }
@@ -180,7 +271,7 @@ router.post('/website/disconnect', requirePermission('integrations:manage'), asy
   try {
     const ip = req.ip || req.socket.remoteAddress;
     const data = await IntegrationService.disconnectWebsite(req.organizationId!, req.user?.id, ip);
-    res.json({ success: true, message: 'Website widget disconnected.', data });
+    res.json({ success: true, message: 'Website widget disconnected.', data: toCustomerWebsiteConfig(data) });
   } catch (err) {
     next(err);
   }
@@ -213,7 +304,7 @@ router.get(
 router.get('/email', requirePermission('integrations:read'), async (req: Request, res: Response, next) => {
   try {
     const data = await IntegrationService.getEmailConfig(req.organizationId!);
-    res.json({ success: true, data });
+    res.json({ success: true, data: toCustomerEmailConfig(data) });
   } catch (err) {
     next(err);
   }
@@ -224,10 +315,88 @@ router.post('/email/disconnect', requirePermission('integrations:manage'), async
   try {
     const ip = req.ip || req.socket.remoteAddress;
     const data = await IntegrationService.disconnectEmail(req.organizationId!, req.user?.id, ip);
-    res.json({ success: true, message: 'Business email disconnected.', data });
+    res.json({ success: true, message: 'Business email disconnected.', data: toCustomerEmailConfig(data) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ------------------------------------------
+// Instagram Connection Endpoints
+// ------------------------------------------
+
+// Get Instagram OAuth authorization URL
+router.get(
+  ['/instagram/auth-url', '/instagram/auth'],
+  requirePermission('integrations:manage'),
+  async (req: Request, res: Response, next) => {
+    try {
+      const { returnUrl } = req.query;
+      const result = await IntegrationService.getInstagramAuthUrl(
+        req.organizationId!,
+        req.user?.id,
+        returnUrl ? String(returnUrl) : undefined
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Get Instagram connection status
+router.get('/instagram', requirePermission('integrations:read'), async (req: Request, res: Response, next) => {
+  try {
+    const data = await IntegrationService.getInstagramConfig(req.organizationId!);
+    res.json({ success: true, data: toCustomerInstagramConfig(data) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ------------------------------------------
+// Facebook Connection Endpoints
+// ------------------------------------------
+
+// Get Facebook Page OAuth authorization URL
+router.get(
+  ['/facebook/auth-url', '/facebook/auth'],
+  requirePermission('integrations:manage'),
+  async (req: Request, res: Response, next) => {
+    try {
+      const { returnUrl } = req.query;
+      const result = await IntegrationService.getFacebookAuthUrl(
+        req.organizationId!,
+        req.user?.id,
+        returnUrl ? String(returnUrl) : undefined
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// Get Facebook connection status
+router.get('/facebook', requirePermission('integrations:read'), async (req: Request, res: Response, next) => {
+  try {
+    const data = await IntegrationService.getFacebookConfig(req.organizationId!);
+    res.json({ success: true, data: toCustomerFacebookConfig(data) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Disconnect Facebook
+router.post('/facebook/disconnect', requirePermission('integrations:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const ip = req.ip || req.socket.remoteAddress;
+    const data = await IntegrationService.disconnectFacebook(req.organizationId!, req.user?.id, ip);
+    res.json({ success: true, message: 'Facebook Page disconnected.', data: toCustomerFacebookConfig(data) });
   } catch (err) {
     next(err);
   }
 });
 
 export default router;
+

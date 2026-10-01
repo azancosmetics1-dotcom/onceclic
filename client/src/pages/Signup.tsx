@@ -48,17 +48,17 @@ export const Signup: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+    <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-8 sm:py-12 px-4 sm:px-6 lg:px-8 min-w-0">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center min-w-0">
         <Link to="/" className="inline-flex items-center space-x-2.5 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
             <Bot className="w-6 h-6 text-slate-950 stroke-[2.5]" />
           </div>
           <span className="text-2xl font-black tracking-tight text-white">
             ONCE<span className="text-emerald-400">Clic</span>
           </span>
         </Link>
-        <h2 className="text-2xl font-bold tracking-tight text-white">Start your 7-day free trial</h2>
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Start your 7-day free trial</h2>
         <p className="mt-2 text-xs text-slate-400">
           Already have an account?{' '}
           <Link to="/login" className="font-semibold text-emerald-400 hover:text-emerald-300">
@@ -67,8 +67,8 @@ export const Signup: React.FC = () => {
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-slate-900 border border-slate-800 py-8 px-6 shadow-xl rounded-2xl sm:px-10 space-y-6">
+      <div className="mt-6 sm:mt-8 sm:mx-auto sm:w-full sm:max-w-md min-w-0">
+        <div className="bg-slate-900 border border-slate-800 py-6 sm:py-8 px-4 sm:px-10 shadow-xl rounded-2xl sm:rounded-3xl space-y-6 min-w-0">
           {error && (
             <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 flex items-start space-x-3 text-xs text-rose-300">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
@@ -188,11 +188,11 @@ export const Signup: React.FC = () => {
             <div className="pt-2 space-y-1.5 text-slate-400 text-[11px]">
               <div className="flex items-center space-x-1.5">
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span>7-Day Free Trial included</span>
+                <span>7-Day Free Trial &bull; No credit card required</span>
               </div>
               <div className="flex items-center space-x-1.5">
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span>$49/month after trial &bull; Cancel anytime</span>
+                <span>$19/month after trial &bull; Cancel anytime</span>
               </div>
             </div>
           </form>

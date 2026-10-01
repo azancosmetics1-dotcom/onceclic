@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/client';
+import { useAuth } from '../context/AuthContext';
 import { Appointment, AppointmentStatus, AvailabilityRule } from '@onceclic/shared';
 import { Badge } from '../components/Badge';
 import {
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react';
 
 export const AppointmentsPage: React.FC = () => {
+  const { organization } = useAuth();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [rules, setRules] = useState<AvailabilityRule[]>([]);
   const [activeTab, setActiveTab] = useState<'list' | 'availability'>('list');
@@ -24,15 +26,28 @@ export const AppointmentsPage: React.FC = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [savingRules, setSavingRules] = useState(false);
 
-  // New appointment form state
+  // Industry-specific terminology based on businessType
+  const bType = (organization?.businessType || '').toLowerCase();
+  const isRestaurant = bType.includes('restaurant') || bType.includes('cafe') || bType.includes('food') || bType.includes('dining') || bType.includes('bar');
+  const isClinic = bType.includes('clinic') || bType.includes('doctor') || bType.includes('medical') || bType.includes('dental') || bType.includes('health');
+  const isSalon = bType.includes('salon') || bType.includes('spa') || bType.includes('beauty') || bType.includes('hair') || bType.includes('barber');
+
+  const termBooking = isRestaurant ? 'Reservation' : isClinic ? 'Appointment' : isSalon ? 'Booking' : 'Appointment';
+  const termBookings = isRestaurant ? 'Reservations' : isClinic ? 'Appointments' : isSalon ? 'Bookings' : 'Appointments';
+  const termCustomer = isRestaurant ? 'Guest' : isClinic ? 'Patient' : isSalon ? 'Client' : 'Customer';
+  const defaultService = isRestaurant ? 'Table Reservation' : isClinic ? 'General Consultation' : isSalon ? 'General Service' : 'General Consultation';
+
+
+  // New appointment/reservation form state
   const [newAppt, setNewAppt] = useState({
-    serviceName: 'General Consultation',
+    serviceName: defaultService,
     customerName: '',
     customerEmail: '',
     customerPhone: '',
     startTime: '',
     notes: '',
   });
+
 
   const loadData = async () => {
     try {
@@ -70,7 +85,7 @@ export const AppointmentsPage: React.FC = () => {
       await api.bookAppointment(newAppt);
       setShowAddModal(false);
       setNewAppt({
-        serviceName: 'General Consultation',
+        serviceName: defaultService,
         customerName: '',
         customerEmail: '',
         customerPhone: '',
@@ -104,20 +119,24 @@ export const AppointmentsPage: React.FC = () => {
       : appointments.filter((a) => a.status === filterStatus);
 
   return (
-    <div className="space-y-8 max-w-5xl">
+    <div className="space-y-6 sm:space-y-8 max-w-5xl min-w-0">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-white flex items-center space-x-2">
-            <CalendarIcon className="w-6 h-6 text-emerald-400" />
-            <span>Appointments & Scheduling</span>
+          <h1 className="text-2xl font-black text-white flex items-center space-x-2 tracking-tight">
+            <CalendarIcon className="w-6 h-6 text-emerald-400 shrink-0" />
+            <span>{termBookings} &amp; Scheduling</span>
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Real-time appointment schedule, booking slots, and business availability rules.
+            {isRestaurant
+              ? 'Real-time reservation schedule, party sizes, and business seating availability.'
+              : isClinic
+              ? 'Real-time appointment schedule, consultation slots, and availability rules.'
+              : 'Real-time booking schedule, service slots, and business availability rules.'}
           </p>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <div className="flex rounded-xl bg-slate-900 border border-slate-800 p-1">
             <button
               onClick={() => setActiveTab('list')}
@@ -125,7 +144,7 @@ export const AppointmentsPage: React.FC = () => {
                 activeTab === 'list' ? 'bg-emerald-500 text-slate-950 shadow-sm' : 'text-slate-400 hover:text-white'
               }`}
             >
-              Appointments ({appointments.length})
+              {termBookings} ({appointments.length})
             </button>
             <button
               onClick={() => setActiveTab('availability')}
@@ -143,21 +162,21 @@ export const AppointmentsPage: React.FC = () => {
               className="inline-flex items-center space-x-1 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 shrink-0"
             >
               <Plus className="w-4 h-4" />
-              <span>Book Appointment</span>
+              <span>Add {termBooking}</span>
             </button>
           )}
         </div>
       </div>
 
       {activeTab === 'list' && (
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           {/* Status Filter */}
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
+          <div className="flex items-center space-x-2 overflow-x-auto pb-1 text-xs max-w-full">
             {['ALL', 'CONFIRMED', 'REQUESTED', 'COMPLETED', 'CANCELED', 'NO_SHOW'].map((st) => (
               <button
                 key={st}
                 onClick={() => setFilterStatus(st)}
-                className={`px-3 py-1.5 rounded-lg font-medium border transition ${
+                className={`px-3 py-1.5 rounded-lg font-medium border transition shrink-0 ${
                   filterStatus === st
                     ? 'bg-slate-800 border-emerald-500/50 text-emerald-400 font-bold'
                     : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
@@ -174,22 +193,26 @@ export const AppointmentsPage: React.FC = () => {
               <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : filteredAppointments.length === 0 ? (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-12 text-center space-y-3">
+            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 sm:p-12 text-center space-y-3">
               <CalendarIcon className="w-10 h-10 text-slate-600 mx-auto" />
-              <h3 className="text-sm font-bold text-white">No appointments found</h3>
+              <h3 className="text-sm font-bold text-white">No {termBookings.toLowerCase()} found</h3>
               <p className="text-xs text-slate-400">
-                Customers can book appointments through the website AI chat or email.
+                {isRestaurant
+                  ? 'Customers can reserve tables through the website AI chat or booking page.'
+                  : isClinic
+                  ? 'Patients can book appointments through the website AI chat or email.'
+                  : 'Clients can book services through the website AI chat or booking page.'}
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 min-w-0">
               {filteredAppointments.map((appt) => (
                 <div
                   key={appt.id}
-                  className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-slate-750 transition"
+                  className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-slate-750 transition min-w-0"
                 >
-                  <div className="space-y-1.5 min-w-0">
-                    <div className="flex items-center space-x-2">
+                  <div className="space-y-1.5 min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
                       <h3 className="text-sm font-bold text-white truncate">{appt.customerName}</h3>
                       <Badge
                         variant={
@@ -207,35 +230,35 @@ export const AppointmentsPage: React.FC = () => {
                       <span className="text-xs text-emerald-400 font-semibold">{appt.serviceName}</span>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-4 text-xs text-slate-400 font-mono">
+                    <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs text-slate-400 font-mono">
                       <span className="flex items-center space-x-1 text-slate-200">
-                        <Clock className="w-3.5 h-3.5 text-emerald-400" />
+                        <Clock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                         <span>
                           {new Date(appt.startTime).toLocaleDateString()} at{' '}
                           {new Date(appt.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       </span>
-                      <span className="flex items-center space-x-1">
-                        <Mail className="w-3.5 h-3.5" />
-                        <span>{appt.customerEmail}</span>
+                      <span className="flex items-center space-x-1 truncate max-w-[200px]">
+                        <Mail className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">{appt.customerEmail}</span>
                       </span>
                       {appt.customerPhone && (
                         <span className="flex items-center space-x-1">
-                          <Phone className="w-3.5 h-3.5" />
+                          <Phone className="w-3.5 h-3.5 shrink-0" />
                           <span>{appt.customerPhone}</span>
                         </span>
                       )}
                     </div>
 
                     {appt.notes && (
-                      <p className="text-xs text-slate-300 bg-slate-950/60 border border-slate-850 p-2 rounded-lg mt-2">
+                      <p className="text-xs text-slate-300 bg-slate-950/60 border border-slate-850 p-2.5 rounded-lg mt-2 break-words">
                         {appt.notes}
                       </p>
                     )}
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center space-x-2 shrink-0">
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
                     {appt.status !== AppointmentStatus.CONFIRMED && (
                       <button
                         onClick={() => handleStatusChange(appt.id, AppointmentStatus.CONFIRMED)}
@@ -270,10 +293,10 @@ export const AppointmentsPage: React.FC = () => {
 
       {/* Availability Rules Tab */}
       {activeTab === 'availability' && (
-        <form onSubmit={handleSaveRules} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
+        <form onSubmit={handleSaveRules} className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-8 space-y-6 min-w-0">
           <div>
             <h3 className="text-base font-bold text-white flex items-center space-x-2">
-              <Clock className="w-5 h-5 text-emerald-400" />
+              <Clock className="w-5 h-5 text-emerald-400 shrink-0" />
               <span>Weekly Availability Rules</span>
             </h3>
             <p className="text-xs text-slate-400 mt-1">
@@ -281,7 +304,7 @@ export const AppointmentsPage: React.FC = () => {
             </p>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-3 min-w-0">
             {[0, 1, 2, 3, 4, 5, 6].map((dayIdx) => {
               const rule =
                 rules.find((r) => r.dayOfWeek === dayIdx) || {
@@ -300,7 +323,7 @@ export const AppointmentsPage: React.FC = () => {
               return (
                 <div
                   key={dayIdx}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-slate-950 border border-slate-850 rounded-2xl gap-3"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 bg-slate-950 border border-slate-850 rounded-2xl gap-3 min-w-0"
                 >
                   <div className="flex items-center space-x-3 w-36">
                     <input
@@ -322,7 +345,7 @@ export const AppointmentsPage: React.FC = () => {
                   </div>
 
                   {rule.isAvailable ? (
-                    <div className="flex items-center space-x-3 text-xs">
+                    <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs">
                       <div className="flex items-center space-x-1.5">
                         <span className="text-slate-400">Open:</span>
                         <input
@@ -366,7 +389,7 @@ export const AppointmentsPage: React.FC = () => {
             <button
               type="submit"
               disabled={savingRules}
-              className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 disabled:opacity-50"
+              className="w-full sm:w-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 disabled:opacity-50"
             >
               {savingRules ? 'Saving...' : 'Save Availability Rules'}
             </button>
@@ -377,15 +400,15 @@ export const AppointmentsPage: React.FC = () => {
       {/* Manual Booking Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-5 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-5 sm:p-8 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-white flex items-center space-x-2">
               <CalendarIcon className="w-5 h-5 text-emerald-400" />
-              <span>Book New Appointment</span>
+              <span>New {termBooking}</span>
             </h2>
 
             <form onSubmit={handleCreateAppointment} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Service Name</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">{isRestaurant ? 'Reservation Type' : isSalon ? 'Service' : 'Service / Consultation'}</label>
                 <input
                   type="text"
                   required
@@ -396,7 +419,7 @@ export const AppointmentsPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Customer Full Name</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">{termCustomer} Full Name</label>
                 <input
                   type="text"
                   required
@@ -407,7 +430,7 @@ export const AppointmentsPage: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Email</label>
                   <input
@@ -432,7 +455,7 @@ export const AppointmentsPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Appointment Date & Time</label>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">{termBooking} Date & Time</label>
                 <input
                   type="datetime-local"
                   required
@@ -465,7 +488,7 @@ export const AppointmentsPage: React.FC = () => {
                   type="submit"
                   className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20"
                 >
-                  Confirm Booking
+                  Confirm {termBooking}
                 </button>
               </div>
             </form>

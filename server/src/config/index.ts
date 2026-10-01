@@ -1,12 +1,14 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-// Detect production environment: explicit NODE_ENV=production OR any Railway deployment signal
+// Detect production environment: explicit NODE_ENV=production OR any Railway / Render deployment signal
 const isProduction =
   process.env.NODE_ENV === 'production' ||
   !!process.env.RAILWAY_ENVIRONMENT ||
   !!process.env.RAILWAY_PUBLIC_DOMAIN ||
-  !!process.env.RAILWAY_SERVICE_NAME;
+  !!process.env.RAILWAY_SERVICE_NAME ||
+  !!process.env.RENDER ||
+  !!process.env.RENDER_SERVICE_ID;
 
 export const config = {
   port: parseInt(process.env.PORT || '5000', 10),
@@ -23,6 +25,10 @@ export const config = {
     isConfigured: !!process.env.EMAIL_ENCRYPTION_KEY && !process.env.EMAIL_ENCRYPTION_KEY.includes('placeholder'),
   },
 
+  ai: {
+    provider: (process.env.AI_PROVIDER || 'openai').toLowerCase().trim(),
+  },
+
   openai: {
     apiKey: process.env.OPENAI_API_KEY || '',
     chatModel: process.env.OPENAI_CHAT_MODEL || 'gpt-4o-mini',
@@ -30,11 +36,19 @@ export const config = {
     isAvailable: !!process.env.OPENAI_API_KEY && !process.env.OPENAI_API_KEY.includes('placeholder'),
   },
 
+  gemini: {
+    apiKey: process.env.GEMINI_API_KEY || '',
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+    embeddingModel: process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004',
+    isAvailable: !!process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes('placeholder'),
+  },
+
   paddle: {
     apiKey: process.env.PADDLE_API_KEY || '',
     clientToken: process.env.PADDLE_CLIENT_TOKEN || process.env.VITE_PADDLE_CLIENT_TOKEN || '',
     webhookSecret: process.env.PADDLE_WEBHOOK_SECRET || '',
-    priceId: process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || '',
+    priceId: process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || 'pri_01j7onceclic_pro_19m_sandbox',
+    proMonthlyPriceId: process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || 'pri_01j7onceclic_pro_19m_sandbox',
     environment: (process.env.PADDLE_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
     isConfigured: !!process.env.PADDLE_WEBHOOK_SECRET && !process.env.PADDLE_WEBHOOK_SECRET.includes('placeholder'),
   },
@@ -73,7 +87,10 @@ export const config = {
 
   billing: {
     planName: 'ONCEClic Pro',
-    monthlyPriceUsd: 49,
+    monthlyPriceUsd: 19,
     trialPeriodDays: 7,
+    trialPriceUsd: 0,
+    trialAiBudgetUsd: parseFloat(process.env.TRIAL_AI_BUDGET_USD || '0.50'),
+    proAiBudgetUsd: parseFloat(process.env.PRO_AI_BUDGET_USD || '10.00'),
   }
 };

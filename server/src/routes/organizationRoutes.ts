@@ -47,6 +47,17 @@ router.get('/current', async (req: Request, res: Response, next) => {
   }
 });
 
+// Get business data completeness report for current organization
+router.get('/completeness', async (req: Request, res: Response, next) => {
+  try {
+    const { BusinessDataCompletenessService } = await import('../services/BusinessDataCompletenessService');
+    const report = await BusinessDataCompletenessService.getCompletenessReport(req.organizationId!);
+    res.json({ success: true, data: report });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Update organization profile and business settings
 router.put('/current', requirePermission('settings:manage'), async (req: Request, res: Response, next) => {
   try {

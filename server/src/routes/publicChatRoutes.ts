@@ -27,7 +27,7 @@ router.get('/org/:slug', async (req: Request, res: Response, next) => {
     }
 
     const settings = await db.getOne(
-      'SELECT services, business_hours, website_chat_enabled, contact_instructions FROM business_settings WHERE organization_id = $1',
+      'SELECT services, business_hours, website_chat_enabled, contact_instructions, reservation_settings FROM business_settings WHERE organization_id = $1',
       [org.id]
     );
 
@@ -50,6 +50,8 @@ router.get('/org/:slug', async (req: Request, res: Response, next) => {
           businessType: org.business_type,
           phone: org.phone,
           email: org.email,
+          website: org.website,
+          address: org.address,
           timezone: org.timezone,
         },
         aiEmployee: {
@@ -61,6 +63,7 @@ router.get('/org/:slug', async (req: Request, res: Response, next) => {
         },
         services: settings?.services ? (typeof settings.services === 'string' ? JSON.parse(settings.services) : settings.services) : [],
         businessHours: settings?.business_hours ? (typeof settings.business_hours === 'string' ? JSON.parse(settings.business_hours) : settings.business_hours) : [],
+        reservationSettings: settings?.reservation_settings ? (typeof settings.reservation_settings === 'string' ? JSON.parse(settings.reservation_settings) : settings.reservation_settings) : null,
       },
     });
   } catch (err) {

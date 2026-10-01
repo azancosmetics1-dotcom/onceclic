@@ -22,6 +22,26 @@ export interface ComposioEmailMessage {
   date?: string;
 }
 
+export interface ComposioInstagramMessage {
+  id: string;
+  senderId: string;
+  senderUsername?: string;
+  recipientId?: string;
+  text: string;
+  timestamp?: string;
+  isEcho?: boolean;
+}
+
+export interface ComposioFacebookMessage {
+  id: string;
+  senderId: string;
+  senderName?: string;
+  recipientId?: string;
+  text: string;
+  timestamp?: string;
+  isEcho?: boolean;
+}
+
 export class ComposioService {
   private static get baseUrl(): string {
     return (config.composio.baseUrl || 'https://backend.composio.dev/api').replace(/\/+$/, '');
@@ -159,8 +179,15 @@ export class ComposioService {
   /**
    * Resolve or provision the Composio Auth Config ID for a given toolkit/app.
    */
-  static async getAuthConfigId(app: 'gmail' | 'googlecalendar'): Promise<string | null> {
-    const targetSlug = app === 'googlecalendar' ? 'googlecalendar' : 'gmail';
+  static async getAuthConfigId(app: 'gmail' | 'googlecalendar' | 'instagram' | 'facebook'): Promise<string | null> {
+    const targetSlug =
+      app === 'googlecalendar'
+        ? 'googlecalendar'
+        : app === 'instagram'
+        ? 'instagram'
+        : app === 'facebook'
+        ? 'facebook'
+        : 'gmail';
     if (this.authConfigCache.has(targetSlug)) {
       return this.authConfigCache.get(targetSlug)!;
     }
@@ -198,11 +225,16 @@ export class ComposioService {
           )
             .toLowerCase()
             .replace(/[^a-z]/g, '');
-          return slug === cleanTarget || slug.includes(cleanTarget) || (cleanTarget === 'googlecalendar' && slug.includes('calendar'));
+          return (
+            slug === cleanTarget ||
+            slug.includes(cleanTarget) ||
+            (cleanTarget === 'googlecalendar' && slug.includes('calendar')) ||
+            (cleanTarget === 'instagram' && (slug.includes('instagram') || slug.includes('meta_instagram'))) ||
+            (cleanTarget === 'facebook' && (slug.includes('facebook') || slug.includes('meta_facebook')))
+          );
         });
 
         // IMPORTANT: Only use a match if its slug actually matches the requested app.
-        // Do NOT fall back to "the only item" — that would return a Calendar config for Gmail requests.
         const configId = match?.id || match?.nanoid || match?.uuid || null;
         if (configId) {
           this.authConfigCache.set(targetSlug, configId);
@@ -242,15 +274,22 @@ export class ComposioService {
   // =========================================================================
 
   /**
-   * Initiate Composio Managed OAuth Connect Link for Gmail or Google Calendar.
+   * Initiate Composio Managed OAuth Connect Link for Gmail, Google Calendar, Instagram, or Facebook.
    */
   static async initiateConnection(params: {
     organizationId: string;
-    app: 'gmail' | 'googlecalendar';
+    app: 'gmail' | 'googlecalendar' | 'instagram' | 'facebook';
     callbackUrl: string;
   }): Promise<{ success: boolean; redirectUrl?: string; error?: string }> {
     const entityId = this.getEntityId(params.organizationId);
-    const appSlug = params.app === 'googlecalendar' ? 'googlecalendar' : 'gmail';
+    const appSlug =
+      params.app === 'googlecalendar'
+        ? 'googlecalendar'
+        : params.app === 'instagram'
+        ? 'instagram'
+        : params.app === 'facebook'
+        ? 'facebook'
+        : 'gmail';
 
     // 1. Resolve Auth Config ID if available
     const authConfigId = await this.getAuthConfigId(params.app);
@@ -328,17 +367,27 @@ export class ComposioService {
    */
   static async getConnectedAccount(
     organizationId: string,
-    app: 'gmail' | 'googlecalendar'
+    app: 'gmail' | 'googlecalendar' | 'instagram' | 'facebook'
   ): Promise<{
     isConnected: boolean;
     accountId?: string;
     email?: string;
     summary?: string;
+    username?: string;
+    pageName?: string;
+    pageId?: string;
     status?: string;
     error?: string;
   }> {
     const entityId = this.getEntityId(organizationId);
-    const appSlug = app === 'googlecalendar' ? 'googlecalendar' : 'gmail';
+    const appSlug =
+      app === 'googlecalendar'
+        ? 'googlecalendar'
+        : app === 'instagram'
+        ? 'instagram'
+        : app === 'facebook'
+        ? 'facebook'
+        : 'gmail';
 
     // Try v3.1 connected_accounts endpoint
     const v3Res = await this.request(`/v3.1/connected_accounts?user_id=${encodeURIComponent(entityId)}`, {
@@ -387,7 +436,9 @@ export class ComposioService {
         accApp === targetApp ||
         accApp.includes(targetApp) ||
         (targetApp === 'googlecalendar' && (accApp.includes('calendar') || accApp.includes('googlescalendar'))) ||
-        (targetApp === 'gmail' && accApp.includes('gmail'))
+        (targetApp === 'gmail' && accApp.includes('gmail')) ||
+        (targetApp === 'instagram' && (accApp.includes('instagram') || accApp.includes('meta_instagram'))) ||
+        (targetApp === 'facebook' && (accApp.includes('facebook') || accApp.includes('meta_facebook') || accApp.includes('fb')))
       );
     });
 
@@ -407,17 +458,59 @@ export class ComposioService {
       match.metadata?.email ||
       undefined;
 
+    const username =
+      match.params?.username ||
+      match.params?.instagram_username ||
+      match.params?.screen_name ||
+      match.data?.username ||
+      match.metadata?.username ||
+      match.username ||
+      (email ? email.split('@')[0] : undefined);
+
+    const pageName =
+      match.params?.page_name ||
+      match.params?.pageName ||
+      match.data?.page_name ||
+      match.metadata?.page_name ||
+      match.params?.name ||
+      match.pageName ||
+      match.page_name ||
+      username ||
+      match.summary ||
+      'Connected Facebook Page';
+
+    const pageId =
+      match.params?.page_id ||
+      match.params?.pageId ||
+      match.data?.page_id ||
+      match.metadata?.page_id ||
+      match.id ||
+      match.nanoid;
+
     const summary =
       match.accountSummary ||
       match.params?.calendar_summary ||
+      match.params?.page_name ||
+      match.params?.username ||
       match.name ||
+      pageName ||
+      username ||
       email ||
-      (app === 'gmail' ? 'Connected Gmail Account' : 'Primary Google Calendar');
+      (app === 'gmail'
+        ? 'Connected Gmail Account'
+        : app === 'instagram'
+        ? 'Connected Instagram Account'
+        : app === 'facebook'
+        ? 'Connected Facebook Page'
+        : 'Primary Google Calendar');
 
     return {
       isConnected,
       accountId: match.id || match.nanoid || match.connected_account_id,
       email,
+      username,
+      pageName,
+      pageId,
       summary,
       status,
     };
@@ -428,7 +521,7 @@ export class ComposioService {
    */
   static async disconnectAccount(
     organizationId: string,
-    app: 'gmail' | 'googlecalendar'
+    app: 'gmail' | 'googlecalendar' | 'instagram' | 'facebook'
   ): Promise<{ success: boolean; error?: string }> {
     const existing = await this.getConnectedAccount(organizationId, app);
     if (!existing.accountId) {
@@ -818,4 +911,188 @@ export class ComposioService {
 
     return { success: execRes.success, error: execRes.error };
   }
+
+  // =========================================================================
+  // 5. INSTAGRAM INTEGRATION ACTIONS (INBOUND DMs & OUTBOUND REPLIES)
+  // =========================================================================
+
+  /**
+   * Fetch recent inbound Instagram direct messages for an organization.
+   */
+  static async fetchInstagramMessages(organizationId: string): Promise<ComposioInstagramMessage[]> {
+    if (!this.isAvailable()) return [];
+
+    // Attempt INSTAGRAM_LIST_ALL_CONVERSATIONS or INSTAGRAM_GET_PAGE_CONVERSATIONS
+    const execRes = await this.executeTool({
+      organizationId,
+      toolSlug: 'INSTAGRAM_LIST_ALL_CONVERSATIONS',
+      args: {},
+    });
+
+    let rawList: any[] = [];
+    if (execRes.success && execRes.data) {
+      if (Array.isArray(execRes.data)) {
+        rawList = execRes.data;
+      } else if (Array.isArray(execRes.data.data)) {
+        rawList = execRes.data.data;
+      } else if (Array.isArray(execRes.data.conversations)) {
+        rawList = execRes.data.conversations;
+      } else if (Array.isArray(execRes.data.messages)) {
+        rawList = execRes.data.messages;
+      }
+    }
+
+    const parsedMessages: ComposioInstagramMessage[] = [];
+
+    for (const item of rawList) {
+      try {
+        const id = item.id || item.message_id || item.mid || String(Date.now());
+        const senderId = item.from?.id || item.sender_id || item.senderId || item.from || '';
+        const senderUsername = item.from?.username || item.sender_username || item.username || undefined;
+        const text = item.message || item.text || item.snippet || item.content || '';
+        const isEcho = item.is_echo || item.from_me || item.role === 'AI' || false;
+
+        if (senderId && text && !isEcho) {
+          parsedMessages.push({
+            id,
+            senderId,
+            senderUsername,
+            recipientId: item.recipient_id || item.to?.id,
+            text,
+            timestamp: item.created_time || item.timestamp,
+            isEcho: false,
+          });
+        }
+      } catch (parseErr) {
+        console.warn('[ComposioService] Error parsing Instagram message item:', parseErr);
+      }
+    }
+
+    return parsedMessages;
+  }
+
+  /**
+   * Send an Instagram direct message reply using Composio action INSTAGRAM_SEND_TEXT_MESSAGE.
+   */
+  static async sendInstagramReply(params: {
+    organizationId: string;
+    recipientId: string;
+    text: string;
+  }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (!this.isAvailable()) {
+      return { success: false, error: 'Composio is not configured.' };
+    }
+
+    const args: Record<string, any> = {
+      recipient_id: params.recipientId,
+      recipient: { id: params.recipientId },
+      message: { text: params.text },
+      text: params.text,
+    };
+
+    const execRes = await this.executeTool({
+      organizationId: params.organizationId,
+      toolSlug: 'INSTAGRAM_SEND_TEXT_MESSAGE',
+      args,
+    });
+
+    if (execRes.success) {
+      const messageId = execRes.data?.id || execRes.data?.message_id || execRes.data?.mid || 'sent_via_composio_instagram';
+      return { success: true, messageId };
+    }
+
+    return { success: false, error: execRes.error || 'Failed to send Instagram reply.' };
+  }
+
+  // =========================================================================
+  // 6. FACEBOOK INTEGRATION ACTIONS (PAGE MESSAGES & OUTBOUND REPLIES)
+  // =========================================================================
+
+  /**
+   * Fetch recent inbound Facebook Page messages for an organization.
+   */
+  static async fetchFacebookMessages(organizationId: string): Promise<ComposioFacebookMessage[]> {
+    if (!this.isAvailable()) return [];
+
+    const execRes = await this.executeTool({
+      organizationId,
+      toolSlug: 'FACEBOOK_LIST_PAGE_CONVERSATIONS',
+      args: {},
+    });
+
+    let rawList: any[] = [];
+    if (execRes.success && execRes.data) {
+      if (Array.isArray(execRes.data)) {
+        rawList = execRes.data;
+      } else if (Array.isArray(execRes.data.data)) {
+        rawList = execRes.data.data;
+      } else if (Array.isArray(execRes.data.conversations)) {
+        rawList = execRes.data.conversations;
+      } else if (Array.isArray(execRes.data.messages)) {
+        rawList = execRes.data.messages;
+      }
+    }
+
+    const parsedMessages: ComposioFacebookMessage[] = [];
+
+    for (const item of rawList) {
+      try {
+        const id = item.id || item.message_id || item.mid || String(Date.now());
+        const senderId = item.from?.id || item.sender_id || item.senderId || item.from || '';
+        const senderName = item.from?.name || item.sender_name || item.name || undefined;
+        const text = item.message || item.text || item.snippet || item.content || '';
+        const isEcho = item.is_echo || item.from_me || item.role === 'AI' || false;
+
+        if (senderId && text && !isEcho) {
+          parsedMessages.push({
+            id,
+            senderId,
+            senderName,
+            recipientId: item.recipient_id || item.to?.id,
+            text,
+            timestamp: item.created_time || item.timestamp,
+            isEcho: false,
+          });
+        }
+      } catch (parseErr) {
+        console.warn('[ComposioService] Error parsing Facebook message item:', parseErr);
+      }
+    }
+
+    return parsedMessages;
+  }
+
+  /**
+   * Send a Facebook Page message reply using Composio action FACEBOOK_SEND_PAGE_MESSAGE.
+   */
+  static async sendFacebookReply(params: {
+    organizationId: string;
+    recipientId: string;
+    text: string;
+  }): Promise<{ success: boolean; messageId?: string; error?: string }> {
+    if (!this.isAvailable()) {
+      return { success: false, error: 'Composio is not configured.' };
+    }
+
+    const args: Record<string, any> = {
+      recipient_id: params.recipientId,
+      recipient: { id: params.recipientId },
+      message: { text: params.text },
+      text: params.text,
+    };
+
+    const execRes = await this.executeTool({
+      organizationId: params.organizationId,
+      toolSlug: 'FACEBOOK_SEND_PAGE_MESSAGE',
+      args,
+    });
+
+    if (execRes.success) {
+      const messageId = execRes.data?.id || execRes.data?.message_id || execRes.data?.mid || 'sent_via_composio_facebook';
+      return { success: true, messageId };
+    }
+
+    return { success: false, error: execRes.error || 'Failed to send Facebook message via Composio.' };
+  }
 }
+

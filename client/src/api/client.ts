@@ -19,6 +19,12 @@ import {
   WebsiteConnectionConfig,
   EmailIntegrationConfig,
   GoogleCalendarConfig,
+  InstagramIntegrationConfig,
+  FacebookIntegrationConfig,
+  CustomerBillingStatus,
+  CustomerBillingConfig,
+  CustomerAIStatus,
+  TrialEligibilityResponse,
 } from '@onceclic/shared';
 
 const getApiBase = (): string => {
@@ -331,26 +337,28 @@ class ApiClient {
     });
   }
 
-  // Billing
-  async getBillingStatus(): Promise<{
-    subscription: Subscription | null;
-    isPro: boolean;
-    daysRemainingInTrial: number;
-    billingConfigured: boolean;
-  }> {
+  // Billing & Trial
+  async getBillingStatus(): Promise<CustomerBillingStatus> {
     return this.request('/billing/status');
   }
 
-  async getBillingConfig(): Promise<{
-    clientToken: string;
-    priceId: string;
-    environment: 'sandbox' | 'production';
-    isConfigured: boolean;
-    planName: string;
-    monthlyPriceUsd: number;
-    trialPeriodDays: number;
-  }> {
+  async getBillingConfig(): Promise<CustomerBillingConfig> {
     return this.request('/billing/config');
+  }
+
+  async checkTrialEligibility(email?: string): Promise<TrialEligibilityResponse> {
+    const query = email ? `?email=${encodeURIComponent(email)}` : '';
+    return this.request(`/billing/trial-eligibility${query}`);
+  }
+
+  async startTrial(): Promise<{ success: boolean; trialEndsAt: string; message: string }> {
+    return this.request('/billing/start-trial', {
+      method: 'POST',
+    });
+  }
+
+  async getAIBudgetStatus(): Promise<CustomerAIStatus> {
+    return this.request('/billing/budget');
   }
 
   async createCustomerPortalSession(): Promise<{ url: string }> {
@@ -471,7 +479,36 @@ class ApiClient {
   async disconnectGoogleCalendarIntegration(): Promise<GoogleCalendarConfig> {
     return this.request('/integrations/google-calendar/disconnect', { method: 'POST' });
   }
+
+  // Instagram Integration (Composio)
+  async getInstagramIntegration(): Promise<InstagramIntegrationConfig> {
+    return this.request('/integrations/instagram');
+  }
+
+  async getInstagramAuthUrl(returnUrl?: string): Promise<{ url: string; state: string }> {
+    const query = returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : '';
+    return this.request(`/integrations/instagram/auth-url${query}`);
+  }
+
+  async disconnectInstagramIntegration(): Promise<InstagramIntegrationConfig> {
+    return this.request('/integrations/instagram/disconnect', { method: 'POST' });
+  }
+
+  // Facebook Page Integration (Composio)
+  async getFacebookIntegration(): Promise<FacebookIntegrationConfig> {
+    return this.request('/integrations/facebook');
+  }
+
+  async getFacebookAuthUrl(returnUrl?: string): Promise<{ url: string; state: string }> {
+    const query = returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : '';
+    return this.request(`/integrations/facebook/auth-url${query}`);
+  }
+
+  async disconnectFacebookIntegration(): Promise<FacebookIntegrationConfig> {
+    return this.request('/integrations/facebook/disconnect', { method: 'POST' });
+  }
 }
 
 export const api = new ApiClient();
+
 

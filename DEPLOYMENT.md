@@ -4,7 +4,7 @@
 - **Node.js** >= 20.x
 - **PostgreSQL Database** (e.g. Supabase, Neon, AWS RDS, DigitalOcean Managed Database)
 - **OpenAI Account** (API Key with access to `gpt-4o-mini` & `text-embedding-3-small`)
-- **Paddle Account** (Paddle Billing v2 account configured with a monthly $49 plan)
+- **Paddle Account** (Paddle Billing v2 account configured with a monthly $19 plan)
 
 ---
 

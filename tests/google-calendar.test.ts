@@ -23,15 +23,46 @@ export async function runGoogleCalendarTests() {
 
   // 2. Test getGoogleCalendarAuthUrl
   const { config } = await import('../server/src/config');
-  const prevClientId = config.google.clientId;
-  config.google.clientId = config.google.clientId || 'mock_google_client_id_12345.apps.googleusercontent.com';
+  const prevComposioKey = config.composio.apiKey;
+  config.composio.apiKey = config.composio.apiKey || 'mock_composio_api_key_test';
 
-  const authUrlData = await IntegrationService.getGoogleCalendarAuthUrl(orgId, userId, '/app/integrations');
-  assert.ok(authUrlData.url.includes('accounts.google.com'), 'Auth URL points to Google accounts endpoint');
-  assert.ok(authUrlData.url.includes('calendar.events'), 'Auth URL requests calendar.events scope');
-  assert.ok(authUrlData.state, 'Auth URL contains signed CSRF state');
-  console.log('  ✓ Google Calendar OAuth initiation URL generated with signed state');
-  config.google.clientId = prevClientId;
+  const originalFetch = global.fetch;
+  global.fetch = async (url: any, init?: any) => {
+    const urlStr = String(url);
+    if (urlStr.includes('/v3.1/auth_configs')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            items: [
+              {
+                id: 'ac_mock_cal_123',
+                is_composio_managed: true,
+                toolkit: { slug: 'googlecalendar' },
+              },
+            ],
+          }),
+      } as any;
+    }
+    if (urlStr.includes('/v3.1/connected_accounts/link') || urlStr.includes('/v1/connectedAccounts')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            redirect_url: 'https://connect.composio.dev/link/googlecalendar?session=mock_cal_session_123',
+          }),
+      } as any;
+    }
+    return originalFetch(url, init);
+  };
+
+  try {
+    const authUrlData = await IntegrationService.getGoogleCalendarAuthUrl(orgId, userId, '/app/integrations');
+    assert.ok(authUrlData.url.includes('composio.dev') || authUrlData.url.includes('google'), 'Auth URL points to OAuth provider endpoint');
+    assert.ok(authUrlData.state, 'Auth URL contains signed CSRF state');
+    console.log('  ✓ Google Calendar OAuth initiation URL generated with signed state');
 
   // 3. Connect mock Google Calendar for testing
   const mockAccessToken = `mock_access_token_${Date.now()}`;
@@ -118,6 +149,10 @@ export async function runGoogleCalendarTests() {
   // Cleanup test data
   await db.execute('DELETE FROM organizations WHERE id = $1', [orgId]);
   await db.execute('DELETE FROM users WHERE id = $1', [userId]);
+  } finally {
+    global.fetch = originalFetch;
+    config.composio.apiKey = prevComposioKey;
+  }
 }
 
 if (process.argv[1] && process.argv[1].includes('google-calendar.test')) {

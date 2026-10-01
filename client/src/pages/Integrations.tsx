@@ -4,12 +4,16 @@ import {
   WebsiteConnectionConfig,
   EmailIntegrationConfig,
   GoogleCalendarConfig,
+  InstagramIntegrationConfig,
+  FacebookIntegrationConfig,
   IntegrationStatus,
 } from '@onceclic/shared';
 import {
   Globe,
   Mail,
   Calendar,
+  Instagram,
+  Facebook,
   Copy,
   Check,
   ExternalLink,
@@ -28,25 +32,33 @@ export const IntegrationsPage: React.FC = () => {
   const [websiteConfig, setWebsiteConfig] = useState<WebsiteConnectionConfig | null>(null);
   const [emailConfig, setEmailConfig] = useState<EmailIntegrationConfig | null>(null);
   const [calendarConfig, setCalendarConfig] = useState<GoogleCalendarConfig | null>(null);
+  const [instagramConfig, setInstagramConfig] = useState<InstagramIntegrationConfig | null>(null);
+  const [facebookConfig, setFacebookConfig] = useState<FacebookIntegrationConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [verifyingWebsite, setVerifyingWebsite] = useState(false);
 
   const [connectingEmail, setConnectingEmail] = useState(false);
   const [connectingCalendar, setConnectingCalendar] = useState(false);
+  const [connectingInstagram, setConnectingInstagram] = useState(false);
+  const [connectingFacebook, setConnectingFacebook] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadIntegrations = async () => {
     setLoading(true);
     try {
-      const [wRes, eRes, cRes] = await Promise.all([
+      const [wRes, eRes, cRes, igRes, fbRes] = await Promise.all([
         api.getWebsiteIntegration(),
         api.getEmailIntegration(),
         api.getGoogleCalendarIntegration(),
+        api.getInstagramIntegration().catch(() => null),
+        api.getFacebookIntegration().catch(() => null),
       ]);
       setWebsiteConfig(wRes);
       setEmailConfig(eRes);
       setCalendarConfig(cRes);
+      if (igRes) setInstagramConfig(igRes);
+      if (fbRes) setFacebookConfig(fbRes);
     } catch (err: any) {
       setActionMessage({ type: 'error', text: err.message || 'Failed to load integration configurations.' });
     } finally {
@@ -65,6 +77,14 @@ export const IntegrationsPage: React.FC = () => {
     } else if (params.get('email_connected') === 'true') {
       const connectedAddr = params.get('email') || '';
       setActionMessage({ type: 'success', text: `Gmail mailbox ${connectedAddr ? `(${connectedAddr}) ` : ''}connected and verified!` });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (params.get('instagram_connected') === 'true') {
+      const igUser = params.get('username') || '';
+      setActionMessage({ type: 'success', text: `Instagram account ${igUser ? `(@${igUser}) ` : ''}connected and active!` });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (params.get('facebook_connected') === 'true') {
+      const fbPage = params.get('pageName') || params.get('username') || '';
+      setActionMessage({ type: 'success', text: `Facebook Page ${fbPage ? `(${fbPage}) ` : ''}connected and active!` });
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (params.get('error')) {
       setActionMessage({ type: 'error', text: `Integration error: ${params.get('error')}` });
@@ -150,48 +170,100 @@ export const IntegrationsPage: React.FC = () => {
     }
   };
 
+  const handleConnectInstagram = async () => {
+    setConnectingInstagram(true);
+    setActionMessage(null);
+    try {
+      const { url } = await api.getInstagramAuthUrl('/app/integrations');
+      window.location.href = url;
+    } catch (err: any) {
+      setActionMessage({
+        type: 'error',
+        text: err.message || 'Failed to initiate Instagram connection. Ensure Composio is configured on the server.',
+      });
+      setConnectingInstagram(false);
+    }
+  };
+
+  const handleDisconnectInstagram = async () => {
+    if (!confirm('Are you sure you want to disconnect Instagram? The AI receptionist will stop responding to Instagram DMs.')) return;
+    try {
+      const updated = await api.disconnectInstagramIntegration();
+      setInstagramConfig(updated);
+      setActionMessage({ type: 'success', text: 'Instagram account disconnected.' });
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err.message || 'Failed to disconnect Instagram.' });
+    }
+  };
+
+  const handleConnectFacebook = async () => {
+    setConnectingFacebook(true);
+    setActionMessage(null);
+    try {
+      const { url } = await api.getFacebookAuthUrl('/app/integrations');
+      window.location.href = url;
+    } catch (err: any) {
+      setActionMessage({
+        type: 'error',
+        text: err.message || 'Failed to initiate Facebook Page connection. Ensure Composio is configured on the server.',
+      });
+      setConnectingFacebook(false);
+    }
+  };
+
+  const handleDisconnectFacebook = async () => {
+    if (!confirm('Are you sure you want to disconnect Facebook? The AI receptionist will stop responding to Facebook Page messages.')) return;
+    try {
+      const updated = await api.disconnectFacebookIntegration();
+      setFacebookConfig(updated);
+      setActionMessage({ type: 'success', text: 'Facebook Page disconnected.' });
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err.message || 'Failed to disconnect Facebook.' });
+    }
+  };
+
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6 max-w-6xl w-full min-w-0">
       {/* Header */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
-        <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2.5">
-          <Layers className="w-7 h-7 text-emerald-400" />
-          Channel & Calendar Integrations
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm min-w-0">
+        <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2.5 flex-wrap">
+          <Layers className="w-6 h-6 sm:w-7 sm:h-7 text-emerald-400 flex-shrink-0" />
+          <span>Channel & Calendar Integrations</span>
         </h1>
-        <p className="text-slate-400 text-sm mt-1">
+        <p className="text-slate-400 text-xs sm:text-sm mt-1">
           Connect your website widget, business email, and Google Calendar to empower your AI Receptionist with 24/7 synchronization.
         </p>
       </div>
 
       {actionMessage && (
         <div
-          className={`p-4 rounded-xl text-sm flex items-center gap-2.5 ${
+          className={`p-4 rounded-xl text-xs sm:text-sm flex items-start sm:items-center gap-2.5 break-words ${
             actionMessage.type === 'success'
               ? 'bg-emerald-950/70 border border-emerald-800 text-emerald-300'
               : 'bg-red-950/70 border border-red-800 text-red-300'
           }`}
         >
           {actionMessage.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-400" />
+            <CheckCircle2 className="w-5 h-5 flex-shrink-0 text-emerald-400 mt-0.5 sm:mt-0" />
           ) : (
-            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-red-400" />
+            <AlertTriangle className="w-5 h-5 flex-shrink-0 text-red-400 mt-0.5 sm:mt-0" />
           )}
-          {actionMessage.text}
+          <span className="min-w-0 flex-1">{actionMessage.text}</span>
         </div>
       )}
 
       {/* 1. Google Calendar Integration Card */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-6 min-w-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-800">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400">
-              <Calendar className="w-6 h-6" />
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 flex-shrink-0">
+              <Calendar className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                Google Calendar
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
+                <span>Google Calendar</span>
                 <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
                     calendarConfig?.status === IntegrationStatus.CONNECTED
                       ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                       : calendarConfig?.status === IntegrationStatus.DISCONNECTED
@@ -212,23 +284,23 @@ export const IntegrationsPage: React.FC = () => {
         </div>
 
         {calendarConfig?.status === IntegrationStatus.CONNECTED ? (
-          <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
+          <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+            <div className="min-w-0">
               <span className="text-xs text-slate-400 block font-medium">Connected Calendar:</span>
-              <span className="text-base font-bold text-white mt-0.5 block">{calendarConfig.calendarSummary || 'Primary Google Calendar'}</span>
+              <span className="text-sm sm:text-base font-bold text-white mt-0.5 block truncate">{calendarConfig.calendarSummary || 'Primary Google Calendar'}</span>
               <span className="text-xs text-emerald-400 mt-1 block">● 2-Way Sync Active (Busy Free Availability + Appointment Events)</span>
             </div>
             <button
               onClick={handleDisconnectGoogleCalendar}
-              className="inline-flex items-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/80 px-4 py-2 rounded-lg text-xs font-medium transition"
+              className="inline-flex items-center justify-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/80 px-4 py-2.5 rounded-lg text-xs font-medium transition w-full sm:w-auto"
             >
               <Power className="w-3.5 h-3.5" />
               Disconnect Calendar
             </button>
           </div>
         ) : (
-          <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
+          <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+            <div className="min-w-0">
               <span className="text-sm font-semibold text-white block">Sync Bookings with Google Calendar</span>
               <span className="text-xs text-slate-400 mt-1 block">
                 Connect your Google account with 1 click so appointments booked by your AI receptionist appear in your calendar instantly without requiring Google Cloud Console setup.
@@ -237,7 +309,7 @@ export const IntegrationsPage: React.FC = () => {
             <button
               onClick={handleConnectGoogleCalendar}
               disabled={connectingCalendar}
-              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition disabled:opacity-50 flex-shrink-0"
+              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-amber-600 to-orange-500 hover:from-amber-500 hover:to-orange-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto flex-shrink-0"
             >
               {connectingCalendar ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />}
               Connect Google Calendar
@@ -247,17 +319,17 @@ export const IntegrationsPage: React.FC = () => {
       </div>
 
       {/* 2. Website Connection Card */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-6 min-w-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-800">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
-              <Globe className="w-6 h-6" />
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 flex-shrink-0">
+              <Globe className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                Website Chat Widget
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
+                <span>Website Chat Widget</span>
                 <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
                     websiteConfig?.status === IntegrationStatus.CONNECTED
                       ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                       : websiteConfig?.status === IntegrationStatus.DISCONNECTED
@@ -276,12 +348,12 @@ export const IntegrationsPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <a
               href={websiteConfig?.publicChatUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-lg text-xs font-medium border border-slate-700 transition"
+              className="inline-flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-lg text-xs font-medium border border-slate-700 transition flex-1 sm:flex-initial"
             >
               <ExternalLink className="w-3.5 h-3.5" />
               Preview Hosted Chat
@@ -289,7 +361,7 @@ export const IntegrationsPage: React.FC = () => {
             {websiteConfig?.status === IntegrationStatus.CONNECTED ? (
               <button
                 onClick={handleDisconnectWebsite}
-                className="inline-flex items-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/80 px-3.5 py-2 rounded-lg text-xs font-medium transition"
+                className="inline-flex items-center justify-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/80 px-3.5 py-2 rounded-lg text-xs font-medium transition flex-1 sm:flex-initial"
               >
                 <Power className="w-3.5 h-3.5" />
                 Disable Widget
@@ -298,7 +370,7 @@ export const IntegrationsPage: React.FC = () => {
               <button
                 onClick={handleVerifyWebsite}
                 disabled={verifyingWebsite}
-                className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs font-medium transition disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-xs font-medium transition disabled:opacity-50 flex-1 sm:flex-initial"
               >
                 {verifyingWebsite ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
                 Verify & Activate
@@ -308,8 +380,8 @@ export const IntegrationsPage: React.FC = () => {
         </div>
 
         {/* Embed Script Snippet */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
+        <div className="space-y-2 min-w-0">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <label className="text-xs font-bold uppercase tracking-wider text-slate-300">
               Embed Script Snippet (Paste before &lt;/body&gt;)
             </label>
@@ -321,24 +393,24 @@ export const IntegrationsPage: React.FC = () => {
               {copied ? 'Copied to clipboard!' : 'Copy Code'}
             </button>
           </div>
-          <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 font-mono text-xs text-slate-300 overflow-x-auto">
-            <pre>{websiteConfig?.embedScriptSnippet}</pre>
+          <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 sm:p-4 font-mono text-xs text-slate-300 overflow-x-auto max-w-full min-w-0">
+            <pre className="whitespace-pre font-mono text-[11px] sm:text-xs leading-relaxed">{websiteConfig?.embedScriptSnippet}</pre>
           </div>
         </div>
       </div>
 
       {/* 3. Email Channel Connection Card */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm space-y-6">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-6 min-w-0">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-800">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
-              <Mail className="w-6 h-6" />
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400 flex-shrink-0">
+              <Mail className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                Business Email Channel
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
+                <span>Business Email Channel</span>
                 <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
                     emailConfig?.status === IntegrationStatus.CONNECTED
                       ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
                       : emailConfig?.status === IntegrationStatus.ERROR
@@ -362,38 +434,38 @@ export const IntegrationsPage: React.FC = () => {
         </div>
 
         {emailConfig?.status === IntegrationStatus.CONNECTED ? (
-          <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
+          <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+            <div className="min-w-0">
               <span className="text-xs text-slate-400 block font-medium">Connected Gmail Mailbox:</span>
-              <span className="text-base font-bold text-white mt-0.5 block">{emailConfig.connectedEmail}</span>
+              <span className="text-sm sm:text-base font-bold text-white mt-0.5 block truncate">{emailConfig.connectedEmail}</span>
               <span className="text-xs text-emerald-400 mt-1 block">● AI receptionist monitoring inbound inquiries via Gmail API</span>
             </div>
             <button
               onClick={handleDisconnectEmail}
-              className="inline-flex items-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/80 px-4 py-2 rounded-lg text-xs font-medium transition"
+              className="inline-flex items-center justify-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/80 px-4 py-2.5 rounded-lg text-xs font-medium transition w-full sm:w-auto"
             >
               <Power className="w-3.5 h-3.5" />
               Disconnect Email
             </button>
           </div>
         ) : emailConfig?.status === IntegrationStatus.ERROR ? (
-          <div className="space-y-4">
-            <div className="bg-amber-950/40 p-4 rounded-xl border border-amber-700/40 text-xs text-amber-300 flex items-center gap-2.5">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+          <div className="space-y-4 min-w-0">
+            <div className="bg-amber-950/40 p-4 rounded-xl border border-amber-700/40 text-xs text-amber-300 flex items-start sm:items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
               <span>{emailConfig?.errorMessage || 'Email authorization expired or was revoked. Please reconnect your Gmail mailbox.'}</span>
             </div>
             <button
               onClick={handleConnectGoogleEmail}
               disabled={connectingEmail}
-              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
             >
               {connectingEmail ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
               Reconnect Gmail
             </button>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="bg-slate-950 p-5 rounded-xl border border-slate-800 space-y-4">
+          <div className="space-y-4 min-w-0">
+            <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 space-y-4">
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
                   Connect Gmail Mailbox
@@ -405,7 +477,7 @@ export const IntegrationsPage: React.FC = () => {
               <button
                 onClick={handleConnectGoogleEmail}
                 disabled={connectingEmail}
-                className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition disabled:opacity-50"
+                className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
               >
                 {connectingEmail ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
                 Connect Gmail
@@ -414,6 +486,197 @@ export const IntegrationsPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* 4. Instagram Channel Connection Card */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-6 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-800">
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-pink-500/10 border border-pink-500/20 flex items-center justify-center text-pink-400 flex-shrink-0">
+              <Instagram className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
+                <span>Instagram AI Receptionist</span>
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
+                    instagramConfig?.status === IntegrationStatus.CONNECTED
+                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                      : instagramConfig?.status === IntegrationStatus.ERROR
+                      ? 'bg-amber-950 text-amber-400 border border-amber-800'
+                      : instagramConfig?.status === IntegrationStatus.DISCONNECTED
+                      ? 'bg-red-950 text-red-400 border border-red-800'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}
+                >
+                  {instagramConfig?.status === IntegrationStatus.CONNECTED && '● CONNECTED'}
+                  {instagramConfig?.status === IntegrationStatus.ERROR && '⚠ RECONNECT REQUIRED'}
+                  {instagramConfig?.status === IntegrationStatus.DISCONNECTED && '● DISCONNECTED'}
+                  {instagramConfig?.status === IntegrationStatus.NOT_CONNECTED && '○ NOT CONNECTED'}
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                AI receptionist responds 24/7 to customer direct messages (DMs) on your Instagram Business account.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {instagramConfig?.status === IntegrationStatus.CONNECTED ? (
+          <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+            <div className="min-w-0">
+              <span className="text-xs text-slate-400 block font-medium">Connected Instagram Account:</span>
+              <span className="text-sm sm:text-base font-bold text-white mt-0.5 block truncate">
+                @{instagramConfig.username || 'Connected Instagram Business'}
+              </span>
+              <span className="text-xs text-emerald-400 mt-1 block">
+                ● AI receptionist actively monitoring and responding to incoming Instagram customer DMs
+              </span>
+            </div>
+            <button
+              onClick={handleDisconnectInstagram}
+              className="inline-flex items-center justify-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/80 px-4 py-2.5 rounded-lg text-xs font-medium transition w-full sm:w-auto"
+            >
+              <Power className="w-3.5 h-3.5" />
+              Disconnect Instagram
+            </button>
+          </div>
+        ) : instagramConfig?.status === IntegrationStatus.ERROR ? (
+          <div className="space-y-4 min-w-0">
+            <div className="bg-amber-950/40 p-4 rounded-xl border border-amber-700/40 text-xs text-amber-300 flex items-start sm:items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
+              <span>
+                {instagramConfig?.errorMessage ||
+                  'Instagram authorization expired or requires reconnection. Please reconnect your account.'}
+              </span>
+            </div>
+            <button
+              onClick={handleConnectInstagram}
+              disabled={connectingInstagram}
+              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
+            >
+              {connectingInstagram ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Instagram className="w-4 h-4" />}
+              Reconnect Instagram
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4 min-w-0">
+            <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                  Connect Instagram Business Account
+                </label>
+                <p className="text-xs text-slate-400 mb-3">
+                  Connect your Instagram Professional/Business account via Composio. Your AI receptionist will answer customer questions, share business hours, and schedule appointments directly in Instagram DMs.
+                </p>
+              </div>
+              <button
+                onClick={handleConnectInstagram}
+                disabled={connectingInstagram}
+                className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
+              >
+                {connectingInstagram ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Instagram className="w-4 h-4" />}
+                Connect Instagram
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 5. Facebook Page Connection Card */}
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-6 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-800">
+          <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 flex-shrink-0">
+              <Facebook className="w-5 h-5 sm:w-6 sm:h-6" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
+                <span>Facebook Page AI Receptionist</span>
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
+                    facebookConfig?.status === IntegrationStatus.CONNECTED
+                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
+                      : facebookConfig?.status === IntegrationStatus.ERROR
+                      ? 'bg-amber-950 text-amber-400 border border-amber-800'
+                      : facebookConfig?.status === IntegrationStatus.DISCONNECTED
+                      ? 'bg-red-950 text-red-400 border border-red-800'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                  }`}
+                >
+                  {facebookConfig?.status === IntegrationStatus.CONNECTED && '● CONNECTED'}
+                  {facebookConfig?.status === IntegrationStatus.ERROR && '⚠ RECONNECT REQUIRED'}
+                  {facebookConfig?.status === IntegrationStatus.DISCONNECTED && '● DISCONNECTED'}
+                  {facebookConfig?.status === IntegrationStatus.NOT_CONNECTED && '○ NOT CONNECTED'}
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                AI receptionist responds 24/7 to customer messages on your authorized Facebook Business Page.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {facebookConfig?.status === IntegrationStatus.CONNECTED ? (
+          <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+            <div className="min-w-0">
+              <span className="text-xs text-slate-400 block font-medium">Connected Facebook Page:</span>
+              <span className="text-sm sm:text-base font-bold text-white mt-0.5 block truncate">
+                {facebookConfig.pageName || 'Connected Facebook Page'}
+              </span>
+              <span className="text-xs text-emerald-400 mt-1 block">
+                ● AI receptionist actively monitoring and responding to incoming Facebook Page customer messages
+              </span>
+            </div>
+            <button
+              onClick={handleDisconnectFacebook}
+              className="inline-flex items-center justify-center gap-1.5 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/80 px-4 py-2.5 rounded-lg text-xs font-medium transition w-full sm:w-auto"
+            >
+              <Power className="w-3.5 h-3.5" />
+              Disconnect Facebook
+            </button>
+          </div>
+        ) : facebookConfig?.status === IntegrationStatus.ERROR ? (
+          <div className="space-y-4 min-w-0">
+            <div className="bg-amber-950/40 p-4 rounded-xl border border-amber-700/40 text-xs text-amber-300 flex items-start sm:items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
+              <span>
+                {facebookConfig?.errorMessage ||
+                  'Facebook authorization expired or requires reconnection. Please reconnect your Facebook Page.'}
+              </span>
+            </div>
+            <button
+              onClick={handleConnectFacebook}
+              disabled={connectingFacebook}
+              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
+            >
+              {connectingFacebook ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Facebook className="w-4 h-4" />}
+              Reconnect Facebook
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-4 min-w-0">
+            <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                  Connect Facebook Business Page
+                </label>
+                <p className="text-xs text-slate-400 mb-3">
+                  Connect your Meta Facebook Page via Composio. Your AI receptionist will answer inquiries, provide pricing, and book appointments/reservations directly on Messenger.
+                </p>
+              </div>
+              <button
+                onClick={handleConnectFacebook}
+                disabled={connectingFacebook}
+                className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
+              >
+                {connectingFacebook ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Facebook className="w-4 h-4" />}
+                Connect Facebook Page
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
+

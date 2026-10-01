@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
+import { Footer } from '../components/Footer';
 import {
   Bot,
   MessageSquare,
@@ -17,9 +18,13 @@ import {
 } from 'lucide-react';
 
 export const Home: React.FC = () => {
+  useEffect(() => {
+    document.title = 'ONCEClic — AI Receptionist for Small Businesses';
+  }, []);
+
   const [demoInput, setDemoInput] = useState('');
   const [demoMessages, setDemoMessages] = useState<Array<{ role: 'user' | 'ai'; text: string }>>([
-    { role: 'ai', text: 'Hi! Welcome to Apex Wellness. I am Luna, the AI receptionist. How can I help you today?' },
+    { role: 'ai', text: 'Hi! Welcome to Apex Dental & Wellness. I am Luna, the AI receptionist. How can I help you today?' },
   ]);
 
   const handleDemoSend = (e: React.FormEvent) => {
@@ -31,11 +36,11 @@ export const Home: React.FC = () => {
     setDemoInput('');
 
     setTimeout(() => {
-      let reply = "I'd be happy to help you with that! We are open Mon-Fri 9:00 AM - 5:00 PM and offer initial 30-min consultations. Would you like me to schedule an appointment?";
+      let reply = "I'd be happy to assist you! We are open Mon-Fri 9:00 AM - 5:00 PM and offer initial consultations. Would you like me to schedule an appointment for you?";
       if (userText.toLowerCase().includes('book') || userText.toLowerCase().includes('appointment')) {
-        reply = 'I can help you book! We have slots open this Tuesday at 10:00 AM and 2:00 PM. What time works best for you?';
+        reply = 'I can help you book right now! We have openings this Tuesday at 10:00 AM and 2:00 PM. Which time works best for you?';
       } else if (userText.toLowerCase().includes('price') || userText.toLowerCase().includes('cost')) {
-        reply = 'Our standard consultation is complimentary, and full sessions are $100. Would you like to reserve a time?';
+        reply = 'Our initial consultation is complimentary, and comprehensive treatments start from $95. Would you like to reserve a time?';
       }
       setDemoMessages((prev) => [...prev, { role: 'ai', text: reply }]);
     }, 600);
@@ -47,12 +52,12 @@ export const Home: React.FC = () => {
 
       {/* Hero Section */}
       <section className="relative pt-20 pb-28 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto text-center flex-1 flex flex-col items-center justify-center">
-        {/* Glow effect */}
+        {/* Ambient Glow */}
         <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-emerald-500/10 blur-[120px] rounded-full pointer-events-none" />
 
         <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-6">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>AI Receptionist For Small Businesses</span>
+          <span>AI Receptionist & Booking Suite</span>
         </div>
 
         <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white max-w-4xl leading-[1.1]">
@@ -79,13 +84,13 @@ export const Home: React.FC = () => {
             to="/pricing"
             className="w-full sm:w-auto px-6 py-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-base transition flex items-center justify-center"
           >
-            <span>View Pricing ($49/mo)</span>
+            <span>View Pricing ($19/mo)</span>
           </Link>
         </div>
 
         <p className="mt-3 text-xs text-slate-400 flex items-center justify-center space-x-1.5">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>7 days free &bull; No card required to start &bull; Cancel anytime</span>
+          <span>7-Day Free Trial &bull; No credit card required &bull; ONCEClic Pro $19/mo</span>
         </p>
 
         {/* Interactive Live Demo Preview Box */}
@@ -209,9 +214,9 @@ export const Home: React.FC = () => {
               <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-6 group-hover:scale-110 transition">
                 <ShieldCheck className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">Zero Hallucinations Guarantee</h3>
+              <h3 className="text-lg font-bold text-white mb-2">Strict Grounding Guardrails</h3>
               <p className="text-sm text-slate-400 leading-relaxed">
-                Built-in prompt injection defense and strict fact-grounding ensures your AI only answers what it knows and never invents business policies.
+                Built-in prompt injection defense and strict fact-grounding ensures your AI only answers what it knows from your verified knowledge base.
               </p>
             </div>
 
@@ -220,9 +225,9 @@ export const Home: React.FC = () => {
               <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-6 group-hover:scale-110 transition">
                 <Zap className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">10-Minute Setup</h3>
+              <h3 className="text-lg font-bold text-white mb-2">10-Minute Fast Setup</h3>
               <p className="text-sm text-slate-400 leading-relaxed">
-                Our guided 8-step onboarding gets your receptionist live in minutes without technical experience or complicated configuration.
+                Our guided 8-step onboarding gets your receptionist live in minutes without technical complexity.
               </p>
             </div>
           </div>
@@ -238,7 +243,7 @@ export const Home: React.FC = () => {
             Ready to give your business a 24/7 AI Receptionist?
           </h2>
           <p className="mt-4 text-base text-slate-300 max-w-xl mx-auto">
-            Start your 7-day trial for just $1 today. Then just $49/month. Recurring billing powered securely by Paddle.
+            Start your 7-day free trial with no credit card required. Experience ONCEClic Pro and upgrade for $19/month when you're ready.
           </p>
 
           <div className="mt-8 flex justify-center">
@@ -246,29 +251,15 @@ export const Home: React.FC = () => {
               to="/signup"
               className="px-8 py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-base transition shadow-lg shadow-emerald-500/25 flex items-center space-x-2"
             >
-              <span>Get Started in 10 Minutes</span>
+              <span>Start 7-Day Free Trial</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="border-t border-slate-800 bg-slate-950 py-12 px-4 sm:px-6 lg:px-8 text-slate-400 text-xs">
-        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center space-x-2">
-            <Bot className="w-4 h-4 text-emerald-400" />
-            <span className="font-bold text-slate-200">ONCEClic</span>
-            <span>&copy; 2026 onceclic.com. All rights reserved.</span>
-          </div>
-          <div className="flex space-x-6">
-            <Link to="/pricing" className="hover:text-slate-200">Pricing</Link>
-            <Link to="/terms" className="hover:text-slate-200">Terms</Link>
-            <Link to="/privacy" className="hover:text-slate-200">Privacy</Link>
-            <Link to="/contact" className="hover:text-slate-200">Contact</Link>
-          </div>
-        </div>
-      </footer>
+      {/* Global Unified Footer */}
+      <Footer />
     </div>
   );
 };

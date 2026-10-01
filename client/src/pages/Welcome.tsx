@@ -54,7 +54,7 @@ export const Welcome: React.FC = () => {
             Welcome to ONCEClic Pro!
           </h1>
           <p className="text-sm text-slate-300 max-w-md mx-auto">
-            Your 7-day trial ($1) is now active. Your AI Receptionist is ready to capture leads, book appointments, and answer questions 24/7.
+            Your 7-day free trial is now active. Your AI Receptionist is ready to capture leads, book appointments, and answer questions 24/7.
           </p>
         </div>
 
@@ -72,19 +72,19 @@ export const Welcome: React.FC = () => {
             </div>
             <div className="text-right">
               <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
-                Active Pro Plan
+                Active Plan
               </span>
             </div>
           </div>
 
           <div className="space-y-2 text-xs text-slate-300">
             <div className="flex justify-between">
-              <span className="text-slate-400">Initial Trial Period:</span>
-              <span className="font-semibold text-white">7 Days ($1.00)</span>
+              <span className="text-slate-400">Trial Period:</span>
+              <span className="font-semibold text-white">7 Days Free ($0.00)</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Recurring Billing:</span>
-              <span className="font-semibold text-white">$49.00 / month</span>
+              <span className="font-semibold text-white">$19.00 / month</span>
             </div>
             {user?.email && (
               <div className="flex justify-between">
@@ -102,7 +102,7 @@ export const Welcome: React.FC = () => {
 
           <div className="pt-2 text-[11px] text-slate-400 flex items-center justify-center space-x-1.5 border-t border-slate-800">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Encrypted & verified via Paddle Sandbox</span>
+            <span>Encrypted & verified via Paddle</span>
           </div>
         </div>
 

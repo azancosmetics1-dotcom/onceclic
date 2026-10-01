@@ -104,12 +104,12 @@ export const EmailPage: React.FC = () => {
   const webhookUrl = `${origin}/api/email/inbound`;
 
   return (
-    <div className="space-y-8 max-w-5xl">
+    <div className="space-y-6 sm:space-y-8 max-w-5xl w-full min-w-0">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-white flex items-center space-x-2">
-            <Mail className="w-6 h-6 text-emerald-400" />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 flex-wrap">
+            <Mail className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 flex-shrink-0" />
             <span>Automated Email Answering</span>
           </h1>
           <p className="text-xs text-slate-400 mt-1">
@@ -117,7 +117,7 @@ export const EmailPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 shrink-0">
           <Badge variant={connection?.isActive ? 'success' : 'neutral'}>
             {connection?.isActive ? 'EMAIL CONNECTED' : 'EMAIL NOT CONNECTED'}
           </Badge>
@@ -125,39 +125,39 @@ export const EmailPage: React.FC = () => {
       </div>
 
       {saveSuccess && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex items-center space-x-2 text-xs text-emerald-400 font-semibold">
-          <CheckCircle2 className="w-4 h-4" />
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4 flex items-center space-x-2 text-xs text-emerald-400 font-semibold break-words">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>Email settings updated successfully!</span>
         </div>
       )}
 
       {/* Integration Method 1: Forwarding & Inbound Webhook (Recommended) */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
-        <div>
-          <h2 className="text-base font-bold text-white flex items-center space-x-2">
-            <Zap className="w-5 h-5 text-emerald-400" />
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-5 sm:p-8 space-y-6 min-w-0">
+        <div className="min-w-0">
+          <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2 flex-wrap">
+            <Zap className="w-5 h-5 text-emerald-400 flex-shrink-0" />
             <span>Option 1: Inbound Email Webhook & Forwarding (Recommended)</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            Forward your support email (e.g. hello@yourbusiness.com) to your dedicated address or configure SendGrid/Mailgun webhook.
+            Forward your support email to your dedicated address or configure SendGrid/Mailgun webhook.
           </p>
         </div>
 
         {/* Inbound Address */}
-        <div className="space-y-2">
-          <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <div className="space-y-2 min-w-0">
+          <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block">
             Dedicated Inbound Reception Address
           </label>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 min-w-0">
             <input
               type="text"
               readOnly
               value={connection?.inboundAddress || ''}
-              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-emerald-400 font-mono focus:outline-none"
+              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-emerald-400 font-mono focus:outline-none min-w-0 truncate"
             />
             <button
               onClick={() => copy(connection?.inboundAddress || '', 'address')}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold rounded-xl transition flex items-center space-x-1.5 shrink-0"
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold rounded-xl transition flex items-center justify-center space-x-1.5 shrink-0"
             >
               {copiedAddress ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copiedAddress ? 'Copied' : 'Copy'}</span>
@@ -166,35 +166,35 @@ export const EmailPage: React.FC = () => {
         </div>
 
         {/* Webhook Endpoint URL */}
-        <div className="space-y-2">
-          <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <div className="space-y-2 min-w-0">
+          <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block">
             Inbound Provider Webhook URL
           </label>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center min-w-0">
             <input
               type="text"
               readOnly
               value={webhookUrl}
-              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-300 font-mono focus:outline-none"
+              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-300 font-mono focus:outline-none min-w-0 truncate"
             />
           </div>
         </div>
 
         {/* Webhook Secret Token */}
-        <div className="space-y-2">
-          <label className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+        <div className="space-y-2 min-w-0">
+          <label className="text-xs font-semibold uppercase tracking-wider text-slate-400 block">
             Webhook Secret Token (Header: x-webhook-token)
           </label>
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 min-w-0">
             <input
               type="text"
               readOnly
               value={connection?.webhookToken || ''}
-              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-300 font-mono focus:outline-none"
+              className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-slate-300 font-mono focus:outline-none min-w-0 truncate"
             />
             <button
               onClick={() => copy(connection?.webhookToken || '', 'token')}
-              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold rounded-xl transition flex items-center space-x-1.5 shrink-0"
+              className="px-4 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-200 text-xs font-semibold rounded-xl transition flex items-center justify-center space-x-1.5 shrink-0"
             >
               {copiedToken ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
               <span>{copiedToken ? 'Copied' : 'Copy'}</span>
@@ -204,10 +204,10 @@ export const EmailPage: React.FC = () => {
       </div>
 
       {/* Integration Method 2: Direct SMTP & IMAP */}
-      <form onSubmit={handleSave} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
-        <div>
-          <h2 className="text-base font-bold text-white flex items-center space-x-2">
-            <Server className="w-5 h-5 text-emerald-400" />
+      <form onSubmit={handleSave} className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-5 sm:p-8 space-y-6 min-w-0">
+        <div className="min-w-0">
+          <h2 className="text-sm sm:text-base font-bold text-white flex items-center gap-2 flex-wrap">
+            <Server className="w-5 h-5 text-emerald-400 flex-shrink-0" />
             <span>Option 2: Direct SMTP / IMAP Mailbox Connection</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
@@ -215,21 +215,21 @@ export const EmailPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center space-x-3 p-4 bg-slate-950 border border-slate-800 rounded-2xl">
+        <div className="flex items-center space-x-3 p-4 bg-slate-950 border border-slate-800 rounded-2xl min-w-0">
           <input
             type="checkbox"
             id="isActive"
             checked={formData.isActive}
             onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-            className="w-5 h-5 rounded text-emerald-500 accent-emerald-500 cursor-pointer"
+            className="w-5 h-5 rounded text-emerald-500 accent-emerald-500 cursor-pointer shrink-0"
           />
           <label htmlFor="isActive" className="text-xs font-semibold text-white cursor-pointer">
             Enable Automatic AI Email Replies
           </label>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-          <div className="space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 min-w-0">
+          <div className="space-y-4 min-w-0">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Outgoing Mail (SMTP)</h3>
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">SMTP Host</label>
@@ -261,7 +261,7 @@ export const EmailPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-4 min-w-0">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Incoming Mail (IMAP)</h3>
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">IMAP Host</label>
@@ -298,7 +298,7 @@ export const EmailPage: React.FC = () => {
           <button
             type="submit"
             disabled={saving}
-            className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition flex items-center space-x-1.5 shadow-md shadow-emerald-500/20 disabled:opacity-50"
+            className="w-full sm:w-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition flex items-center justify-center space-x-1.5 shadow-md shadow-emerald-500/20 disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
             <span>{saving ? 'Saving...' : 'Save Email Configuration'}</span>

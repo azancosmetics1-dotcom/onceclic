@@ -193,8 +193,8 @@ export async function runComposioIntegrationTests() {
               items: [
                 {
                   id: 'gcal_event_busy_1',
-                  start: { dateTime: '2026-09-10T10:00:00.000Z' },
-                  end: { dateTime: '2026-09-10T11:00:00.000Z' },
+                  start: { dateTime: '2030-01-15T10:00:00.000Z' },
+                  end: { dateTime: '2030-01-15T11:00:00.000Z' },
                 },
               ],
             },
@@ -322,15 +322,15 @@ export async function runComposioIntegrationTests() {
     console.log('  ✓ Inbound email polled via Composio, processed by AI Employee, and reply dispatched via Gmail tool');
 
     // 7. Test Calendar Free/Busy and Appointment Booking Sync via Composio
-    // Set up availability rule for tenant A
+    // Set up availability rule for tenant A (2030-01-15 is Tuesday, day_of_week = 2)
     await db.execute(
       `INSERT INTO availability_rules (
          id, organization_id, day_of_week, start_time, end_time, slot_duration_minutes, buffer_minutes, is_available, created_at, updated_at
-       ) VALUES ($1, $2, 4, '09:00', '17:00', 30, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+       ) VALUES ($1, $2, 2, '09:00', '17:00', 30, 0, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [uuidv4(), orgAId]
     );
 
-    const availableSlots = await AppointmentService.getAvailableSlots(orgAId, '2026-09-10', 30);
+    const availableSlots = await AppointmentService.getAvailableSlots(orgAId, '2030-01-15', 30);
     // 10:00 to 11:00 was returned as busy in mock, so slots starting at 10:00 and 10:30 should NOT be available
     const slot1000 = availableSlots.find((s) => s.startTime.includes('10:00:00'));
     const slot1030 = availableSlots.find((s) => s.startTime.includes('10:30:00'));
@@ -350,8 +350,8 @@ export async function runComposioIntegrationTests() {
       serviceName: 'Dental Cleaning',
       customerName: 'Bob Smith',
       customerEmail: 'bob@example.com',
-      startTime: '2026-09-10T09:00:00.000Z',
-      endTime: '2026-09-10T09:30:00.000Z',
+      startTime: '2030-01-15T09:00:00.000Z',
+      endTime: '2030-01-15T09:30:00.000Z',
     });
 
     if (bookedAppt.googleCalendarEventId !== 'gcal_created_event_777' || bookedAppt.calendarSyncStatus !== 'SYNCED') {
@@ -363,8 +363,8 @@ export async function runComposioIntegrationTests() {
     const rescheduled = await AppointmentService.rescheduleAppointment({
       organizationId: orgAId,
       appointmentId: bookedAppt.id,
-      newStartTime: '2026-09-10T14:00:00.000Z',
-      newEndTime: '2026-09-10T14:30:00.000Z',
+      newStartTime: '2030-01-15T14:00:00.000Z',
+      newEndTime: '2030-01-15T14:30:00.000Z',
     });
     if (!rescheduled.startTime.includes('14:00:00')) {
       throw new Error('Reschedule failed to update start time.');

@@ -73,17 +73,17 @@ export const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
+    <div className="min-h-screen bg-slate-950 flex flex-col justify-center py-8 sm:py-12 px-4 sm:px-6 lg:px-8 min-w-0">
+      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center min-w-0">
         <Link to="/" className="inline-flex items-center space-x-2.5 mb-6">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-lg shadow-emerald-500/20 shrink-0">
             <Bot className="w-6 h-6 text-slate-950 stroke-[2.5]" />
           </div>
           <span className="text-2xl font-black tracking-tight text-white">
             ONCE<span className="text-emerald-400">Clic</span>
           </span>
         </Link>
-        <h2 className="text-2xl font-bold tracking-tight text-white">Sign in to your account</h2>
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Sign in to your account</h2>
         <p className="mt-2 text-xs text-slate-400">
           Or{' '}
           <Link to="/signup" className="font-semibold text-emerald-400 hover:text-emerald-300">
@@ -92,8 +92,8 @@ export const Login: React.FC = () => {
         </p>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-slate-900 border border-slate-800 py-8 px-6 shadow-xl rounded-2xl sm:px-10 space-y-6">
+      <div className="mt-6 sm:mt-8 sm:mx-auto sm:w-full sm:max-w-md min-w-0">
+        <div className="bg-slate-900 border border-slate-800 py-6 sm:py-8 px-4 sm:px-10 shadow-xl rounded-2xl sm:rounded-3xl space-y-6 min-w-0">
           {error && (
             <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 space-y-2 text-xs text-rose-300">
               <div className="flex items-start space-x-3">

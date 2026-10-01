@@ -4,6 +4,9 @@ import { db } from '../db';
 import { config } from '../config';
 import { Subscription, SubscriptionStatus, AuditAction } from '@onceclic/shared';
 import { AuditService } from './AuditService';
+import { TrialService } from './TrialService';
+import { AIBudgetService } from './AIBudgetService';
+import { normalizeEmail } from '../utils/emailNormalizer';
 import { v4 as uuidv4 } from 'uuid';
 
 export class PaddleBillingService {
@@ -56,8 +59,57 @@ export class PaddleBillingService {
 
   /**
    * Initialize a default 7-day trial subscription for a new organization.
+   * Enforces the 1-trial-per-email policy.
    */
-  static async createTrialSubscription(organizationId: string): Promise<Subscription> {
+  static async createTrialSubscription(organizationId: string, emailParam?: string): Promise<Subscription> {
+    let email = emailParam ? normalizeEmail(emailParam) : '';
+    let userId = '';
+
+    if (!email) {
+      const owner = await db.getOne<{ email: string; user_id: string }>(
+        `SELECT u.email, om.user_id
+         FROM organization_memberships om
+         JOIN users u ON om.user_id = u.id
+         WHERE om.organization_id = $1 AND om.role = 'OWNER'
+         ORDER BY om.created_at ASC
+         LIMIT 1`,
+        [organizationId]
+      );
+      if (owner) {
+        email = normalizeEmail(owner.email);
+        userId = owner.user_id;
+      }
+    }
+
+    if (email && userId) {
+      const eligibility = await TrialService.checkEligibility(email);
+      if (!eligibility.eligible) {
+        const subId = uuidv4();
+        await db.execute(
+          `INSERT INTO subscriptions (
+             id, organization_id, status, trial_started_at, trial_ends_at, cancel_at_period_end, created_at, updated_at
+           ) VALUES ($1, $2, 'EXPIRED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [subId, organizationId]
+        );
+        return (await db.getOne<Subscription>(
+          `SELECT id, organization_id as "organizationId", status, trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
+                  cancel_at_period_end as "cancelAtPeriodEnd", created_at as "createdAt", updated_at as "updatedAt"
+           FROM subscriptions WHERE id = $1`,
+          [subId]
+        ))!;
+      }
+      await TrialService.redeemTrial({ userId, organizationId, email });
+      return (await db.getOne<Subscription>(
+        `SELECT id, organization_id as "organizationId", paddle_customer_id as "paddleCustomerId",
+                paddle_subscription_id as "paddleSubscriptionId", paddle_transaction_id as "paddleTransactionId",
+                price_id as "priceId", status, trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
+                current_period_start as "currentPeriodStart", current_period_end as "currentPeriodEnd",
+                cancel_at_period_end as "cancelAtPeriodEnd", created_at as "createdAt", updated_at as "updatedAt"
+         FROM subscriptions WHERE organization_id = $1`,
+        [organizationId]
+      ))!;
+    }
+
     const subId = uuidv4();
     const trialStartedAt = new Date();
     const trialEndsAt = new Date();
@@ -329,11 +381,18 @@ export class PaddleBillingService {
   /**
    * Get subscription status and calculated access permissions for an organization.
    */
-  static async getSubscription(organizationId: string): Promise<{
+  static async getSubscription(organizationId: string, referenceTime?: Date): Promise<{
     subscription: Subscription | null;
     isPro: boolean;
     daysRemainingInTrial: number;
     billingConfigured: boolean;
+    aiBudget: {
+      budgetUsd: number;
+      spentUsd: number;
+      remainingUsd: number;
+      isExceeded: boolean;
+      plan: string;
+    };
   }> {
     const sub = await db.getOne<Subscription>(
       `SELECT id, organization_id as "organizationId", paddle_customer_id as "paddleCustomerId",
@@ -345,18 +404,36 @@ export class PaddleBillingService {
       [organizationId]
     );
 
+    const budgetStatus = await AIBudgetService.checkBudget(organizationId);
+
     if (!sub) {
       return {
         subscription: null,
         isPro: false,
         daysRemainingInTrial: 0,
         billingConfigured: config.paddle.isConfigured,
+        aiBudget: {
+          budgetUsd: 0,
+          spentUsd: budgetStatus.spentUsd,
+          remainingUsd: 0,
+          isExceeded: false,
+          plan: 'NONE',
+        },
       };
     }
 
-    const now = Date.now();
+    const now = referenceTime ? referenceTime.getTime() : Date.now();
     const trialEndMs = new Date(sub.trialEndsAt).getTime();
     const diffDays = Math.max(0, Math.ceil((trialEndMs - now) / (1000 * 60 * 60 * 24)));
+
+    // Auto-update expired trial if trialing without active paddle subscription
+    if (sub.status === SubscriptionStatus.TRIALING && !sub.paddleSubscriptionId && now > trialEndMs) {
+      await db.execute(
+        `UPDATE subscriptions SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+        [SubscriptionStatus.EXPIRED, sub.id]
+      );
+      sub.status = SubscriptionStatus.EXPIRED;
+    }
 
     // Access is granted during ACTIVE or TRIALING (or PAST_DUE grace period).
     // If scheduled cancellation is pending (cancel_at_period_end = true), access is RETAINED until period actually ends.
@@ -370,6 +447,13 @@ export class PaddleBillingService {
       isPro,
       daysRemainingInTrial: diffDays,
       billingConfigured: config.paddle.isConfigured,
+      aiBudget: {
+        budgetUsd: budgetStatus.budgetUsd,
+        spentUsd: budgetStatus.spentUsd,
+        remainingUsd: budgetStatus.remainingUsd,
+        isExceeded: !!budgetStatus.isExceeded,
+        plan: budgetStatus.plan,
+      },
     };
   }
 

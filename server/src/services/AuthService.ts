@@ -18,6 +18,8 @@ import { PaddleBillingService } from './PaddleBillingService';
 import { KnowledgeService } from './KnowledgeService';
 import { AuditService } from './AuditService';
 import { ResendEmailService } from './ResendEmailService';
+import { TrialService } from './TrialService';
+import { normalizeEmail } from '../utils/emailNormalizer';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface ExtendedAuthResponse extends AuthResponse {
@@ -30,7 +32,7 @@ export class AuthService {
    * Register a new user, create default business workspace, 7-day trial, AI receptionist, and settings.
    */
   static async register(params: RegisterRequest, ipAddress?: string): Promise<ExtendedAuthResponse> {
-    const email = params.email.toLowerCase().trim();
+    const email = normalizeEmail(params.email);
     if (!email || !params.password || params.password.length < 6) {
       throw new Error('Valid email and password (minimum 6 characters) are required.');
     }
@@ -52,7 +54,7 @@ export class AuthService {
     );
 
     // 2. Setup standard organization, 7-day trial, Luna, settings, availability & knowledge
-    const workspace = await this.setupDefaultWorkspace(userId, params.fullName || 'Business Owner', params.businessName);
+    const workspace = await this.setupDefaultWorkspace(userId, params.fullName || 'Business Owner', params.businessName, email);
     const orgId = workspace.organization.id;
     const membershipId = workspace.membership.id;
     const businessName = workspace.organization.name;
@@ -141,7 +143,8 @@ export class AuthService {
   private static async setupDefaultWorkspace(
     userId: string,
     fullName: string,
-    businessNameParam?: string
+    businessNameParam?: string,
+    userEmail?: string
   ): Promise<{ organization: Organization; membership: OrganizationMembership }> {
     const orgId = uuidv4();
     const businessName = businessNameParam || `${fullName || 'My'} Business`;
@@ -162,8 +165,22 @@ export class AuthService {
       [membershipId, orgId, userId]
     );
 
-    // 3. Create 7-day Trial Subscription
-    await PaddleBillingService.createTrialSubscription(orgId);
+    // 3. Create 7-day Trial Subscription (Enforces 1 trial per email)
+    if (userEmail) {
+      const eligibility = await TrialService.checkEligibility(userEmail);
+      if (eligibility.eligible) {
+        await TrialService.redeemTrial({ userId, organizationId: orgId, email: userEmail });
+      } else {
+        await db.execute(
+          `INSERT INTO subscriptions (
+             id, organization_id, status, trial_started_at, trial_ends_at, cancel_at_period_end, created_at, updated_at
+           ) VALUES ($1, $2, 'EXPIRED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [uuidv4(), orgId]
+        );
+      }
+    } else {
+      await PaddleBillingService.createTrialSubscription(orgId);
+    }
 
     // 4. Create Default AI Receptionist
     const aiEmployeeId = uuidv4();
@@ -264,7 +281,7 @@ export class AuthService {
    * Log in an existing user and retrieve their organization membership.
    */
   static async login(params: LoginRequest, ipAddress?: string): Promise<AuthResponse> {
-    const email = params.email.toLowerCase().trim();
+    const email = normalizeEmail(params.email);
     if (!email || !params.password) {
       throw new Error('Email and password are required.');
     }
@@ -518,7 +535,7 @@ export class AuthService {
     email: string,
     ipAddress?: string
   ): Promise<{ success: boolean; message: string; verificationToken?: string }> {
-    const cleanEmail = (email || '').toLowerCase().trim();
+    const cleanEmail = normalizeEmail(email);
     if (!cleanEmail) {
       throw new Error('Email address is required.');
     }
@@ -724,7 +741,7 @@ export class AuthService {
     },
     ipAddress?: string
   ): Promise<ExtendedAuthResponse & { isNewUser: boolean }> {
-    const email = (params.email || '').toLowerCase().trim();
+    const email = normalizeEmail(params.email);
     if (!email) {
       throw new Error('Google identity must have a valid email address.');
     }
@@ -793,7 +810,7 @@ export class AuthService {
         );
 
         // Setup standard organization, 7-day trial, Luna, settings, availability & knowledge
-        const workspace = await this.setupDefaultWorkspace(userId, fullName);
+        const workspace = await this.setupDefaultWorkspace(userId, fullName, undefined, email);
 
         await AuditService.log({
           organizationId: workspace.organization.id,

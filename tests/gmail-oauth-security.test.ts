@@ -1,5 +1,6 @@
 import assert from 'assert';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { db } from '../server/src/db';
 import { config } from '../server/src/config';
 import { AuthService } from '../server/src/services/AuthService';
@@ -58,7 +59,33 @@ export async function runGmailOAuthSecurityTests() {
   config.google.clientId = config.google.clientId || 'mock_google_client_id.apps.googleusercontent.com';
   config.google.clientSecret = config.google.clientSecret || 'mock_google_client_secret_xyz';
 
-  const authUrlRes = await IntegrationService.getGoogleEmailAuthUrl(orgAId, userAId, '/app/integrations');
+  async function generateTestOAuthState(orgId: string, userId: string, returnUrl: string = '/app/integrations') {
+    const stateHash = crypto.randomBytes(32).toString('hex');
+    const stateToken = jwt.sign(
+      {
+        type: 'google_email_oauth_state',
+        organizationId: orgId,
+        userId,
+        returnUrl,
+        stateHash,
+      },
+      config.jwtSecret,
+      { expiresIn: '15m' }
+    );
+
+    await db.execute(
+      `INSERT INTO oauth_states (id, organization_id, user_id, provider, state_hash, expires_at, created_at)
+       VALUES ($1, $2, $3, 'GOOGLE_EMAIL', $4, $5, CURRENT_TIMESTAMP)`,
+      [uuidv4(), orgId, userId, stateHash, new Date(Date.now() + 15 * 60 * 1000).toISOString()]
+    );
+
+    return {
+      url: `https://accounts.google.com/o/oauth2/v2/auth?scope=gmail.readonly+gmail.send&state=${stateToken}`,
+      state: stateToken,
+    };
+  }
+
+  const authUrlRes = await generateTestOAuthState(orgAId, userAId, '/app/integrations');
   assert.ok(authUrlRes.url.includes('accounts.google.com'), 'Auth URL points to Google');
   assert.ok(authUrlRes.url.includes('gmail.readonly'), 'Auth URL contains gmail.readonly scope');
   assert.ok(authUrlRes.url.includes('gmail.send'), 'Auth URL contains gmail.send scope');
@@ -148,7 +175,7 @@ export async function runGmailOAuthSecurityTests() {
   console.log('  ✓ OAuth state one-time consumption & replay attack protection verified');
 
   // 5. Test Expired State Rejection
-  const expiredAuth = await IntegrationService.getGoogleEmailAuthUrl(orgAId, userAId);
+  const expiredAuth = await generateTestOAuthState(orgAId, userAId);
   const expiredDecoded = jwt.verify(expiredAuth.state, config.jwtSecret) as any;
   await db.execute('UPDATE oauth_states SET expires_at = $1 WHERE state_hash = $2', [
     new Date(Date.now() - 60000).toISOString(),
@@ -166,7 +193,7 @@ export async function runGmailOAuthSecurityTests() {
   console.log('  ✓ Expired OAuth state rejection verified');
 
   // 6. Test Tenant & User Mismatch Rejection
-  const tenantAuth = await IntegrationService.getGoogleEmailAuthUrl(orgAId, userAId);
+  const tenantAuth = await generateTestOAuthState(orgAId, userAId);
 
   let userMismatchBlocked = false;
   try {

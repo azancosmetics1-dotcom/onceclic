@@ -260,20 +260,20 @@ export const HostedChat: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col sm:p-6 lg:p-10 justify-center items-center">
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl flex flex-col h-[90vh] max-h-[800px] overflow-hidden">
+    <div className="min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col p-2 sm:p-6 lg:p-10 justify-center items-center">
+      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl flex flex-col h-[94dvh] sm:h-[90vh] max-h-[800px] overflow-hidden min-w-0">
         {/* Chat Topbar */}
-        <div className="p-4 sm:p-5 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-md shadow-emerald-500/20">
-              <Bot className="w-5 h-5 stroke-[2.5]" />
+        <div className="p-3.5 sm:p-5 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-slate-950 shadow-md shadow-emerald-500/20 shrink-0">
+              <Bot className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.5]" />
             </div>
-            <div>
-              <h2 className="text-sm font-bold text-white flex items-center space-x-2">
-                <span>{orgData?.organization?.name}</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <div className="min-w-0">
+              <h2 className="text-xs sm:text-sm font-bold text-white flex items-center space-x-2">
+                <span className="truncate">{orgData?.organization?.name}</span>
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
               </h2>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[10px] sm:text-[11px] text-slate-400 truncate">
                 {orgData?.aiEmployee?.name || 'Luna'} &bull; {orgData?.aiEmployee?.roleTitle || 'AI Receptionist'}
               </p>
             </div>
@@ -281,23 +281,33 @@ export const HostedChat: React.FC = () => {
 
           <button
             onClick={handleOpenBooking}
-            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition shadow-md shadow-emerald-500/20"
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] sm:text-xs transition shadow-md shadow-emerald-500/20 shrink-0"
           >
             <Calendar className="w-3.5 h-3.5" />
-            <span>Book Appointment</span>
+            <span className="hidden sm:inline">
+              {orgData?.organization?.businessType?.toLowerCase().includes('restaurant')
+                ? 'Reserve a Table'
+                : orgData?.organization?.businessType?.toLowerCase().includes('salon')
+                ? 'Book a Service'
+                : 'Book Appointment'}
+            </span>
+            <span className="sm:hidden">
+              {orgData?.organization?.businessType?.toLowerCase().includes('restaurant')
+                ? 'Reserve'
+                : 'Book'}
+            </span>
           </button>
         </div>
 
         {/* Message Stream */}
-        <div className="flex-1 p-5 overflow-y-auto space-y-4">
+        <div className="flex-1 p-3.5 sm:p-5 overflow-y-auto space-y-4 min-w-0">
           {messages.map((m) => {
             const isCustomer = m.role === 'CUSTOMER';
-            const isAI = m.role === 'AI';
 
             return (
               <div
                 key={m.id}
-                className={`flex flex-col ${isCustomer ? 'items-end' : 'items-start'}`}
+                className={`flex flex-col ${isCustomer ? 'items-end' : 'items-start'} min-w-0`}
               >
                 <div className="flex items-center space-x-1.5 text-[10px] text-slate-400 mb-1 px-1">
                   <span>{isCustomer ? customerName || 'You' : orgData?.aiEmployee?.name || 'Luna'}</span>
@@ -308,7 +318,7 @@ export const HostedChat: React.FC = () => {
                 </div>
 
                 <div
-                  className={`max-w-[85%] rounded-2xl px-4 py-3 text-xs sm:text-sm leading-relaxed ${
+                  className={`max-w-[85%] rounded-2xl px-3.5 sm:px-4 py-2.5 sm:py-3 text-xs sm:text-sm leading-relaxed break-words [overflow-wrap:anywhere] min-w-0 ${
                     isCustomer
                       ? 'bg-emerald-500 text-slate-950 font-medium'
                       : 'bg-slate-800 text-slate-200 border border-slate-700/60'
@@ -332,185 +342,258 @@ export const HostedChat: React.FC = () => {
 
         {/* Customer Quick Info (optional inputs) */}
         {!customerEmail && (
-          <div className="px-4 py-2 bg-slate-950/60 border-t border-slate-800/80 flex flex-wrap gap-2 text-xs">
+          <div className="px-3.5 sm:px-4 py-2 bg-slate-950/60 border-t border-slate-800/80 flex flex-wrap gap-2 text-xs min-w-0">
             <input
               type="text"
               placeholder="Your Name (optional)"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
-              className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-[11px] text-white focus:outline-none focus:border-emerald-500"
+              className="flex-1 min-w-[120px] bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-[11px] text-white focus:outline-none focus:border-emerald-500"
             />
             <input
               type="email"
               placeholder="Your Email (for updates)"
               value={customerEmail}
               onChange={(e) => setCustomerEmail(e.target.value)}
-              className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-[11px] text-white focus:outline-none focus:border-emerald-500"
+              className="flex-1 min-w-[140px] bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-[11px] text-white focus:outline-none focus:border-emerald-500"
             />
           </div>
         )}
 
         {/* Chat Input Bar */}
-        <form onSubmit={handleSendMessage} className="p-4 border-t border-slate-800 bg-slate-950/90">
+        <form onSubmit={handleSendMessage} className="p-3 sm:p-4 border-t border-slate-800 bg-slate-950/90 min-w-0">
           <div className="flex items-center space-x-2">
             <input
               type="text"
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               placeholder="Ask a question or request a booking..."
-              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500"
+              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 sm:px-4 sm:py-3 text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500 min-w-0"
             />
             <button
               type="submit"
               disabled={sending || !inputMessage.trim()}
-              className="p-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl transition font-bold disabled:opacity-50 shrink-0"
+              className="p-2.5 sm:p-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl transition font-bold disabled:opacity-50 shrink-0"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
-          <div className="mt-2 text-center text-[10px] text-slate-500">
+          <div className="mt-2 text-center text-[10px] text-slate-500 truncate">
             Powered by <span className="font-semibold text-slate-400">ONCEClic.com</span> &bull; 24/7 AI Receptionist
           </div>
         </form>
       </div>
 
-      {/* Appointment Booking Modal */}
-      {showBookingModal && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-5 shadow-2xl relative">
-            <button
-              onClick={() => setShowBookingModal(false)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white p-1"
-            >
-              <X className="w-4 h-4" />
-            </button>
+      {/* Appointment / Reservation Booking Modal */}
+      {showBookingModal && (() => {
+        const bType = (orgData?.organization?.businessType || 'services').toLowerCase();
+        const isRestaurant = bType.includes('restaurant') || bType.includes('cafe') || bType.includes('dining') || bType.includes('food');
+        const isSalon = bType.includes('salon') || bType.includes('spa') || bType.includes('beauty') || bType.includes('hair');
+        const isClinic = bType.includes('clinic') || bType.includes('doctor') || bType.includes('medical') || bType.includes('dental');
 
-            <h3 className="text-base font-bold text-white flex items-center space-x-2">
-              <Calendar className="w-5 h-5 text-emerald-400" />
-              <span>Schedule an Appointment</span>
-            </h3>
+        const currentServiceObj = orgData?.services?.find((s: any) => s.name === selectedService);
+        const resSettings = orgData?.reservationSettings;
 
-            {bookingSuccess ? (
-              <div className="text-center py-6 space-y-2">
-                <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
-                <h4 className="text-base font-bold text-white">Appointment Confirmed!</h4>
-                <p className="text-xs text-slate-400">
-                  Your appointment has been booked. You can view the details in the chat transcript.
-                </p>
-              </div>
-            ) : (
-              <form onSubmit={handleConfirmBooking} className="space-y-4">
-                {/* Service Selection */}
-                {orgData?.services?.length > 0 && (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">Select Service</label>
-                    <select
-                      value={selectedService}
-                      onChange={(e) => setSelectedService(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                    >
-                      {orgData.services.map((srv: any) => (
-                        <option key={srv.id || srv.name} value={srv.name}>
-                          {srv.name} ({srv.durationMinutes} mins - ${srv.price})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+        const modalTitle = isRestaurant ? 'Reserve a Table' : isSalon ? 'Book a Service' : 'Book Appointment';
+        const confirmBtnLabel = isRestaurant ? 'Confirm Reservation' : isSalon ? 'Confirm Booking' : 'Confirm Appointment';
+        const nameLabel = isRestaurant ? 'Lead Guest Name' : isSalon ? 'Client Name' : isClinic ? 'Patient Name' : 'Your Name';
 
-                {/* Date Picker */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">Select Date</label>
-                  <input
-                    type="date"
-                    min={new Date().toISOString().split('T')[0]}
-                    value={bookingDate}
-                    onChange={(e) => handleDateChange(e.target.value)}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
+        return (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+              <button
+                onClick={() => setShowBookingModal(false)}
+                className="absolute top-4 right-4 text-slate-400 hover:text-white p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <h3 className="text-base font-bold text-white flex items-center space-x-2">
+                <Calendar className="w-5 h-5 text-emerald-400" />
+                <span>{modalTitle}</span>
+              </h3>
+
+              {bookingSuccess ? (
+                <div className="text-center py-6 space-y-2">
+                  <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
+                  <h4 className="text-base font-bold text-white">
+                    {isRestaurant ? 'Reservation Confirmed!' : isSalon ? 'Booking Confirmed!' : 'Appointment Confirmed!'}
+                  </h4>
+                  <p className="text-xs text-slate-400">
+                    Your details have been confirmed and recorded.
+                  </p>
                 </div>
-
-                {/* Time Slots */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                    Available Time Slots ({bookingDate})
-                  </label>
-                  {bookingLoading ? (
-                    <div className="py-4 text-center text-xs text-slate-400">Loading slots...</div>
-                  ) : availableSlots.filter((s) => s.available).length === 0 ? (
-                    <p className="text-xs text-amber-400 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
-                      No available slots on this date. Please pick another day.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-3 gap-2 max-h-36 overflow-y-auto p-1">
-                      {availableSlots
-                        .filter((s) => s.available)
-                        .map((slot) => {
-                          const isSelected = selectedSlot === slot.startTime;
-                          const timeStr = new Date(slot.startTime).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          });
-
+              ) : (
+                <form onSubmit={handleConfirmBooking} className="space-y-4">
+                  {/* Service or Reservation selection */}
+                  {orgData?.services?.length > 0 ? (
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-300 mb-1">
+                        {isRestaurant ? 'Select Table / Seating Option' : isSalon ? 'Select Service' : 'Select Consultation / Service'}
+                      </label>
+                      <select
+                        value={selectedService}
+                        onChange={(e) => setSelectedService(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                      >
+                        {orgData.services.map((srv: any) => {
+                          const priceStr = srv.price !== undefined ? (srv.price === 0 ? 'Free' : `$${srv.price}`) : '';
+                          const durationStr = srv.durationMinutes ? `${srv.durationMinutes} min` : '';
+                          const extra = [durationStr, priceStr].filter(Boolean).join(' — ');
                           return (
-                            <button
-                              key={slot.startTime}
-                              type="button"
-                              onClick={() => setSelectedSlot(slot.startTime)}
-                              className={`p-2 rounded-lg text-xs font-mono font-medium border transition ${
-                                isSelected
-                                  ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-bold'
-                                  : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
-                              }`}
-                            >
-                              {timeStr}
-                            </button>
+                            <option key={srv.id || srv.name} value={srv.name}>
+                              {srv.name} {extra ? `(${extra})` : ''}
+                            </option>
                           );
                         })}
+                      </select>
+                    </div>
+                  ) : null}
+
+                  {/* Transparent Upfront Price Display Before Slot Picking */}
+                  <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/80 flex items-center justify-between text-xs">
+                    <span className="text-slate-400 font-medium">
+                      {isRestaurant ? 'Reservation Fee / Spend:' : isSalon ? 'Service Price:' : 'Appointment Price:'}
+                    </span>
+                    <span className="text-emerald-400 font-bold">
+                      {currentServiceObj?.price !== undefined
+                        ? currentServiceObj.price === 0
+                          ? 'Free'
+                          : `$${currentServiceObj.price}`
+                        : resSettings?.reservationFee
+                        ? `$${resSettings.reservationFee}`
+                        : resSettings?.minimumSpend
+                        ? `Min Spend $${resSettings.minimumSpend}`
+                        : resSettings?.depositAmount
+                        ? `Deposit $${resSettings.depositAmount}`
+                        : isRestaurant
+                        ? 'Reservation: Free'
+                        : 'Price: Contact Business'}
+                    </span>
+                  </div>
+
+                  {/* Date Picker */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Choose Date</label>
+                    <input
+                      type="date"
+                      min={new Date().toISOString().split('T')[0]}
+                      value={bookingDate}
+                      onChange={(e) => handleDateChange(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  {/* Time Slots */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                      Choose Time ({bookingDate})
+                    </label>
+                    {bookingLoading ? (
+                      <div className="py-4 text-center text-xs text-slate-400">Loading slots...</div>
+                    ) : availableSlots.filter((s) => s.available).length === 0 ? (
+                      <p className="text-xs text-amber-400 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20">
+                        No available slots on this date. Please pick another day.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-36 overflow-y-auto p-1">
+                        {availableSlots
+                          .filter((s) => s.available)
+                          .map((slot) => {
+                            const isSelected = selectedSlot === slot.startTime;
+                            const timeStr = new Date(slot.startTime).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            });
+
+                            return (
+                              <button
+                                key={slot.startTime}
+                                type="button"
+                                onClick={() => setSelectedSlot(slot.startTime)}
+                                className={`p-2 rounded-lg text-xs font-mono font-medium border transition ${
+                                  isSelected
+                                    ? 'bg-emerald-500 text-slate-950 border-emerald-400 font-bold'
+                                    : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                                }`}
+                              >
+                                {timeStr}
+                              </button>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Contact details */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">{nameLabel}</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Full Name"
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-300 mb-1">Email</label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="email@example.com"
+                        value={customerEmail}
+                        onChange={(e) => setCustomerEmail(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Final Summary Before Confirmation */}
+                  {selectedSlot && (
+                    <div className="bg-slate-950/80 p-3 rounded-xl border border-slate-800 text-xs space-y-1">
+                      <div className="flex justify-between text-slate-400">
+                        <span>Selected Slot:</span>
+                        <span className="text-white font-mono">
+                          {new Date(selectedSlot).toLocaleDateString()} at{' '}
+                          {new Date(selectedSlot).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-slate-400">
+                        <span>
+                          {isRestaurant ? 'Reservation Total:' : isSalon ? 'Booking Total:' : 'Appointment Price:'}
+                        </span>
+                        <span className="text-emerald-400 font-bold">
+                          {currentServiceObj?.price !== undefined
+                            ? currentServiceObj.price === 0
+                              ? 'Free'
+                              : `$${currentServiceObj.price}`
+                            : isRestaurant
+                            ? 'Free'
+                            : 'Confirmed upon visit'}
+                        </span>
+                      </div>
                     </div>
                   )}
-                </div>
 
-                {/* Contact details */}
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Your Name</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Jane Doe"
-                      value={customerName}
-                      onChange={(e) => setCustomerName(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-                    />
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      disabled={!selectedSlot || !customerName || !customerEmail || bookingLoading}
+                      className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md disabled:opacity-50"
+                    >
+                      {bookingLoading ? 'Processing...' : confirmBtnLabel}
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-300 mb-1">Email</label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="jane@email.com"
-                      value={customerEmail}
-                      onChange={(e) => setCustomerEmail(e.target.value)}
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <button
-                    type="submit"
-                    disabled={!selectedSlot || !customerName || !customerEmail || bookingLoading}
-                    className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md disabled:opacity-50"
-                  >
-                    {bookingLoading ? 'Booking...' : 'Confirm Appointment'}
-                  </button>
-                </div>
-              </form>
-            )}
+                </form>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };
+

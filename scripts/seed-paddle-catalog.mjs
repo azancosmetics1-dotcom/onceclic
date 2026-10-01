@@ -3,7 +3,7 @@
  *
  * Creates the ONCEClic MVP Paddle Sandbox catalog:
  *   - 1 product: "ONCEClic Pro" (SaaS)
- *   - 1 price:   $49.00 USD / month recurring, 7-day free trial
+ *   - 1 price:   $19.00 USD / month recurring, 7-day free trial
  *
  * Run once: node scripts/seed-paddle-catalog.mjs
  * Requires PADDLE_SANDBOX_API_KEY in environment (or reads from mcp_config.json).
@@ -47,17 +47,17 @@ async function seed() {
     name: "ONCEClic Pro",
     taxCategory: "saas",
     description:
-      "ONCEClic Pro — all-in-one booking and client management platform for professionals.",
+      "ONCEClic Pro — AI Receptionist for Small Businesses (Website, Instagram, Email, Calendar & Appointments).",
   });
   console.log(`  ✓ Product created: ${product.id}  (${product.name})\n`);
 
   // ── Create monthly price with 7-day trial ──────────────────────────────────
-  console.log("Creating price: $49.00 USD/month, 7-day trial …");
+  console.log("Creating price: $19.00 USD/month, 7-day trial …");
   const price = await paddle.prices.create({
     productId: product.id,
     description: "ONCEClic Pro monthly USD",
     name: "Monthly",
-    unitPrice: { amount: "4900", currencyCode: "USD" }, // 4900 cents = $49.00
+    unitPrice: { amount: "1900", currencyCode: "USD" }, // 1900 cents = $19.00
     billingCycle: { interval: "month", frequency: 1 },
     trialPeriod: { interval: "day", frequency: 7 },
     quantity: { minimum: 1, maximum: 1 },

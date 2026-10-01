@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { Organization, BusinessSettings, ServiceItem, UserRole } from '@onceclic/shared';
+import { Organization, BusinessSettings, ServiceItem, RestaurantReservationSettings, UserRole } from '@onceclic/shared';
 import { EmbedSnippet } from '../components/EmbedSnippet';
 import { Badge } from '../components/Badge';
 import {
@@ -14,6 +14,7 @@ import {
   Trash2,
   Code,
   Shield,
+  UtensilsCrossed,
 } from 'lucide-react';
 
 export const SettingsPage: React.FC = () => {
@@ -22,6 +23,16 @@ export const SettingsPage: React.FC = () => {
   const [orgData, setOrgData] = useState<Organization | null>(null);
   const [members, setMembers] = useState<any[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const [reservationSettings, setReservationSettings] = useState<RestaurantReservationSettings>({
+    pricingType: 'free',
+    feeAmount: undefined,
+    depositAmount: undefined,
+    minimumSpendAmount: undefined,
+    maxPartySize: 10,
+    minPartySize: 1,
+    seatingOptions: [],
+    specialInstructions: '',
+  });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -44,6 +55,18 @@ export const SettingsPage: React.FC = () => {
       if (current.settings?.services) {
         setServices(current.settings.services);
       }
+      if (current.settings?.reservationSettings) {
+        setReservationSettings({
+          pricingType: current.settings.reservationSettings.pricingType || 'free',
+          feeAmount: current.settings.reservationSettings.feeAmount,
+          depositAmount: current.settings.reservationSettings.depositAmount,
+          minimumSpendAmount: current.settings.reservationSettings.minimumSpendAmount,
+          maxPartySize: current.settings.reservationSettings.maxPartySize ?? 10,
+          minPartySize: current.settings.reservationSettings.minPartySize ?? 1,
+          seatingOptions: current.settings.reservationSettings.seatingOptions || [],
+          specialInstructions: current.settings.reservationSettings.specialInstructions || '',
+        });
+      }
     } catch (err) {
       console.error('[Settings] Load failed:', err);
     } finally {
@@ -54,6 +77,8 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     loadSettings();
   }, []);
+
+  const isRestaurantType = (orgData?.businessType || '').toLowerCase().match(/restaurant|cafe|food|dining|bar/) !== null;
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,6 +96,7 @@ export const SettingsPage: React.FC = () => {
         address: orgData.address,
         timezone: orgData.timezone,
         services,
+        reservationSettings: isRestaurantType ? reservationSettings : undefined,
         websiteChatEnabled: settings?.websiteChatEnabled,
         emailAnsweringEnabled: settings?.emailAnsweringEnabled,
       });
@@ -130,12 +156,12 @@ export const SettingsPage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-8 max-w-5xl">
+    <div className="space-y-6 sm:space-y-8 max-w-5xl w-full min-w-0">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-white flex items-center space-x-2">
-            <SettingsIcon className="w-6 h-6 text-emerald-400" />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 flex-wrap">
+            <SettingsIcon className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 flex-shrink-0" />
             <span>Business Profile & Settings</span>
           </h1>
           <p className="text-xs text-slate-400 mt-1">
@@ -144,8 +170,8 @@ export const SettingsPage: React.FC = () => {
         </div>
 
         {saveSuccess && (
-          <div className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
-            <CheckCircle2 className="w-4 h-4" />
+          <div className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold self-start sm:self-auto">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>Profile saved successfully!</span>
           </div>
         )}
@@ -153,13 +179,13 @@ export const SettingsPage: React.FC = () => {
 
       {/* Main Profile Form */}
       {orgData && (
-        <form onSubmit={handleSaveProfile} className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
+        <form onSubmit={handleSaveProfile} className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-5 sm:p-8 space-y-6 min-w-0">
           <div className="flex items-center space-x-2 border-b border-slate-800 pb-3">
-            <Building className="w-5 h-5 text-emerald-400" />
+            <Building className="w-5 h-5 text-emerald-400 shrink-0" />
             <h2 className="text-sm font-bold text-white">General Business Details</h2>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6 min-w-0">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">Business Name</label>
               <input
@@ -238,9 +264,9 @@ export const SettingsPage: React.FC = () => {
           </div>
 
           {/* Services Section */}
-          <div className="pt-6 border-t border-slate-800 space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="pt-6 border-t border-slate-800 space-y-4 min-w-0">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
+              <div className="min-w-0">
                 <h3 className="text-sm font-bold text-white">Bookable Services</h3>
                 <p className="text-[11px] text-slate-400">
                   Services that customers can ask about and schedule with your AI receptionist.
@@ -249,18 +275,18 @@ export const SettingsPage: React.FC = () => {
               <button
                 type="button"
                 onClick={handleAddService}
-                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition flex items-center space-x-1"
+                className="w-full sm:w-auto px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition flex items-center justify-center space-x-1 shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add Service</span>
               </button>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-3 min-w-0">
               {services.map((srv, index) => (
                 <div
                   key={srv.id || index}
-                  className="flex flex-col sm:flex-row items-center gap-3 p-3 bg-slate-950 border border-slate-800 rounded-xl"
+                  className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 p-3 bg-slate-950 border border-slate-800 rounded-xl min-w-0"
                 >
                   <input
                     type="text"
@@ -271,54 +297,165 @@ export const SettingsPage: React.FC = () => {
                       updated[index].name = e.target.value;
                       setServices(updated);
                     }}
-                    className="flex-1 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
+                    className="flex-1 min-w-0 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
                   />
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="number"
-                      placeholder="Mins"
-                      title="Duration in minutes"
-                      value={srv.durationMinutes}
-                      onChange={(e) => {
-                        const updated = [...services];
-                        updated[index].durationMinutes = parseInt(e.target.value, 10) || 30;
-                        setServices(updated);
-                      }}
-                      className="w-20 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
-                    />
-                    <span className="text-xs text-slate-400">mins</span>
+                  <div className="flex items-center gap-2 justify-between sm:justify-start">
+                    <div className="flex items-center space-x-1.5">
+                      <input
+                        type="number"
+                        placeholder="Mins"
+                        title="Duration in minutes"
+                        value={srv.durationMinutes}
+                        onChange={(e) => {
+                          const updated = [...services];
+                          updated[index].durationMinutes = parseInt(e.target.value, 10) || 30;
+                          setServices(updated);
+                        }}
+                        className="w-16 sm:w-20 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      />
+                      <span className="text-xs text-slate-400">mins</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="text-xs text-slate-400">$</span>
+                      <input
+                        type="number"
+                        placeholder="Price"
+                        value={srv.price}
+                        onChange={(e) => {
+                          const updated = [...services];
+                          updated[index].price = parseFloat(e.target.value) || 0;
+                          setServices(updated);
+                        }}
+                        className="w-16 sm:w-24 bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveService(index)}
+                      className="p-1.5 text-slate-400 hover:text-rose-400 transition ml-auto sm:ml-0"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-xs text-slate-400">$</span>
-                    <input
-                      type="number"
-                      placeholder="Price"
-                      value={srv.price}
-                      onChange={(e) => {
-                        const updated = [...services];
-                        updated[index].price = parseFloat(e.target.value) || 0;
-                        setServices(updated);
-                      }}
-                      className="w-24 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-white"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveService(index)}
-                    className="p-1.5 text-slate-400 hover:text-rose-400 transition"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
                 </div>
               ))}
             </div>
           </div>
 
+          {/* Restaurant Reservation Settings — only for restaurant-type businesses */}
+          {isRestaurantType && (
+            <div className="pt-6 border-t border-slate-800 space-y-4 min-w-0">
+              <div className="min-w-0">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <UtensilsCrossed className="w-4 h-4 text-emerald-400" />
+                  Reservation Pricing & Settings
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  Configure how reservations are priced. This info is shown to customers before they book.
+                </p>
+              </div>
+
+              {/* Pricing Type */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Reservation Pricing Model</label>
+                <select
+                  value={reservationSettings.pricingType}
+                  onChange={(e) => setReservationSettings({ ...reservationSettings, pricingType: e.target.value as any })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="free">Free — No charge for reservations</option>
+                  <option value="deposit">Deposit Required</option>
+                  <option value="reservation_fee">Reservation Fee</option>
+                  <option value="minimum_spend">Minimum Spend</option>
+                </select>
+              </div>
+
+              {/* Conditional amount inputs */}
+              {reservationSettings.pricingType === 'deposit' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Deposit Amount ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={reservationSettings.depositAmount || ''}
+                    onChange={(e) => setReservationSettings({ ...reservationSettings, depositAmount: parseFloat(e.target.value) || undefined })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              )}
+              {reservationSettings.pricingType === 'reservation_fee' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Reservation Fee ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={reservationSettings.feeAmount || ''}
+                    onChange={(e) => setReservationSettings({ ...reservationSettings, feeAmount: parseFloat(e.target.value) || undefined })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              )}
+              {reservationSettings.pricingType === 'minimum_spend' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Minimum Spend Per Party ($)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={reservationSettings.minimumSpendAmount || ''}
+                    onChange={(e) => setReservationSettings({ ...reservationSettings, minimumSpendAmount: parseFloat(e.target.value) || undefined })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              )}
+
+              {/* Party Size */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Min Party Size</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={reservationSettings.minPartySize ?? 1}
+                    onChange={(e) => setReservationSettings({ ...reservationSettings, minPartySize: parseInt(e.target.value) || 1 })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Max Party Size</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="500"
+                    value={reservationSettings.maxPartySize ?? 10}
+                    onChange={(e) => setReservationSettings({ ...reservationSettings, maxPartySize: parseInt(e.target.value) || 10 })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              {/* Special Instructions */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Special Instructions / Notes for Guests</label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Please arrive 10 minutes early. Smart casual dress code."
+                  value={reservationSettings.specialInstructions || ''}
+                  onChange={(e) => setReservationSettings({ ...reservationSettings, specialInstructions: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500 resize-none"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="pt-4 border-t border-slate-800 flex justify-end">
             <button
               type="submit"
               disabled={saving}
-              className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 disabled:opacity-50 flex items-center space-x-1.5"
+              className="w-full sm:w-auto px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 disabled:opacity-50 flex items-center justify-center space-x-1.5"
             >
               <Save className="w-4 h-4" />
               <span>{saving ? 'Saving...' : 'Save Changes'}</span>
@@ -328,34 +465,36 @@ export const SettingsPage: React.FC = () => {
       )}
 
       {/* Team Members & RBAC */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-6">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <div className="flex items-center space-x-2">
-            <Users className="w-5 h-5 text-emerald-400" />
-            <div>
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-5 sm:p-8 space-y-6 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3 min-w-0">
+          <div className="flex items-start sm:items-center space-x-2 min-w-0">
+            <Users className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5 sm:mt-0" />
+            <div className="min-w-0">
               <h2 className="text-sm font-bold text-white">Team Members & Access Control</h2>
               <p className="text-[11px] text-slate-400">Centralized RBAC: OWNER, MANAGER, EMPLOYEE</p>
             </div>
           </div>
           <button
             onClick={() => setShowInviteModal(true)}
-            className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-lg transition flex items-center space-x-1 shadow-sm"
+            className="w-full sm:w-auto px-3 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-lg transition flex items-center justify-center space-x-1 shadow-sm shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>Add Member</span>
           </button>
         </div>
 
-        <div className="divide-y divide-slate-800/60">
+        <div className="divide-y divide-slate-800/60 min-w-0">
           {members.map((m) => (
-            <div key={m.id} className="py-3 flex items-center justify-between text-xs">
-              <div>
-                <p className="font-bold text-white">{m.fullName || m.email}</p>
-                <p className="text-slate-400">{m.email}</p>
+            <div key={m.id} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs min-w-0">
+              <div className="min-w-0">
+                <p className="font-bold text-white truncate">{m.fullName || m.email}</p>
+                <p className="text-slate-400 truncate">{m.email}</p>
               </div>
-              <Badge variant={m.role === UserRole.OWNER ? 'brand' : m.role === UserRole.MANAGER ? 'info' : 'neutral'}>
-                {m.role}
-              </Badge>
+              <div className="shrink-0 self-start sm:self-auto">
+                <Badge variant={m.role === UserRole.OWNER ? 'brand' : m.role === UserRole.MANAGER ? 'info' : 'neutral'}>
+                  {m.role}
+                </Badge>
+              </div>
             </div>
           ))}
         </div>
@@ -367,9 +506,9 @@ export const SettingsPage: React.FC = () => {
       {/* Invite Member Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 space-y-4 shadow-2xl">
             <h3 className="text-base font-bold text-white flex items-center space-x-2">
-              <Users className="w-5 h-5 text-emerald-400" />
+              <Users className="w-5 h-5 text-emerald-400 shrink-0" />
               <span>Add Team Member</span>
             </h3>
 
@@ -382,7 +521,7 @@ export const SettingsPage: React.FC = () => {
                   placeholder="colleague@company.com"
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
               </div>
 
@@ -391,7 +530,7 @@ export const SettingsPage: React.FC = () => {
                 <select
                   value={inviteRole}
                   onChange={(e) => setInviteRole(e.target.value as UserRole)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
                 >
                   <option value={UserRole.EMPLOYEE}>EMPLOYEE (Appointments & Conversations)</option>
                   <option value={UserRole.MANAGER}>MANAGER (AI config, Knowledge, Inbox)</option>
@@ -399,18 +538,18 @@ export const SettingsPage: React.FC = () => {
                 </select>
               </div>
 
-              <div className="flex justify-end space-x-3 pt-3 border-t border-slate-800">
+              <div className="flex flex-wrap sm:flex-nowrap justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setShowInviteModal(false)}
-                  className="px-4 py-2 text-xs text-slate-400 hover:text-white"
+                  className="w-full sm:w-auto px-4 py-2 text-xs text-slate-400 hover:text-white"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={inviting}
-                  className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition disabled:opacity-50"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition disabled:opacity-50"
                 >
                   {inviting ? 'Adding...' : 'Add Member'}
                 </button>

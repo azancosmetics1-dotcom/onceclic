@@ -213,13 +213,96 @@ export class AppointmentService {
     });
 
     // 2. Fetch business context for emails & calendar
-    const org = await db.getOne('SELECT name, timezone FROM organizations WHERE id = $1', [
+    const org = await db.getOne('SELECT name, business_type, timezone FROM organizations WHERE id = $1', [
       params.organizationId,
     ]);
     const businessName = org?.name || 'ONCEClic Business';
+    const businessType = org?.business_type || 'services';
     const timezone = org?.timezone || 'UTC';
 
-    // 3. Asynchronously sync with Google Calendar (if connected)
+    const settings = await db.getOne(
+      'SELECT services, reservation_settings FROM business_settings WHERE organization_id = $1',
+      [params.organizationId]
+    );
+
+    let price: number | undefined;
+    let durationMinutes: number | undefined;
+    let depositAmount: number | undefined;
+    let partySize: number | undefined;
+
+    if (settings?.services) {
+      try {
+        const servicesList = typeof settings.services === 'string' ? JSON.parse(settings.services) : settings.services;
+        const matched = servicesList.find((s: any) => s.id === params.serviceId || s.name === params.serviceName);
+        if (matched) {
+          price = matched.price;
+          durationMinutes = matched.durationMinutes;
+          depositAmount = matched.depositAmount;
+        }
+      } catch (err) {}
+    }
+
+    if (settings?.reservation_settings) {
+      try {
+        const resSettings = typeof settings.reservation_settings === 'string' ? JSON.parse(settings.reservation_settings) : settings.reservation_settings;
+        if (price === undefined && resSettings.reservationFee !== undefined) {
+          price = resSettings.reservationFee;
+        }
+        if (depositAmount === undefined && resSettings.depositAmount !== undefined) {
+          depositAmount = resSettings.depositAmount;
+        }
+      } catch (err) {}
+    }
+
+    // Try extracting party size from notes (e.g. "Party size: 4" or "Guests: 4")
+    if (params.notes) {
+      const match = params.notes.match(/(?:party\s*size|guests|party)\s*[:=]\s*(\d+)/i);
+      if (match) {
+        partySize = parseInt(match[1], 10);
+      }
+    }
+
+    // 3. Asynchronously send Resend confirmation email to customer
+    try {
+      await ResendEmailService.sendBookingConfirmation({
+        appointmentId: booked.id,
+        customerName: booked.customerName,
+        customerEmail: booked.customerEmail,
+        serviceName: booked.serviceName,
+        businessName,
+        businessType,
+        price,
+        durationMinutes,
+        depositAmount,
+        partySize,
+        startTime: booked.startTime,
+        endTime: booked.endTime,
+        timezone,
+        notes: booked.notes,
+        organizationId: params.organizationId,
+      });
+    } catch (err: any) {
+      console.error('[AppointmentService] Resend booking confirmation error:', err?.message || err);
+    }
+
+    // 4. Asynchronously send Resend notification email to business owner
+    try {
+      await this.sendOwnerBookingAlert({
+        appointment: booked,
+        organizationId: params.organizationId,
+        businessName,
+        businessType,
+        timezone,
+        price,
+        durationMinutes,
+        depositAmount,
+        partySize,
+      });
+    } catch (err: any) {
+      console.error('[AppointmentService] Resend owner booking alert error:', err?.message || err);
+    }
+
+    // 5. Asynchronously sync with Google Calendar (if connected)
     try {
       const gcalResult = await IntegrationService.createGoogleCalendarEvent(params.organizationId, {
         id: booked.id,
@@ -241,25 +324,105 @@ export class AppointmentService {
       console.error('[AppointmentService] Google Calendar creation error:', err?.message || err);
     }
 
-    // 4. Asynchronously send Resend confirmation email to customer
-    try {
-      await ResendEmailService.sendBookingConfirmation({
-        appointmentId: booked.id,
-        customerName: booked.customerName,
-        customerEmail: booked.customerEmail,
-        serviceName: booked.serviceName,
-        businessName,
-        startTime: booked.startTime,
-        endTime: booked.endTime,
-        timezone,
-        notes: booked.notes,
-        organizationId: params.organizationId,
-      });
-    } catch (err: any) {
-      console.error('[AppointmentService] Resend booking confirmation error:', err?.message || err);
+    return booked;
+  }
+
+  /**
+   * Resolve the primary owner recipient email for an organization safely:
+   * 1. Query organization_memberships joined with users where role = 'OWNER' for this organizationId.
+   * 2. Fall back to organization's contact email (organizations.email) if no membership email.
+   * 3. Return null if no valid email is configured.
+   */
+  static async getOwnerRecipient(
+    organizationId: string
+  ): Promise<{ email: string; name?: string } | null> {
+    // 1. Primary: Look up OWNER member in organization_memberships
+    const ownerMember = await db.getOne<{ email: string; full_name: string }>(
+      `SELECT u.email, u.full_name
+       FROM organization_memberships om
+       JOIN users u ON om.user_id = u.id
+       WHERE om.organization_id = $1 AND om.role = 'OWNER'
+       ORDER BY om.created_at ASC
+       LIMIT 1`,
+      [organizationId]
+    );
+
+    if (ownerMember?.email && ownerMember.email.trim()) {
+      return {
+        email: ownerMember.email.trim(),
+        name: ownerMember.full_name || undefined,
+      };
     }
 
-    return booked;
+    // 2. Secondary fallback: Check organization's business email
+    const org = await db.getOne<{ email: string; name: string }>(
+      'SELECT email, name FROM organizations WHERE id = $1',
+      [organizationId]
+    );
+
+    if (org?.email && org.email.trim()) {
+      return {
+        email: org.email.trim(),
+        name: org.name || undefined,
+      };
+    }
+
+    return null;
+  }
+
+  /**
+   * Dispatch business owner new-booking alert safely with duplicate prevention.
+   */
+  static async sendOwnerBookingAlert(params: {
+    appointment: Appointment;
+    organizationId: string;
+    businessName: string;
+    businessType?: string;
+    timezone?: string;
+    price?: number;
+    durationMinutes?: number;
+    depositAmount?: number;
+    partySize?: number;
+  }): Promise<void> {
+    const { appointment, organizationId, businessName, businessType, timezone, price, durationMinutes, depositAmount, partySize } = params;
+
+    // Idempotency: Verify that an owner notification has not already been sent for this appointment
+    const existingLog = await db.getOne(
+      'SELECT id FROM audit_logs WHERE organization_id = $1 AND entity_id = $2 AND action = $3',
+      [organizationId, appointment.id, AuditAction.OWNER_NEW_BOOKING_EMAIL_SENT]
+    );
+
+    if (existingLog) {
+      console.log(`[AppointmentService] Owner booking notification already dispatched for appointment ${appointment.id}. Skipping.`);
+      return;
+    }
+
+    const ownerRecipient = await this.getOwnerRecipient(organizationId);
+    if (!ownerRecipient || !ownerRecipient.email) {
+      console.warn(`[AppointmentService] No valid owner email found for organization ${organizationId}. Skipping owner notification.`);
+      return;
+    }
+
+    await ResendEmailService.sendOwnerNewBookingAlert({
+      ownerEmail: ownerRecipient.email,
+      ownerName: ownerRecipient.name,
+      appointmentId: appointment.id,
+      customerName: appointment.customerName,
+      customerEmail: appointment.customerEmail,
+      customerPhone: appointment.customerPhone,
+      serviceName: appointment.serviceName,
+      businessName,
+      businessType,
+      price,
+      durationMinutes,
+      depositAmount,
+      partySize,
+      startTime: appointment.startTime,
+      endTime: appointment.endTime,
+      timezone,
+      notes: appointment.notes,
+      organizationId,
+    });
   }
 
   /**

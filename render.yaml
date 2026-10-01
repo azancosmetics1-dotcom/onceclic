@@ -1,0 +1,57 @@
+services:
+  - type: web
+    name: onceclic-api
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm run build:shared && npm run build:server
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: AUTH_SECRET
+        sync: false
+      - key: EMAIL_ENCRYPTION_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        value: ONCEClic <notifications@onceclic.com>
+      - key: COMPOSIO_API_KEY
+        sync: false
+      - key: PADDLE_API_KEY
+        sync: false
+      - key: PADDLE_WEBHOOK_SECRET
+        sync: false
+      - key: PADDLE_PRICE_ID
+        sync: false
+      - key: PADDLE_CLIENT_TOKEN
+        sync: false
+      - key: PADDLE_ENVIRONMENT
+        value: production
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_EMBEDDING_MODEL
+        value: text-embedding-004
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_CHAT_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: FRONTEND_URL
+        value: https://onceclic.com
+      - key: APP_URL
+        value: https://onceclic.com
+      - key: API_URL
+        value: https://api.onceclic.com
+      - key: CORS_ORIGIN
+        value: https://onceclic.com,https://www.onceclic.com

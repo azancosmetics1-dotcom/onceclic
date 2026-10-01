@@ -125,13 +125,13 @@ export const Onboarding: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-2xl w-full mx-auto">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center py-8 sm:py-12 px-3.5 sm:px-6 lg:px-8 min-w-0">
+      <div className="max-w-2xl w-full mx-auto min-w-0">
         {/* Progress Bar & Header */}
-        <div className="mb-8 text-center">
+        <div className="mb-6 sm:mb-8 text-center min-w-0">
           <div className="inline-flex items-center space-x-2 text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2">
-            <Sparkles className="w-4 h-4" />
-            <span>Step {step} of 8: {stepsList[step - 1]}</span>
+            <Sparkles className="w-4 h-4 shrink-0" />
+            <span className="truncate">Step {step} of 8: {stepsList[step - 1]}</span>
           </div>
           <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden border border-slate-800">
             <div
@@ -142,12 +142,12 @@ export const Onboarding: React.FC = () => {
         </div>
 
         {/* Step Card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-2xl">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-5 sm:p-8 shadow-2xl min-w-0">
           {/* Step 1: Business Info */}
           {step === 1 && (
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold text-white flex items-center space-x-2">
-                <Building2 className="w-5 h-5 text-emerald-400" />
+            <div className="space-y-4 min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 flex-wrap">
+                <Building2 className="w-5 h-5 text-emerald-400 shrink-0" />
                 <span>Confirm Your Business Name & Location</span>
               </h2>
               <p className="text-xs text-slate-400">
@@ -187,8 +187,8 @@ export const Onboarding: React.FC = () => {
 
           {/* Step 2: Choose Business Type */}
           {step === 2 && (
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold text-white">Select Your Business Category</h2>
+            <div className="space-y-4 min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-white">Select Your Business Category</h2>
               <p className="text-xs text-slate-400">
                 This helps the AI tune its vocabulary and service booking suggestions.
               </p>
@@ -214,9 +214,9 @@ export const Onboarding: React.FC = () => {
 
           {/* Step 3: Configure AI Receptionist */}
           {step === 3 && (
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold text-white flex items-center space-x-2">
-                <Bot className="w-5 h-5 text-emerald-400" />
+            <div className="space-y-4 min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 flex-wrap">
+                <Bot className="w-5 h-5 text-emerald-400 shrink-0" />
                 <span>Configure Your AI Receptionist</span>
               </h2>
               <p className="text-xs text-slate-400">
@@ -248,13 +248,13 @@ export const Onboarding: React.FC = () => {
 
           {/* Step 4: Services and FAQs */}
           {step === 4 && (
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold text-white flex items-center space-x-2">
-                <HelpCircle className="w-5 h-5 text-emerald-400" />
+            <div className="space-y-4 min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 flex-wrap">
+                <HelpCircle className="w-5 h-5 text-emerald-400 shrink-0" />
                 <span>Add Primary Service & Common FAQ</span>
               </h2>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Initial Service Name</label>
                   <input
@@ -299,16 +299,16 @@ export const Onboarding: React.FC = () => {
 
           {/* Step 5: Appointment Availability */}
           {step === 5 && (
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold text-white flex items-center space-x-2">
-                <Clock className="w-5 h-5 text-emerald-400" />
+            <div className="space-y-4 min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 flex-wrap">
+                <Clock className="w-5 h-5 text-emerald-400 shrink-0" />
                 <span>Configure Available Hours</span>
               </h2>
               <p className="text-xs text-slate-400">
                 The AI will only allow bookings during these working hours.
               </p>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Opening Time</label>
                   <input
@@ -333,16 +333,16 @@ export const Onboarding: React.FC = () => {
 
           {/* Step 6: Enable Website Chat */}
           {step === 6 && (
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold text-white flex items-center space-x-2">
-                <MessageSquare className="w-5 h-5 text-emerald-400" />
+            <div className="space-y-4 min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 flex-wrap">
+                <MessageSquare className="w-5 h-5 text-emerald-400 shrink-0" />
                 <span>Enable Website Chat Widget</span>
               </h2>
               <p className="text-xs text-slate-400">
                 Enable 24/7 customer chat for website visitors.
               </p>
 
-              <div className="flex items-center justify-between p-4 bg-slate-950 border border-slate-800 rounded-2xl">
+              <div className="flex items-center justify-between p-4 bg-slate-950 border border-slate-800 rounded-2xl gap-3">
                 <div>
                   <h4 className="text-sm font-semibold text-white">Live Website Chat</h4>
                   <p className="text-xs text-slate-400">Allow customers to chat and book appointments online</p>
@@ -351,7 +351,7 @@ export const Onboarding: React.FC = () => {
                   type="checkbox"
                   checked={formData.chatEnabled}
                   onChange={(e) => setFormData({ ...formData, chatEnabled: e.target.checked })}
-                  className="w-5 h-5 rounded text-emerald-500 accent-emerald-500 cursor-pointer"
+                  className="w-5 h-5 rounded text-emerald-500 accent-emerald-500 cursor-pointer shrink-0"
                 />
               </div>
             </div>
@@ -359,9 +359,9 @@ export const Onboarding: React.FC = () => {
 
           {/* Step 7: Connect Email */}
           {step === 7 && (
-            <div className="space-y-4">
-              <h2 className="text-xl font-bold text-white flex items-center space-x-2">
-                <Mail className="w-5 h-5 text-emerald-400" />
+            <div className="space-y-4 min-w-0">
+              <h2 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2 flex-wrap">
+                <Mail className="w-5 h-5 text-emerald-400 shrink-0" />
                 <span>Email Answering (Optional)</span>
               </h2>
               <p className="text-xs text-slate-400">
@@ -370,7 +370,7 @@ export const Onboarding: React.FC = () => {
 
               <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl text-xs space-y-2">
                 <div className="flex items-center space-x-2 text-emerald-400 font-semibold">
-                  <CheckCircle2 className="w-4 h-4" />
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>Email Channel Ready</span>
                 </div>
                 <p className="text-slate-400">
@@ -382,13 +382,13 @@ export const Onboarding: React.FC = () => {
 
           {/* Step 8: Ready to Launch */}
           {step === 8 && (
-            <div className="space-y-6 text-center py-4">
+            <div className="space-y-6 text-center py-4 min-w-0">
               <div className="w-16 h-16 rounded-3xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 flex items-center justify-center mx-auto">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
 
               <div>
-                <h2 className="text-2xl font-black text-white">Your AI Receptionist is Ready!</h2>
+                <h2 className="text-xl sm:text-2xl font-black text-white">Your AI Receptionist is Ready!</h2>
                 <p className="text-xs text-slate-400 mt-2 max-w-md mx-auto">
                   Your 7-day free trial of ONCEClic Pro has started. You can now access your dashboard, test the live chat, and start taking appointments.
                 </p>
@@ -397,23 +397,23 @@ export const Onboarding: React.FC = () => {
               <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4 text-left text-xs space-y-2">
                 <div className="flex items-center justify-between text-slate-300">
                   <span>Plan:</span>
-                  <span className="font-semibold text-white">ONCEClic Pro ($49/mo)</span>
+                  <span className="font-semibold text-white">ONCEClic Pro ($19/mo)</span>
                 </div>
                 <div className="flex items-center justify-between text-slate-300">
                   <span>Trial Period:</span>
-                  <span className="font-semibold text-emerald-400">7 Days Free</span>
+                  <span className="font-semibold text-emerald-400">7 Days Free (No credit card required)</span>
                 </div>
               </div>
             </div>
           )}
 
           {/* Navigation Controls */}
-          <div className="mt-8 pt-6 border-t border-slate-800 flex items-center justify-between">
+          <div className="mt-8 pt-6 border-t border-slate-800 flex items-center justify-between gap-3">
             {step > 1 ? (
               <button
                 type="button"
                 onClick={() => setStep(step - 1)}
-                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition flex items-center space-x-1"
+                className="px-4 py-2.5 text-xs font-semibold text-slate-400 hover:text-white transition flex items-center space-x-1"
               >
                 <ArrowLeft className="w-3.5 h-3.5" />
                 <span>Back</span>

@@ -2,7 +2,7 @@
 
 **ONCEClic** is a production-ready, multi-tenant B2B SaaS MVP providing an **AI Receptionist & Assistant** for small businesses (clinics, salons, consultants, contractors, agencies, and local service companies).
 
-It automates customer intake across **Website Chat** and **Email**, answers business FAQs with grounded RAG knowledge, books real-time appointments without double-booking, handles human handoffs, and manages subscriptions via **Paddle Billing ($49/month with a 7-day free trial)**.
+It automates customer intake across **Website Chat** and **Email**, answers business FAQs with grounded RAG knowledge, books real-time appointments without double-booking, handles human handoffs, and manages subscriptions via **Paddle Billing ($19/month with a 7-day free trial)**.
 
 ---
 
@@ -12,7 +12,7 @@ It automates customer intake across **Website Chat** and **Email**, answers busi
 - **Real-Time Appointment Scheduling**: Timezone-aware slot calculator and concurrency-safe booking engine preventing double-booking.
 - **Business Knowledge Base (RAG)**: Chunking, OpenAI embeddings (`text-embedding-3-small`), and cosine vector search with prompt-injection defense.
 - **Automated Email Answering**: Dedicated inbound reception address, webhook routing, and AI response drafts.
-- **Paddle Billing Integration**: One recurring plan ($49/month, 7-day trial), Paddle Checkout v2 overlay, and authoritative HMAC-SHA256 webhook signature verification.
+- **Paddle Billing Integration**: One recurring plan ($19/month, 7-day trial), Paddle Checkout v2 overlay, and authoritative HMAC-SHA256 webhook signature verification.
 - **Multi-Tenant Architecture**: Strict organization data isolation and centralized RBAC (`OWNER`, `MANAGER`, `EMPLOYEE`).
 - **Idempotency & Guardrails**: Client message deduplication and zero-hallucination policies.
 - **Audit Logging & Token Cost Tracking**: Exact token cost records per conversation in USD.
@@ -68,4 +68,4 @@ Visit `http://localhost:3000` to access the marketing site and SaaS app.
 3. **Embed Chat Widget**: Copy the embed code from **Settings** or share your public link (`/chat/your-business`).
 4. **Test Booking**: Open your public chat, ask a question, and book an appointment.
 5. **Manage Inquiries**: View incoming appointments in **Appointments** and converse with visitors in the **Conversations** inbox.
-6. **Paddle Subscription**: Customers upgrade to Pro ($49/mo) after their 7-day trial via Paddle recurring billing.
+6. **Paddle Subscription**: Customers upgrade to Pro ($19/mo) after their 7-day trial via Paddle recurring billing.

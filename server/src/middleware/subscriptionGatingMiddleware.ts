@@ -37,13 +37,13 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
         return next();
       } else {
         // Trial has expired
-        await db.execute('UPDATE subscriptions SET status = $1 WHERE id = $2', [
+        await db.execute('UPDATE subscriptions SET status = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2', [
           SubscriptionStatus.EXPIRED,
           sub.id,
         ]);
         return res.status(402).json({
           success: false,
-          error: 'Your 7-day free trial has expired. Please upgrade to ONCEClic Pro ($49/month) to continue using AI features.',
+          error: 'Your 7-day free trial has expired. Please upgrade to ONCEClic Pro ($19/month) to continue using AI features.',
           code: 'TRIAL_EXPIRED',
         });
       }

@@ -81,6 +81,30 @@ export async function runResendEmailTests() {
 
     assert.ok(cancelRes.success, 'Cancellation email dispatch returned success');
     console.log('  ✓ Booking cancellation notice dispatched cleanly');
+
+    // 5. Test Owner New Booking Alert Email
+    const ownerAlertRes = await ResendEmailService.sendOwnerNewBookingAlert({
+      ownerEmail: 'owner@apexadvisory.com',
+      ownerName: 'Sarah Managing Partner',
+      appointmentId: apptId,
+      customerName: 'Robert Johnson',
+      customerEmail: 'robert@example.com',
+      customerPhone: '+1-555-0188',
+      serviceName: 'Executive Consultation',
+      businessName: 'Apex Advisory Group',
+      businessType: 'Consulting Services',
+      price: 250,
+      durationMinutes: 60,
+      startTime,
+      endTime,
+      timezone: 'America/New_York',
+      notes: 'Discuss Q3 scaling strategy',
+      organizationId: testOrgId,
+    });
+
+    assert.ok(ownerAlertRes.success, 'Owner new booking alert dispatch returned success');
+    assert.ok(ownerAlertRes.id, 'Owner alert email returned message ID');
+    console.log('  ✓ Owner new booking alert template rendered and dispatched with dashboard link');
   } finally {
     await db.execute('DELETE FROM organizations WHERE id = $1', [testOrgId]);
   }

@@ -3,7 +3,16 @@ import { authMiddleware } from '../middleware/authMiddleware';
 import { tenantIsolationMiddleware } from '../middleware/tenantIsolationMiddleware';
 import { requirePermission } from '../middleware/rbacMiddleware';
 import { PaddleBillingService } from '../services/PaddleBillingService';
+import { TrialService } from '../services/TrialService';
+import { AIBudgetService } from '../services/AIBudgetService';
 import { config } from '../config';
+
+import {
+  toCustomerBillingStatus,
+  toCustomerBillingConfig,
+  toCustomerTrialEligibility,
+  toCustomerAIStatus,
+} from '../serializers/customerSerializers';
 
 const router = Router();
 
@@ -37,30 +46,76 @@ router.post('/webhook', async (req: Request, res: Response, next) => {
 router.use(authMiddleware);
 router.use(tenantIsolationMiddleware);
 
-// Get current billing status and trial
-router.get('/status', requirePermission('billing:read'), async (req: Request, res: Response, next) => {
+// Check trial eligibility for current user
+router.get('/trial-eligibility', requirePermission('billing:read'), async (req: Request, res: Response, next) => {
   try {
-    const status = await PaddleBillingService.getSubscription(req.organizationId!);
-    res.json({ success: true, data: status });
+    const email = req.user?.email || (req.query.email as string);
+    const result = await TrialService.checkEligibility(email);
+    res.json({ success: true, data: toCustomerTrialEligibility(result) });
   } catch (err) {
     next(err);
   }
 });
 
-// Get client-safe Paddle configuration
+// Start 7-day free trial for current organization (if eligible)
+router.post('/start-trial', requirePermission('billing:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const email = req.user?.email;
+    if (!email) {
+      return res.status(400).json({ success: false, error: 'User email not found.' });
+    }
+    const result = await TrialService.redeemTrial({
+      userId: req.user!.id,
+      organizationId: req.organizationId!,
+      email,
+    });
+    res.json({
+      success: true,
+      data: {
+        success: result.success,
+        trialEndsAt: result.trialEndsAt,
+        message: result.message,
+      },
+    });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message || 'Failed to activate trial.' });
+  }
+});
+
+// Get AI status and real-time usage (Customer Safe)
+router.get('/budget', requirePermission('billing:read'), async (req: Request, res: Response, next) => {
+  try {
+    const budgetStatus = await AIBudgetService.checkBudget(req.organizationId!);
+    res.json({ success: true, data: toCustomerAIStatus(budgetStatus) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get current billing status and trial (Customer Safe)
+router.get('/status', requirePermission('billing:read'), async (req: Request, res: Response, next) => {
+  try {
+    const rawStatus = await PaddleBillingService.getSubscription(req.organizationId!);
+    const budgetStatus = await AIBudgetService.checkBudget(req.organizationId!);
+    const safeStatus = toCustomerBillingStatus({
+      subscription: rawStatus.subscription,
+      isPro: rawStatus.isPro,
+      daysRemainingInTrial: rawStatus.daysRemainingInTrial,
+      billingConfigured: rawStatus.billingConfigured,
+      budgetStatus,
+    });
+    res.json({ success: true, data: safeStatus });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// Get client-safe Paddle configuration & pricing (Customer Safe)
 router.get('/config', requirePermission('billing:read'), async (req: Request, res: Response, next) => {
   try {
     res.json({
       success: true,
-      data: {
-        clientToken: config.paddle.clientToken,
-        priceId: config.paddle.priceId,
-        environment: config.paddle.environment,
-        isConfigured: config.paddle.isConfigured,
-        planName: config.billing.planName,
-        monthlyPriceUsd: config.billing.monthlyPriceUsd,
-        trialPeriodDays: config.billing.trialPeriodDays,
-      },
+      data: toCustomerBillingConfig(config),
     });
   } catch (err) {
     next(err);

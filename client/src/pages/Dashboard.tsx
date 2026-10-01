@@ -59,18 +59,18 @@ export const Dashboard: React.FC = () => {
   const openConvs = conversations.filter((c) => c.status === 'OPEN' || c.status === 'HUMAN_HANDOFF');
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8 min-w-0">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-white">Dashboard Overview</h1>
+          <h1 className="text-2xl font-black text-white tracking-tight">Dashboard Overview</h1>
           <p className="text-xs text-slate-400 mt-1">
             Real-time status for {organization?.name || 'your business'} AI assistant and appointments.
           </p>
         </div>
 
         {organization?.slug && (
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-3 shrink-0">
             <a
               href={`/chat/${organization.slug}`}
               target="_blank"
@@ -85,9 +85,9 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {/* Metrics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
         {/* Card 1: AI Employee */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 min-w-0">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">AI Receptionist</span>
             <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
@@ -95,7 +95,7 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
           <div className="flex items-baseline space-x-2">
-            <span className="text-xl font-bold text-white">{aiEmployee?.name || 'Luna'}</span>
+            <span className="text-xl font-bold text-white truncate">{aiEmployee?.name || 'Luna'}</span>
             <Badge variant={aiEmployee?.status === 'ACTIVE' ? 'success' : 'warning'}>
               {aiEmployee?.status || 'ACTIVE'}
             </Badge>
@@ -106,7 +106,7 @@ export const Dashboard: React.FC = () => {
         </div>
 
         {/* Card 2: Appointments Today */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 min-w-0">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Appointments Today</span>
             <div className="w-8 h-8 rounded-lg bg-sky-500/10 text-sky-400 flex items-center justify-center">
@@ -124,7 +124,7 @@ export const Dashboard: React.FC = () => {
         </div>
 
         {/* Card 3: Open Conversations */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 min-w-0">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Active Conversations</span>
             <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center">
@@ -142,7 +142,7 @@ export const Dashboard: React.FC = () => {
         </div>
 
         {/* Card 4: Plan Status */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3 min-w-0">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Subscription</span>
             <div className="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
@@ -155,7 +155,7 @@ export const Dashboard: React.FC = () => {
               {billing?.subscription?.status || 'TRIALING'}
             </Badge>
           </div>
-          <p className="text-[11px] text-slate-400">
+          <p className="text-[11px] text-slate-400 truncate">
             {billing?.subscription?.status === 'TRIALING'
               ? `${billing?.daysRemainingInTrial || 7} days remaining in trial`
               : 'Active recurring subscription'}
@@ -164,9 +164,9 @@ export const Dashboard: React.FC = () => {
       </div>
 
       {/* Grid: Upcoming Appointments & Recent Conversations */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
         {/* Appointments Feed */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4 min-w-0">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center space-x-2">
               <Calendar className="w-4 h-4 text-emerald-400" />
@@ -186,14 +186,14 @@ export const Dashboard: React.FC = () => {
               {appointments.slice(0, 4).map((appt) => (
                 <div
                   key={appt.id}
-                  className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs"
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs"
                 >
-                  <div>
-                    <p className="font-semibold text-white">{appt.customerName}</p>
-                    <p className="text-slate-400">{appt.serviceName}</p>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-white truncate">{appt.customerName}</p>
+                    <p className="text-slate-400 truncate">{appt.serviceName}</p>
                   </div>
-                  <div className="text-right">
-                    <p className="text-slate-300 font-mono">
+                  <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-1 shrink-0">
+                    <p className="text-slate-300 font-mono text-[11px]">
                       {new Date(appt.startTime).toLocaleDateString()} {new Date(appt.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
                     <Badge variant={appt.status === 'CONFIRMED' ? 'success' : 'neutral'}>
@@ -207,7 +207,7 @@ export const Dashboard: React.FC = () => {
         </div>
 
         {/* Conversations Feed */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4 min-w-0">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center space-x-2">
               <MessageSquare className="w-4 h-4 text-emerald-400" />
@@ -228,7 +228,7 @@ export const Dashboard: React.FC = () => {
                 <Link
                   key={conv.id}
                   to="/app/conversations"
-                  className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs hover:border-slate-700 transition block"
+                  className="flex items-center justify-between p-3 rounded-xl bg-slate-950/60 border border-slate-800 text-xs hover:border-slate-700 transition block min-w-0"
                 >
                   <div className="min-w-0 pr-2">
                     <p className="font-semibold text-white truncate">{conv.customerName || 'Visitor'}</p>

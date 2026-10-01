@@ -60,13 +60,13 @@ export const AnalyticsPage: React.FC = () => {
   const aiUsage = data?.aiUsage;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0">
       {/* Header & Filter Controls */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-        <div>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm min-w-0">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2.5">
-            <BarChart3 className="w-7 h-7 text-emerald-400" />
-            Customer & AI Analytics
+            <BarChart3 className="w-7 h-7 text-emerald-400 shrink-0" />
+            <span>Customer & AI Analytics</span>
           </h1>
           <p className="text-slate-400 text-sm mt-1">
             Real-time multi-tenant insights across your AI Receptionist, website traffic, and appointment bookings.
@@ -74,7 +74,7 @@ export const AnalyticsPage: React.FC = () => {
         </div>
 
         {/* Date Presets Toolbar */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           {(['today', '7d', '30d', 'this_month', 'custom'] as const).map((p) => (
             <button
               key={p}
@@ -97,7 +97,7 @@ export const AnalyticsPage: React.FC = () => {
             onClick={fetchAnalytics}
             title="Refresh"
             disabled={loading}
-            className="p-2 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white rounded-lg border border-slate-700/60 transition disabled:opacity-50"
+            className="p-2 bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white rounded-lg border border-slate-700/60 transition disabled:opacity-50 shrink-0"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
@@ -106,7 +106,7 @@ export const AnalyticsPage: React.FC = () => {
 
       {/* Custom Date Form */}
       {period === 'custom' && (
-        <form onSubmit={handleCustomApply} className="flex flex-wrap items-center gap-3 bg-slate-900/60 border border-slate-800 p-4 rounded-xl">
+        <form onSubmit={handleCustomApply} className="flex flex-wrap items-center gap-3 bg-slate-900/60 border border-slate-800 p-4 rounded-xl min-w-0">
           <div className="flex items-center gap-2">
             <label className="text-xs text-slate-400 font-medium">Start:</label>
             <input
@@ -138,14 +138,14 @@ export const AnalyticsPage: React.FC = () => {
       {error && (
         <div className="p-4 bg-red-950/60 border border-red-800 rounded-xl text-red-300 text-sm flex items-center gap-2">
           <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          {error}
+          <span>{error}</span>
         </div>
       )}
 
       {/* Overview KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Conversations */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm min-w-0">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Total Conversations</span>
             <div className="w-9 h-9 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400">
@@ -157,7 +157,7 @@ export const AnalyticsPage: React.FC = () => {
               {kpis?.totalConversations ?? 0}
             </span>
           </div>
-          <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
+          <div className="mt-3 flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
             <span>Today: <strong className="text-slate-200">{kpis?.conversationsToday ?? 0}</strong></span>
             <span>Week: <strong className="text-slate-200">{kpis?.conversationsThisWeek ?? 0}</strong></span>
             <span>Month: <strong className="text-slate-200">{kpis?.conversationsThisMonth ?? 0}</strong></span>
@@ -165,7 +165,7 @@ export const AnalyticsPage: React.FC = () => {
         </div>
 
         {/* AI Resolution Rate */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm min-w-0">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">AI Resolution Rate</span>
             <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
@@ -178,14 +178,14 @@ export const AnalyticsPage: React.FC = () => {
             </span>
             <span className="text-xs text-slate-400 font-medium">auto-handled</span>
           </div>
-          <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
+          <div className="mt-3 flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
             <span>AI responses: <strong className="text-emerald-400">{kpis?.aiResponses ?? 0}</strong></span>
             <span>Handoffs: <strong className="text-amber-400">{kpis?.humanHandoffs ?? 0}</strong></span>
           </div>
         </div>
 
         {/* Appointments Booked */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm min-w-0">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Booked Appointments</span>
             <div className="w-9 h-9 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400">
@@ -197,7 +197,7 @@ export const AnalyticsPage: React.FC = () => {
               {kpis?.appointmentsBooked ?? 0}
             </span>
           </div>
-          <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
+          <div className="mt-3 flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
             <span>Requested: <strong className="text-slate-200">{kpis?.appointmentsRequested ?? 0}</strong></span>
             <span>Completed: <strong className="text-emerald-400">{kpis?.appointmentsCompleted ?? 0}</strong></span>
             <span>Canceled: <strong className="text-red-400">{kpis?.appointmentsCancelled ?? 0}</strong></span>
@@ -205,7 +205,7 @@ export const AnalyticsPage: React.FC = () => {
         </div>
 
         {/* Avg Response Time */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm min-w-0">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Avg Response Time</span>
             <div className="w-9 h-9 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center text-purple-400">
@@ -218,7 +218,7 @@ export const AnalyticsPage: React.FC = () => {
             </span>
             <span className="text-xs text-slate-400 font-medium">instant AI</span>
           </div>
-          <div className="mt-3 flex items-center gap-3 text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
+          <div className="mt-3 flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-slate-400 border-t border-slate-800/80 pt-2.5">
             <span>Web chat: <strong className="text-slate-200">{kpis?.websiteConversations ?? 0}</strong></span>
             <span>Email: <strong className="text-slate-200">{kpis?.emailConversations ?? 0}</strong></span>
           </div>
@@ -228,13 +228,13 @@ export const AnalyticsPage: React.FC = () => {
       {/* Main Charts & Breakdowns */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Timeline Chart (Conversations & Appointments) */}
-        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
+        <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
             <div>
               <h2 className="text-base font-bold text-white">Activity Over Time</h2>
               <p className="text-xs text-slate-400 mt-0.5">Conversations and appointments recorded in the selected period</p>
             </div>
-            <div className="flex items-center gap-4 text-xs font-medium">
+            <div className="flex items-center gap-4 text-xs font-medium shrink-0">
               <div className="flex items-center gap-1.5">
                 <span className="w-3 h-3 rounded-full bg-emerald-500 inline-block" />
                 <span className="text-slate-300">Conversations</span>
@@ -248,8 +248,8 @@ export const AnalyticsPage: React.FC = () => {
 
           {/* Time Series Bar Chart */}
           {data && data.timeSeries && data.timeSeries.length > 0 ? (
-            <div className="space-y-4">
-              <div className="h-56 flex items-end gap-2 pt-6 pb-2 px-2 border-b border-slate-800 overflow-x-auto">
+            <div className="space-y-4 min-w-0">
+              <div className="h-56 flex items-end gap-2 pt-6 pb-2 px-2 border-b border-slate-800 overflow-x-auto max-w-full">
                 {data.timeSeries.map((pt, idx) => {
                   const maxVal = Math.max(1, ...data.timeSeries.map((p) => Math.max(p.conversations, p.appointments)));
                   const convHeight = Math.round((pt.conversations / maxVal) * 100);
@@ -291,7 +291,7 @@ export const AnalyticsPage: React.FC = () => {
         </div>
 
         {/* Channel & Status Breakdown */}
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm flex flex-col justify-between space-y-6">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm flex flex-col justify-between space-y-6 min-w-0">
           <div>
             <h2 className="text-base font-bold text-white mb-1">Channel Distribution</h2>
             <p className="text-xs text-slate-400 mb-4">Traffic sources for incoming inquiries</p>
@@ -300,15 +300,15 @@ export const AnalyticsPage: React.FC = () => {
               {data?.channelBreakdown.map((item) => (
                 <div key={item.channel} className="space-y-1.5">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-slate-300 flex items-center gap-1.5">
+                    <span className="text-slate-300 flex items-center gap-1.5 truncate pr-2">
                       {item.channel === ConversationChannel.WEB ? (
-                        <Globe className="w-3.5 h-3.5 text-blue-400" />
+                        <Globe className="w-3.5 h-3.5 text-blue-400 shrink-0" />
                       ) : (
-                        <Mail className="w-3.5 h-3.5 text-purple-400" />
+                        <Mail className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                       )}
-                      {item.channel === ConversationChannel.WEB ? 'Website Chat' : 'Business Email'}
+                      <span className="truncate">{item.channel === ConversationChannel.WEB ? 'Website Chat' : 'Business Email'}</span>
                     </span>
-                    <span className="font-semibold text-white">
+                    <span className="font-semibold text-white shrink-0">
                       {item.count} ({item.percentage}%)
                     </span>
                   </div>
@@ -346,12 +346,12 @@ export const AnalyticsPage: React.FC = () => {
       </div>
 
       {/* AI Token & Cost Usage Section */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 shadow-sm min-w-0">
         <div className="flex items-center justify-between mb-5">
           <div>
             <h2 className="text-base font-bold text-white flex items-center gap-2">
-              <Zap className="w-5 h-5 text-amber-400" />
-              AI Receptionist Usage & Token Efficiency
+              <Zap className="w-5 h-5 text-amber-400 shrink-0" />
+              <span>AI Receptionist Usage & Token Efficiency</span>
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
               Accurate token telemetry and cost accounting from live GPT-4o-mini and RAG embedding models
@@ -359,35 +359,35 @@ export const AnalyticsPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
-            <span className="text-[11px] font-medium text-slate-400 block">Total AI Calls</span>
-            <span className="text-lg font-bold text-white mt-1 block">{aiUsage?.totalRequests ?? 0}</span>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
+          <div className="p-3 sm:p-3.5 bg-slate-950 rounded-xl border border-slate-800 min-w-0">
+            <span className="text-[11px] font-medium text-slate-400 block truncate">Total AI Calls</span>
+            <span className="text-base sm:text-lg font-bold text-white mt-1 block">{aiUsage?.totalRequests ?? 0}</span>
           </div>
 
-          <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
-            <span className="text-[11px] font-medium text-slate-400 block">Prompt Tokens</span>
-            <span className="text-lg font-bold text-slate-200 mt-1 block">{(aiUsage?.promptTokens ?? 0).toLocaleString()}</span>
+          <div className="p-3 sm:p-3.5 bg-slate-950 rounded-xl border border-slate-800 min-w-0">
+            <span className="text-[11px] font-medium text-slate-400 block truncate">Prompt Tokens</span>
+            <span className="text-base sm:text-lg font-bold text-slate-200 mt-1 block truncate">{(aiUsage?.promptTokens ?? 0).toLocaleString()}</span>
           </div>
 
-          <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
-            <span className="text-[11px] font-medium text-slate-400 block">Completion Tokens</span>
-            <span className="text-lg font-bold text-slate-200 mt-1 block">{(aiUsage?.completionTokens ?? 0).toLocaleString()}</span>
+          <div className="p-3 sm:p-3.5 bg-slate-950 rounded-xl border border-slate-800 min-w-0">
+            <span className="text-[11px] font-medium text-slate-400 block truncate">Completion Tokens</span>
+            <span className="text-base sm:text-lg font-bold text-slate-200 mt-1 block truncate">{(aiUsage?.completionTokens ?? 0).toLocaleString()}</span>
           </div>
 
-          <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
-            <span className="text-[11px] font-medium text-slate-400 block">Total Tokens</span>
-            <span className="text-lg font-bold text-emerald-400 mt-1 block">{(aiUsage?.totalTokens ?? 0).toLocaleString()}</span>
+          <div className="p-3 sm:p-3.5 bg-slate-950 rounded-xl border border-slate-800 min-w-0">
+            <span className="text-[11px] font-medium text-slate-400 block truncate">Total Tokens</span>
+            <span className="text-base sm:text-lg font-bold text-emerald-400 mt-1 block truncate">{(aiUsage?.totalTokens ?? 0).toLocaleString()}</span>
           </div>
 
-          <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
-            <span className="text-[11px] font-medium text-slate-400 block">Estimated Cost</span>
-            <span className="text-lg font-bold text-amber-400 mt-1 block">${(aiUsage?.estimatedCostUsd ?? 0).toFixed(4)}</span>
+          <div className="p-3 sm:p-3.5 bg-slate-950 rounded-xl border border-slate-800 min-w-0">
+            <span className="text-[11px] font-medium text-slate-400 block truncate">Estimated Cost</span>
+            <span className="text-base sm:text-lg font-bold text-amber-400 mt-1 block truncate">${(aiUsage?.estimatedCostUsd ?? 0).toFixed(4)}</span>
           </div>
 
-          <div className="p-3.5 bg-slate-950 rounded-xl border border-slate-800">
-            <span className="text-[11px] font-medium text-slate-400 block">Success Rate</span>
-            <span className="text-lg font-bold text-teal-400 mt-1 block">
+          <div className="p-3 sm:p-3.5 bg-slate-950 rounded-xl border border-slate-800 min-w-0">
+            <span className="text-[11px] font-medium text-slate-400 block truncate">Success Rate</span>
+            <span className="text-base sm:text-lg font-bold text-teal-400 mt-1 block">
               {(aiUsage?.totalRequests ?? 0) > 0
                 ? `${Math.round(((aiUsage?.successfulRequests ?? 0) / (aiUsage?.totalRequests ?? 1)) * 100)}%`
                 : '100%'}

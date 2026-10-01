@@ -6,11 +6,17 @@ import {
   WebsiteConnectionConfig,
   EmailIntegrationConfig,
   GoogleCalendarConfig,
+  InstagramIntegrationConfig,
+  InstagramConnection,
+  FacebookIntegrationConfig,
+  FacebookConnection,
   IntegrationStatus,
   AuditAction,
+  ConversationChannel,
 } from '@onceclic/shared';
 import { AuditService } from './AuditService';
 import { ComposioService } from './ComposioService';
+import { ConversationService } from './ConversationService';
 import { encrypt, decrypt } from '../utils/crypto';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -1395,13 +1401,34 @@ export class IntegrationService {
   /**
    * Handle Composio OAuth callback return, verify account status, update DB, and log audit action.
    */
-  static async handleComposioCallback(params: {
-    app: 'gmail' | 'googlecalendar';
-    orgId: string;
-    returnUrl?: string;
-    ipAddress?: string;
-  }): Promise<{ returnUrl: string; connectedItem?: string }> {
-    const { app, orgId, returnUrl, ipAddress } = params;
+  static async handleComposioCallback(
+    paramsOrOrgId:
+      | {
+          app: 'gmail' | 'googlecalendar' | 'instagram' | 'facebook';
+          orgId: string;
+          returnUrl?: string;
+          ipAddress?: string;
+        }
+      | string,
+    connectedAccountIdOrApp?: string,
+    appParam?: 'gmail' | 'googlecalendar' | 'instagram' | 'facebook',
+    _userId?: string
+  ): Promise<{ returnUrl: string; connectedItem?: string }> {
+    let orgId: string;
+    let app: 'gmail' | 'googlecalendar' | 'instagram' | 'facebook';
+    let returnUrl: string | undefined;
+    let ipAddress: string | undefined;
+
+    if (typeof paramsOrOrgId === 'string') {
+      orgId = paramsOrOrgId;
+      app = (appParam || (connectedAccountIdOrApp as any) || 'gmail') as any;
+    } else {
+      orgId = paramsOrOrgId.orgId;
+      app = paramsOrOrgId.app;
+      returnUrl = paramsOrOrgId.returnUrl;
+      ipAddress = paramsOrOrgId.ipAddress;
+    }
+
     const effectiveReturnUrl = returnUrl || '/app/integrations';
 
     if (!orgId) {
@@ -1450,6 +1477,80 @@ export class IntegrationService {
         });
 
         return { returnUrl: effectiveReturnUrl, connectedItem: emailAddr };
+      } else if (app === 'instagram') {
+        const username = account.username || account.summary || 'Connected Instagram Account';
+        const existing = await db.getOne('SELECT id FROM instagram_connections WHERE organization_id = $1', [orgId]);
+
+        if (existing) {
+          await db.execute(
+            `UPDATE instagram_connections
+             SET is_active = TRUE,
+                 status = 'CONNECTED',
+                 username = $1,
+                 instagram_user_id = COALESCE($2, instagram_user_id),
+                 error_message = NULL,
+                 last_synced_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE organization_id = $3`,
+            [username, account.accountId || null, orgId]
+          );
+        } else {
+          await db.execute(
+            `INSERT INTO instagram_connections (
+               id, organization_id, instagram_user_id, username, account_type,
+               is_active, status, last_synced_at, created_at, updated_at
+             ) VALUES ($1, $2, $3, $4, 'BUSINESS', TRUE, 'CONNECTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [uuidv4(), orgId, account.accountId || null, username]
+          );
+        }
+
+        await AuditService.log({
+          organizationId: orgId,
+          action: AuditAction.INSTAGRAM_CONNECTED,
+          entityType: 'INTEGRATION',
+          entityId: orgId,
+          metadata: { username, provider: 'COMPOSIO_MANAGED' },
+          ipAddress,
+        });
+
+        return { returnUrl: effectiveReturnUrl, connectedItem: username };
+      } else if (app === 'facebook') {
+        const pageName = account.username || account.summary || 'Connected Facebook Page';
+        const existing = await db.getOne('SELECT id FROM facebook_connections WHERE organization_id = $1', [orgId]);
+
+        if (existing) {
+          await db.execute(
+            `UPDATE facebook_connections
+             SET is_active = TRUE,
+                 status = 'CONNECTED',
+                 page_name = $1,
+                 page_id = COALESCE($2, page_id),
+                 error_message = NULL,
+                 last_synced_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE organization_id = $3`,
+            [pageName, account.accountId || null, orgId]
+          );
+        } else {
+          await db.execute(
+            `INSERT INTO facebook_connections (
+               id, organization_id, page_id, page_name,
+               is_active, status, last_synced_at, created_at, updated_at
+             ) VALUES ($1, $2, $3, $4, TRUE, 'CONNECTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [uuidv4(), orgId, account.accountId || null, pageName]
+          );
+        }
+
+        await AuditService.log({
+          organizationId: orgId,
+          action: AuditAction.FACEBOOK_CONNECTED,
+          entityType: 'INTEGRATION',
+          entityId: orgId,
+          metadata: { pageName, provider: 'COMPOSIO_MANAGED' },
+          ipAddress,
+        });
+
+        return { returnUrl: effectiveReturnUrl, connectedItem: pageName };
       } else {
         const summary = account.summary || 'Primary Google Calendar';
         const existing = await db.getOne('SELECT id FROM calendar_connections WHERE organization_id = $1', [orgId]);
@@ -1492,4 +1593,425 @@ export class IntegrationService {
       return { returnUrl: effectiveReturnUrl };
     }
   }
+
+  // =========================================================================
+  // 5. INSTAGRAM INTEGRATION (COMPOSIO MANAGED)
+  // =========================================================================
+
+  /**
+   * Generate Instagram OAuth authorization URL using Composio Managed OAuth.
+   */
+  static async getInstagramAuthUrl(
+    organizationId: string,
+    userId?: string,
+    returnUrl?: string
+  ): Promise<{ url: string; state: string }> {
+    if (!ComposioService.isAvailable()) {
+      throw new Error(
+        'COMPOSIO_API_KEY is not configured on the server. Please configure COMPOSIO_API_KEY to enable Instagram integration.'
+      );
+    }
+
+    const callbackUrl = `${config.app.apiUrl}/api/integrations/composio/callback?app=instagram&orgId=${encodeURIComponent(
+      organizationId
+    )}&returnUrl=${encodeURIComponent(returnUrl || '/app/integrations')}`;
+
+    const composioRes = await ComposioService.initiateConnection({
+      organizationId,
+      app: 'instagram',
+      callbackUrl,
+    });
+
+    if (!composioRes.success || !composioRes.redirectUrl) {
+      throw new Error(
+        `Failed to generate Composio Managed OAuth Connect Link for Instagram: ${composioRes.error || 'Unknown error'}`
+      );
+    }
+
+    return {
+      url: composioRes.redirectUrl,
+      state: 'composio_managed',
+    };
+  }
+
+  /**
+   * Get Instagram connection status and configuration for an organization.
+   */
+  static async getInstagramConfig(organizationId: string): Promise<InstagramIntegrationConfig> {
+    const conn = await db.getOne<InstagramConnection>(
+      'SELECT * FROM instagram_connections WHERE organization_id = $1',
+      [organizationId]
+    );
+
+    let status = IntegrationStatus.NOT_CONNECTED;
+    let username = conn?.username;
+    let instagramUserId = conn?.instagramUserId;
+
+    if (conn && conn.isActive) {
+      status = IntegrationStatus.CONNECTED;
+    }
+
+    // Check Composio dynamically if configured
+    if (ComposioService.isAvailable()) {
+      try {
+        const composioAccount = await ComposioService.getConnectedAccount(organizationId, 'instagram');
+        if (composioAccount.isConnected) {
+          status = IntegrationStatus.CONNECTED;
+          username = composioAccount.username || composioAccount.summary || username || 'Connected Instagram Account';
+          instagramUserId = composioAccount.accountId || instagramUserId;
+        } else if (conn && conn.isActive) {
+          // If marked active in local DB but inactive in Composio, reflect disconnected
+          status = IntegrationStatus.DISCONNECTED;
+        }
+      } catch (composioErr) {
+        console.warn(`[IntegrationService] Error checking Composio Instagram status for ${organizationId}:`, composioErr);
+      }
+    }
+
+    return {
+      status,
+      username,
+      instagramUserId,
+      accountType: conn?.accountType || 'BUSINESS',
+      isConfigured: ComposioService.isAvailable(),
+      lastSyncedAt: conn?.lastSyncedAt,
+      errorMessage: conn?.errorMessage,
+    };
+  }
+
+  /**
+   * Disconnect Instagram channel for an organization.
+   */
+  static async disconnectInstagram(
+    organizationId: string,
+    userId?: string,
+    ipAddress?: string
+  ): Promise<InstagramIntegrationConfig> {
+    if (ComposioService.isAvailable()) {
+      try {
+        await ComposioService.disconnectAccount(organizationId, 'instagram');
+      } catch (err) {
+        console.warn(`[IntegrationService] Error disconnecting Composio Instagram for ${organizationId}:`, err);
+      }
+    }
+
+    await db.execute(
+      `UPDATE instagram_connections
+       SET is_active = FALSE,
+           status = 'DISCONNECTED',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE organization_id = $1`,
+      [organizationId]
+    );
+
+    await AuditService.log({
+      organizationId,
+      action: AuditAction.INSTAGRAM_DISCONNECTED,
+      entityType: 'INTEGRATION',
+      entityId: organizationId,
+      metadata: { disconnectedBy: userId },
+      ipAddress,
+    });
+
+    return this.getInstagramConfig(organizationId);
+  }
+
+  /**
+   * Process inbound customer Instagram DM message, enforce deduplication/anti-loop,
+   * route through ConversationService, and send AI response via Composio.
+   */
+  static async handleInstagramInboundMessage(params: {
+    organizationId: string;
+    senderId: string;
+    senderUsername?: string;
+    text: string;
+    messageId?: string;
+  }): Promise<{ success: boolean; aiReplySent?: boolean; replyText?: string; conversationId?: string }> {
+    const { organizationId, senderId, senderUsername, text, messageId } = params;
+
+    if (!organizationId || !senderId || !text || !text.trim()) {
+      return { success: false };
+    }
+
+    // 1. Idempotency Check via processed_webhook_events
+    if (messageId) {
+      const existingEvent = await db.getOne(
+        'SELECT event_id FROM processed_webhook_events WHERE event_id = $1',
+        [messageId]
+      );
+      if (existingEvent) {
+        console.log(`[Instagram Inbound] Duplicate message ${messageId} already processed. Skipping.`);
+        return { success: true, aiReplySent: false };
+      }
+
+      await db.execute(
+        `INSERT INTO processed_webhook_events (event_id, event_type, occurred_at, processed_at)
+         VALUES ($1, 'instagram_message', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [messageId]
+      );
+    }
+
+    // 2. Audit log inbound message
+    await AuditService.log({
+      organizationId,
+      action: AuditAction.INSTAGRAM_MESSAGE_RECEIVED,
+      entityType: 'CONVERSATION',
+      entityId: messageId || senderId,
+      metadata: { senderId, senderUsername, textLength: text.length },
+    });
+
+    // 3. Resolve or create Conversation for this Instagram customer
+    const conv = await ConversationService.getOrCreateConversation({
+      organizationId,
+      channel: ConversationChannel.INSTAGRAM,
+      customerName: senderUsername || `Instagram User ${senderId.slice(-4)}`,
+      customerPhone: undefined,
+    });
+
+    // 4. Generate AI response via shared ConversationService
+    const { aiMessage } = await ConversationService.handleCustomerMessage({
+      organizationId,
+      conversationId: conv.id,
+      content: text.trim(),
+      clientMessageId: messageId,
+      customerName: senderUsername || undefined,
+    });
+
+    // 5. Send outbound reply via Composio if AI message was generated
+    if (aiMessage && aiMessage.content) {
+      const sendRes = await ComposioService.sendInstagramReply({
+        organizationId,
+        recipientId: senderId,
+        text: aiMessage.content,
+      });
+
+      if (sendRes.success) {
+        await AuditService.log({
+          organizationId,
+          action: AuditAction.INSTAGRAM_MESSAGE_SENT,
+          entityType: 'CONVERSATION',
+          entityId: conv.id,
+          metadata: { recipientId: senderId, messageId: sendRes.messageId },
+        });
+        return { success: true, aiReplySent: true, replyText: aiMessage.content, conversationId: conv.id };
+      } else {
+        console.warn(`[Instagram Inbound] Outbound reply failed for ${organizationId}:`, sendRes.error);
+        return { success: true, aiReplySent: false, replyText: aiMessage.content, conversationId: conv.id };
+      }
+    }
+
+    return { success: true, aiReplySent: false, conversationId: conv.id };
+  }
+
+  // =========================================================================
+  // 6. FACEBOOK PAGE INTEGRATION (COMPOSIO MANAGED)
+  // =========================================================================
+
+  /**
+   * Generate Facebook Page OAuth authorization URL using Composio Managed OAuth.
+   */
+  static async getFacebookAuthUrl(
+    organizationId: string,
+    userId?: string,
+    returnUrl?: string
+  ): Promise<{ url: string; state: string }> {
+    if (!ComposioService.isAvailable()) {
+      throw new Error(
+        'COMPOSIO_API_KEY is not configured on the server. Please configure COMPOSIO_API_KEY to enable Facebook integration.'
+      );
+    }
+
+    const callbackUrl = `${config.app.apiUrl}/api/integrations/composio/callback?app=facebook&orgId=${encodeURIComponent(
+      organizationId
+    )}&returnUrl=${encodeURIComponent(returnUrl || '/app/integrations')}`;
+
+    const composioRes = await ComposioService.initiateConnection({
+      organizationId,
+      app: 'facebook',
+      callbackUrl,
+    });
+
+    if (!composioRes.success || !composioRes.redirectUrl) {
+      throw new Error(
+        `Failed to generate Composio Managed OAuth Connect Link for Facebook: ${composioRes.error || 'Unknown error'}`
+      );
+    }
+
+    return {
+      url: composioRes.redirectUrl,
+      state: 'composio_managed',
+    };
+  }
+
+  /**
+   * Get Facebook connection status and configuration for an organization.
+   */
+  static async getFacebookConfig(organizationId: string): Promise<FacebookIntegrationConfig> {
+    const conn = await db.getOne<FacebookConnection>(
+      'SELECT * FROM facebook_connections WHERE organization_id = $1',
+      [organizationId]
+    );
+
+    let status = IntegrationStatus.NOT_CONNECTED;
+    let pageName = conn?.pageName || (conn as any)?.page_name;
+    let pageId = conn?.pageId || (conn as any)?.page_id;
+
+    if (conn) {
+      if (conn.isActive || (conn as any).is_active) {
+        status = IntegrationStatus.CONNECTED;
+      } else if (conn.status === 'DISCONNECTED' || conn.status === IntegrationStatus.DISCONNECTED) {
+        status = IntegrationStatus.DISCONNECTED;
+      }
+    }
+
+    // Check Composio dynamically if configured
+    if (ComposioService.isAvailable()) {
+      try {
+        const composioAccount = await ComposioService.getConnectedAccount(organizationId, 'facebook');
+        if (composioAccount.isConnected) {
+          status = IntegrationStatus.CONNECTED;
+          pageName = composioAccount.username || composioAccount.summary || pageName || 'Connected Facebook Page';
+          pageId = composioAccount.accountId || pageId;
+        } else if (conn && conn.isActive) {
+          status = IntegrationStatus.DISCONNECTED;
+        }
+      } catch (composioErr) {
+        console.warn(`[IntegrationService] Error checking Composio Facebook status for ${organizationId}:`, composioErr);
+      }
+    }
+
+    return {
+      status,
+      pageName,
+      pageId,
+      isConfigured: ComposioService.isAvailable(),
+      lastSyncedAt: conn?.lastSyncedAt,
+      errorMessage: conn?.errorMessage,
+    };
+  }
+
+  /**
+   * Disconnect Facebook channel for an organization.
+   */
+  static async disconnectFacebook(
+    organizationId: string,
+    userId?: string,
+    ipAddress?: string
+  ): Promise<FacebookIntegrationConfig> {
+    if (ComposioService.isAvailable()) {
+      try {
+        await ComposioService.disconnectAccount(organizationId, 'facebook');
+      } catch (err) {
+        console.warn(`[IntegrationService] Error disconnecting Composio Facebook for ${organizationId}:`, err);
+      }
+    }
+
+    await db.execute(
+      `UPDATE facebook_connections
+       SET is_active = FALSE,
+           status = 'DISCONNECTED',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE organization_id = $1`,
+      [organizationId]
+    );
+
+    await AuditService.log({
+      organizationId,
+      action: AuditAction.FACEBOOK_DISCONNECTED,
+      entityType: 'INTEGRATION',
+      entityId: organizationId,
+      metadata: { disconnectedBy: userId },
+      ipAddress,
+    });
+
+    return this.getFacebookConfig(organizationId);
+  }
+
+  /**
+   * Process inbound customer Facebook Page message, enforce deduplication/anti-loop,
+   * route through ConversationService, and send AI response via Composio.
+   */
+  static async handleFacebookInboundMessage(params: {
+    organizationId: string;
+    senderId: string;
+    senderName?: string;
+    text: string;
+    messageId?: string;
+  }): Promise<{ success: boolean; aiReplySent?: boolean; replyText?: string; conversationId?: string }> {
+    const { organizationId, senderId, senderName, text, messageId } = params;
+
+    if (!organizationId || !senderId || !text || !text.trim()) {
+      return { success: false };
+    }
+
+    // 1. Idempotency Check via processed_webhook_events
+    if (messageId) {
+      const existingEvent = await db.getOne(
+        'SELECT event_id FROM processed_webhook_events WHERE event_id = $1',
+        [messageId]
+      );
+      if (existingEvent) {
+        console.log(`[Facebook Inbound] Duplicate message ${messageId} already processed. Skipping.`);
+        return { success: true, aiReplySent: false };
+      }
+
+      await db.execute(
+        `INSERT INTO processed_webhook_events (event_id, event_type, occurred_at, processed_at)
+         VALUES ($1, 'facebook_message', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [messageId]
+      );
+    }
+
+    // 2. Audit log inbound message
+    await AuditService.log({
+      organizationId,
+      action: AuditAction.FACEBOOK_MESSAGE_RECEIVED,
+      entityType: 'CONVERSATION',
+      entityId: messageId || senderId,
+      metadata: { senderId, senderName, textLength: text.length },
+    });
+
+    // 3. Resolve or create Conversation for this Facebook customer
+    const conv = await ConversationService.getOrCreateConversation({
+      organizationId,
+      channel: ConversationChannel.FACEBOOK,
+      customerName: senderName || `Facebook User ${senderId.slice(-4)}`,
+      customerPhone: undefined,
+    });
+
+    // 4. Generate AI response via shared ConversationService
+    const { aiMessage } = await ConversationService.handleCustomerMessage({
+      organizationId,
+      conversationId: conv.id,
+      content: text.trim(),
+      clientMessageId: messageId,
+      customerName: senderName || undefined,
+    });
+
+    // 5. Send outbound reply via Composio if AI message was generated
+    if (aiMessage && aiMessage.content) {
+      const sendRes = await ComposioService.sendFacebookReply({
+        organizationId,
+        recipientId: senderId,
+        text: aiMessage.content,
+      });
+
+      if (sendRes.success) {
+        await AuditService.log({
+          organizationId,
+          action: AuditAction.FACEBOOK_MESSAGE_SENT,
+          entityType: 'CONVERSATION',
+          entityId: conv.id,
+          metadata: { recipientId: senderId, messageId: sendRes.messageId },
+        });
+        return { success: true, aiReplySent: true, replyText: aiMessage.content, conversationId: conv.id };
+      } else {
+        console.warn(`[Facebook Inbound] Outbound reply failed for ${organizationId}:`, sendRes.error);
+        return { success: true, aiReplySent: false, replyText: aiMessage.content, conversationId: conv.id };
+      }
+    }
+
+    return { success: true, aiReplySent: false, conversationId: conv.id };
+  }
 }
+

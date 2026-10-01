@@ -2,12 +2,21 @@ import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
+// Public Marketing & Legal Pages
 import { Home } from './pages/Home';
 import { Pricing } from './pages/Pricing';
 import { Terms } from './pages/Terms';
 import { Privacy } from './pages/Privacy';
+import { RefundPolicy } from './pages/RefundPolicy';
+import { CookiePolicy } from './pages/CookiePolicy';
+import { AcceptableUse } from './pages/AcceptableUse';
+import { Security } from './pages/Security';
+import { About } from './pages/About';
+import { FAQ } from './pages/FAQ';
+import { Disclaimer } from './pages/Disclaimer';
 import { Contact } from './pages/Contact';
 
+// Auth & Verification
 import { Login } from './pages/Login';
 import { Signup } from './pages/Signup';
 import { VerifyEmail } from './pages/VerifyEmail';
@@ -15,6 +24,7 @@ import { AuthCallback } from './pages/AuthCallback';
 import { Onboarding } from './pages/Onboarding';
 import { Welcome } from './pages/Welcome';
 
+// App Dashboard
 import { AppLayout } from './components/AppLayout';
 import { Dashboard } from './pages/Dashboard';
 import { AnalyticsPage } from './pages/Analytics';
@@ -27,7 +37,9 @@ import { EmailPage } from './pages/Email';
 import { BillingPage } from './pages/Billing';
 import { SettingsPage } from './pages/Settings';
 
+// Public Hosted Chat & Dedicated Booking
 import { HostedChat } from './pages/HostedChat';
+import { PublicBooking } from './pages/PublicBooking';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, loading } = useAuth();
@@ -52,11 +64,21 @@ export const App: React.FC = () => {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          {/* Public Marketing */}
+          {/* Public Marketing & Legal */}
           <Route path="/" element={<Home />} />
           <Route path="/pricing" element={<Pricing />} />
           <Route path="/terms" element={<Terms />} />
-          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/privacy-policy" element={<Privacy />} />
+          <Route path="/privacy" element={<Navigate to="/privacy-policy" replace />} />
+          <Route path="/refund-policy" element={<RefundPolicy />} />
+          <Route path="/refund" element={<Navigate to="/refund-policy" replace />} />
+          <Route path="/cookie-policy" element={<CookiePolicy />} />
+          <Route path="/cookies" element={<Navigate to="/cookie-policy" replace />} />
+          <Route path="/acceptable-use" element={<AcceptableUse />} />
+          <Route path="/security" element={<Security />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/faq" element={<FAQ />} />
+          <Route path="/disclaimer" element={<Disclaimer />} />
           <Route path="/contact" element={<Contact />} />
 
           {/* Auth & Verification */}
@@ -106,6 +128,9 @@ export const App: React.FC = () => {
 
           {/* Public Hosted Chat for Visitors */}
           <Route path="/chat/:orgSlug" element={<HostedChat />} />
+
+          {/* Public Dedicated Booking & Reservation Page */}
+          <Route path="/book/:orgSlug" element={<PublicBooking />} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

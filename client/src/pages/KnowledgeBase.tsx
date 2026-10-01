@@ -69,12 +69,12 @@ export const KnowledgeBase: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 max-w-5xl">
+    <div className="space-y-6 sm:space-y-8 max-w-5xl w-full min-w-0">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-white flex items-center space-x-2">
-            <BookOpen className="w-6 h-6 text-emerald-400" />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 flex-wrap">
+            <BookOpen className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 flex-shrink-0" />
             <span>Business Knowledge Base</span>
           </h1>
           <p className="text-xs text-slate-400 mt-1">
@@ -84,7 +84,7 @@ export const KnowledgeBase: React.FC = () => {
 
         <button
           onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center space-x-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 shrink-0"
+          className="inline-flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 shrink-0 w-full sm:w-auto"
         >
           <Plus className="w-4 h-4" />
           <span>Add Knowledge Source</span>
@@ -97,7 +97,7 @@ export const KnowledgeBase: React.FC = () => {
           <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : sources.length === 0 ? (
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-12 text-center space-y-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-8 sm:p-12 text-center space-y-4 min-w-0">
           <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center mx-auto">
             <BookOpen className="w-6 h-6" />
           </div>
@@ -107,21 +107,21 @@ export const KnowledgeBase: React.FC = () => {
           </p>
           <button
             onClick={() => setShowAddModal(true)}
-            className="px-4 py-2 bg-emerald-500 text-slate-950 text-xs font-bold rounded-xl hover:bg-emerald-400 transition"
+            className="w-full sm:w-auto px-4 py-2.5 bg-emerald-500 text-slate-950 text-xs font-bold rounded-xl hover:bg-emerald-400 transition"
           >
             Add Your First Knowledge Source
           </button>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           {sources.map((source) => (
             <div
               key={source.id}
-              className="bg-slate-900 border border-slate-800 rounded-2xl p-6 hover:border-slate-750 transition flex flex-col sm:flex-row sm:items-start justify-between gap-4"
+              className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 hover:border-slate-750 transition flex flex-col sm:flex-row sm:items-start justify-between gap-4 min-w-0"
             >
-              <div className="space-y-2 flex-1">
-                <div className="flex items-center space-x-2">
-                  <span className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-emerald-400">
+              <div className="space-y-2 flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-emerald-400 flex-shrink-0">
                     {source.sourceType === KnowledgeSourceType.FAQ ? (
                       <HelpCircle className="w-4 h-4" />
                     ) : source.sourceType === KnowledgeSourceType.BUSINESS_INFO ? (
@@ -130,7 +130,7 @@ export const KnowledgeBase: React.FC = () => {
                       <FileText className="w-4 h-4" />
                     )}
                   </span>
-                  <h3 className="text-sm font-bold text-white">{source.title}</h3>
+                  <h3 className="text-sm font-bold text-white truncate max-w-xs sm:max-w-md">{source.title}</h3>
                   <Badge variant="brand">{source.sourceType}</Badge>
                   <span className="text-[11px] text-slate-400 font-mono flex items-center space-x-1">
                     <Layers className="w-3 h-3 text-slate-500" />
@@ -138,7 +138,7 @@ export const KnowledgeBase: React.FC = () => {
                   </span>
                 </div>
 
-                <p className="text-xs text-slate-300 line-clamp-3 bg-slate-950/60 border border-slate-850 p-3 rounded-xl font-mono whitespace-pre-wrap">
+                <p className="text-xs text-slate-300 line-clamp-3 bg-slate-950/60 border border-slate-850 p-3 rounded-xl font-mono whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0">
                   {source.rawContent}
                 </p>
 
@@ -149,7 +149,7 @@ export const KnowledgeBase: React.FC = () => {
 
               <button
                 onClick={() => handleDelete(source.id)}
-                className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-850 rounded-lg transition shrink-0"
+                className="p-2 text-slate-400 hover:text-rose-400 hover:bg-slate-850 rounded-lg transition shrink-0 self-end sm:self-start"
                 title="Delete Source"
               >
                 <Trash2 className="w-4 h-4" />
@@ -162,7 +162,7 @@ export const KnowledgeBase: React.FC = () => {
       {/* Add Knowledge Source Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-3xl max-w-lg w-full p-6 sm:p-8 space-y-5 shadow-2xl">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl max-w-lg w-full p-5 sm:p-8 space-y-5 shadow-2xl max-h-[90vh] overflow-y-auto">
             <h2 className="text-lg font-bold text-white flex items-center space-x-2">
               <Plus className="w-5 h-5 text-emerald-400" />
               <span>Add Knowledge Source</span>
@@ -174,7 +174,7 @@ export const KnowledgeBase: React.FC = () => {
                 <select
                   value={newSource.sourceType}
                   onChange={(e) => setNewSource({ ...newSource, sourceType: e.target.value as KnowledgeSourceType })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
                 >
                   <option value={KnowledgeSourceType.FAQ}>FAQ (Questions & Answers)</option>
                   <option value={KnowledgeSourceType.TEXT}>Plain Text / Business Notes</option>
@@ -209,18 +209,18 @@ export const KnowledgeBase: React.FC = () => {
                 />
               </div>
 
-              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-800">
+              <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-2 pt-3 border-t border-slate-800">
                 <button
                   type="button"
                   onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white transition"
+                  className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-slate-400 hover:text-white transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={adding}
-                  className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 disabled:opacity-50"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 disabled:opacity-50"
                 >
                   {adding ? 'Processing RAG...' : 'Save Source'}
                 </button>

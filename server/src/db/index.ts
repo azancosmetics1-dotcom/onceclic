@@ -31,6 +31,10 @@ class PostgresDatabase implements IDatabase {
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
     });
+
+    this.pool.on('error', (err) => {
+      console.warn('[Postgres Pool Notice]', err?.message || err);
+    });
   }
 
   async query<T = any>(sql: string, params: any[] = []): Promise<DBResult<T>> {
@@ -158,6 +162,10 @@ class EmbeddedDatabase implements IDatabase {
       'email_verifications',
       'processed_webhook_events',
       'oauth_states',
+      'instagram_connections',
+      'facebook_connections',
+      'trial_redemptions',
+      'trial_notifications',
     ];
     for (const t of tableNames) {
       if (!this.tables.has(t)) {
@@ -229,7 +237,27 @@ class EmbeddedDatabase implements IDatabase {
 
     let rows = Array.from(tableData.values());
 
-    // Basic JOIN handling for organization_memberships and organizations
+    // Basic JOIN handling for organization_memberships
+    if (table === 'organization_memberships' && /JOIN users/i.test(sql)) {
+      const userTable = this.tables.get('users');
+      if (userTable) {
+        rows = rows.map(r => {
+          const user = userTable.get(r.user_id) || Array.from(userTable.values()).find(u => u.id === r.user_id);
+          if (user) {
+            return {
+              ...r,
+              email: user.email,
+              full_name: user.full_name,
+              fullName: user.full_name,
+              userId: user.id,
+              is_email_verified: user.is_email_verified,
+            };
+          }
+          return r;
+        });
+      }
+    }
+
     if (table === 'organization_memberships' && /JOIN organizations/i.test(sql)) {
       const orgTable = this.tables.get('organizations');
       if (orgTable) {
@@ -289,6 +317,13 @@ class EmbeddedDatabase implements IDatabase {
         limitVal = parseInt(limitMatch[1], 10);
       }
       rows = rows.slice(0, limitVal);
+    }
+
+    // Check if COUNT query
+    if (/SELECT\s+COUNT\s*\(\s*[*0-9a-zA-Z_.]+\s*\)/i.test(sql)) {
+      const countMatch = sql.match(/SELECT\s+COUNT\s*\(\s*[*0-9a-zA-Z_.]+\s*\)(?:\s+AS\s+["']?([a-zA-Z0-9_]+)["']?)?/i);
+      const alias = countMatch?.[1] || 'count';
+      return { rows: [{ [alias]: rows.length.toString(), count: rows.length.toString() }] as any, rowCount: 1 };
     }
 
     // Parse SELECT columns and aliases (e.g. col as "alias")
@@ -402,6 +437,20 @@ class EmbeddedDatabase implements IDatabase {
         }
       }
     }
+    if (table === 'trial_redemptions' && row.normalized_email) {
+      for (const existing of tableData.values()) {
+        if (existing.normalized_email === row.normalized_email) {
+          throw new Error(`duplicate key value violates unique constraint "idx_trial_redemptions_email"`);
+        }
+      }
+    }
+    if (table === 'trial_notifications' && row.idempotency_key) {
+      for (const existing of tableData.values()) {
+        if (existing.idempotency_key === row.idempotency_key) {
+          throw new Error(`duplicate key value violates unique constraint "idx_trial_notifications_idemp"`);
+        }
+      }
+    }
 
     tableData.set(row.id, row);
     return { rows: [row] as T[], rowCount: 1 };
@@ -421,10 +470,17 @@ class EmbeddedDatabase implements IDatabase {
     const setClauses: string[] = [];
     let currentClause = '';
     let parenDepth = 0;
-    for (const char of setClauseStr) {
-      if (char === '(') parenDepth++;
-      else if (char === ')') parenDepth--;
-      if (char === ',' && parenDepth === 0) {
+    let inQuotes = false;
+    for (let i = 0; i < setClauseStr.length; i++) {
+      const char = setClauseStr[i];
+      if (char === "'" && (i === 0 || setClauseStr[i - 1] !== '\\')) {
+        inQuotes = !inQuotes;
+      }
+      if (!inQuotes) {
+        if (char === '(') parenDepth++;
+        else if (char === ')') parenDepth--;
+      }
+      if (char === ',' && parenDepth === 0 && !inQuotes) {
         setClauses.push(currentClause.trim());
         currentClause = '';
       } else {
@@ -613,16 +669,20 @@ export function getDatabase(): IDatabase {
   if (!dbInstance) {
     const dbUrl = process.env.DATABASE_URL;
     const isProduction = process.env.NODE_ENV === 'production';
+    const forceEmbedded =
+      process.env.USE_EMBEDDED_DB?.trim() === 'true' ||
+      process.env.NODE_ENV === 'test';
 
     const hasRealPassword =
       dbUrl &&
+      !forceEmbedded &&
       !dbUrl.includes('placeholder') &&
       !dbUrl.includes('[YOUR-PASSWORD]') &&
       !dbUrl.includes('[password]') &&
       !dbUrl.includes('yourdbpassword') &&
       !dbUrl.includes(':yourpassword@');
 
-    if (hasRealPassword && dbUrl) {
+    if (hasRealPassword && dbUrl && !forceEmbedded) {
       const sanitizedUrl = dbUrl.replace(/\/\/[^@]+@/, '//***:***@');
       console.log(`[DB] Database: PostgreSQL/Supabase (${sanitizedUrl})`);
       dbInstance = new PostgresDatabase(dbUrl);

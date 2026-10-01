@@ -112,7 +112,22 @@ export enum AuditAction {
   BOOKING_CONFIRMATION_EMAIL_SENT = 'BOOKING_CONFIRMATION_EMAIL_SENT',
   BOOKING_CANCELLATION_EMAIL_SENT = 'BOOKING_CANCELLATION_EMAIL_SENT',
   BOOKING_RESCHEDULED_EMAIL_SENT = 'BOOKING_RESCHEDULED_EMAIL_SENT',
+  OWNER_NEW_BOOKING_EMAIL_SENT = 'OWNER_NEW_BOOKING_EMAIL_SENT',
+  INSTAGRAM_CONNECTED = 'INSTAGRAM_CONNECTED',
+  INSTAGRAM_DISCONNECTED = 'INSTAGRAM_DISCONNECTED',
+  INSTAGRAM_MESSAGE_RECEIVED = 'INSTAGRAM_MESSAGE_RECEIVED',
+  INSTAGRAM_MESSAGE_SENT = 'INSTAGRAM_MESSAGE_SENT',
+  FACEBOOK_CONNECTED = 'FACEBOOK_CONNECTED',
+  FACEBOOK_DISCONNECTED = 'FACEBOOK_DISCONNECTED',
+  FACEBOOK_MESSAGE_RECEIVED = 'FACEBOOK_MESSAGE_RECEIVED',
+  FACEBOOK_MESSAGE_SENT = 'FACEBOOK_MESSAGE_SENT',
   ANALYTICS_VIEWED = 'ANALYTICS_VIEWED',
+  TRIAL_REDEMPTION_ATTEMPTED = 'TRIAL_REDEMPTION_ATTEMPTED',
+  TRIAL_REDEMPTION_SUCCESS = 'TRIAL_REDEMPTION_SUCCESS',
+  TRIAL_REDEMPTION_REJECTED = 'TRIAL_REDEMPTION_REJECTED',
+  TRIAL_REMINDER_2_DAYS_SENT = 'TRIAL_REMINDER_2_DAYS_SENT',
+  TRIAL_EXPIRATION_EMAIL_SENT = 'TRIAL_EXPIRATION_EMAIL_SENT',
+  AI_BUDGET_EXCEEDED = 'AI_BUDGET_EXCEEDED',
 }
 
 // ------------------------------------------
@@ -260,6 +275,19 @@ export interface ServiceItem {
   durationMinutes: number;
   price: number;
   description?: string;
+  pricingType?: 'fixed' | 'free' | 'deposit' | 'minimum_spend' | 'contact';
+  depositAmount?: number;
+}
+
+export interface RestaurantReservationSettings {
+  pricingType: 'free' | 'deposit' | 'minimum_spend' | 'reservation_fee';
+  feeAmount?: number;
+  depositAmount?: number;
+  minimumSpendAmount?: number;
+  maxPartySize?: number;
+  minPartySize?: number;
+  seatingOptions?: string[]; // e.g. ['Standard Table', 'Outdoor / Patio', 'Bar / High Top', 'Booth']
+  specialInstructions?: string;
 }
 
 export interface DayBusinessHours {
@@ -274,12 +302,44 @@ export interface BusinessSettings {
   organizationId: string;
   businessHours: DayBusinessHours[];
   services: ServiceItem[];
+  reservationSettings?: RestaurantReservationSettings;
   cancellationPolicy?: string;
   contactInstructions?: string;
   websiteChatEnabled: boolean;
   emailAnsweringEnabled: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+// ------------------------------------------
+// Business Data Completeness Types
+// ------------------------------------------
+
+export type FieldCompletenessStatus = 'configured' | 'missing';
+export type FieldCompletenessTier = 'required' | 'optional';
+
+export interface BusinessFieldStatus {
+  field: string;
+  category: 'general' | 'services' | 'clinic' | 'restaurant' | 'salon';
+  status: FieldCompletenessStatus;
+  tier: FieldCompletenessTier;
+  valueSummary?: string;
+  notes?: string;
+}
+
+export interface BusinessDataCompletenessReport {
+  organizationId: string;
+  businessName: string;
+  industry: string;
+  isReadyForAI: boolean;
+  scorePercent: number;
+  fields: BusinessFieldStatus[];
+  summary: {
+    totalFields: number;
+    configuredCount: number;
+    missingCount: number;
+    requiredMissingCount: number;
+  };
 }
 
 export interface AIEmployee {
@@ -645,4 +705,132 @@ export interface CalendarConnection {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface InstagramIntegrationConfig {
+  status: IntegrationStatus;
+  username?: string;
+  instagramUserId?: string;
+  accountType?: string;
+  isConfigured: boolean;
+  lastSyncedAt?: string;
+  errorMessage?: string;
+}
+
+export interface InstagramConnection {
+  id: string;
+  organizationId: string;
+  instagramUserId?: string;
+  username?: string;
+  accountType?: string;
+  isActive: boolean;
+  status: string;
+  errorMessage?: string;
+  lastSyncedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FacebookIntegrationConfig {
+  status: IntegrationStatus;
+  pageName?: string;
+  pageId?: string;
+  isConfigured: boolean;
+  lastSyncedAt?: string;
+  errorMessage?: string;
+}
+
+export interface FacebookConnection {
+  id: string;
+  organizationId: string;
+  pageId?: string;
+  pageName?: string;
+  isActive: boolean;
+  status: string;
+  errorMessage?: string;
+  lastSyncedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ------------------------------------------
+// Trial & Plan Eligibility Interfaces
+// ------------------------------------------
+
+export interface TrialRedemption {
+  id: string;
+  normalizedEmail: string;
+  userId: string;
+  organizationId?: string;
+  trialStartedAt: string;
+  trialEndsAt: string;
+  createdAt: string;
+}
+
+export interface TrialEligibilityResponse {
+  eligible: boolean;
+  normalizedEmail: string;
+  hasUsedTrial: boolean;
+  message?: string;
+  pricePerMonthUsd: number;
+}
+
+export type AIUsageStatus = 'AVAILABLE' | 'LIMITED' | 'LIMIT_REACHED';
+
+export interface CustomerSubscription {
+  id: string;
+  organizationId: string;
+  status: SubscriptionStatus;
+  trialStartedAt?: string | null;
+  trialEndsAt?: string | null;
+  currentPeriodStart?: string | null;
+  currentPeriodEnd?: string | null;
+  cancelAtPeriodEnd?: boolean;
+}
+
+export interface CustomerBillingStatus {
+  subscription: CustomerSubscription | null;
+  isPro: boolean;
+  daysRemainingInTrial: number;
+  billingConfigured: boolean;
+  aiUsageStatus: AIUsageStatus;
+}
+
+export interface CustomerBillingConfig {
+  clientToken: string;
+  priceId: string;
+  environment: 'sandbox' | 'production';
+  isConfigured: boolean;
+  planName: string;
+  monthlyPriceUsd: number;
+  trialPeriodDays: number;
+  trialPriceUsd: number;
+}
+
+export interface CustomerAIStatus {
+  allowed: boolean;
+  isExpired?: boolean;
+  isExceeded?: boolean;
+  plan: 'TRIAL' | 'PRO' | 'INACTIVE';
+  aiUsageStatus: AIUsageStatus;
+  reason?: string;
+}
+
+export interface PricingPlanInfo {
+  planName: string;
+  pricePerMonthUsd: number;
+  trialDays: number;
+  trialPriceUsd: number;
+  features: string[];
+}
+
+/**
+ * Canonical email normalization function
+ */
+export function normalizeEmail(email: string | null | undefined): string {
+  if (!email || typeof email !== 'string') {
+    return '';
+  }
+  return email.trim().toLowerCase();
+}
+
 

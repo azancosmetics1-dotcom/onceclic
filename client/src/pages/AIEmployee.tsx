@@ -67,12 +67,12 @@ export const AIEmployeePage: React.FC = () => {
   }
 
   return (
-    <div className="space-y-8 max-w-5xl">
+    <div className="space-y-6 sm:space-y-8 max-w-5xl w-full min-w-0">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-white flex items-center space-x-2">
-            <Bot className="w-6 h-6 text-emerald-400" />
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2 flex-wrap">
+            <Bot className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 flex-shrink-0" />
             <span>AI Employee Configuration</span>
           </h1>
           <p className="text-xs text-slate-400 mt-1">
@@ -81,17 +81,17 @@ export const AIEmployeePage: React.FC = () => {
         </div>
 
         {saveSuccess && (
-          <div className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
-            <CheckCircle2 className="w-4 h-4" />
+          <div className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold self-start sm:self-auto">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
             <span>Changes saved successfully!</span>
           </div>
         )}
       </div>
 
       {/* Provider Status Diagnostic Banner */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start space-x-3">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 min-w-0">
+        <div className="flex items-start justify-between min-w-0">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
             <div
               className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
                 health?.available
@@ -101,19 +101,19 @@ export const AIEmployeePage: React.FC = () => {
             >
               <Zap className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h3 className="text-sm font-bold text-white">AI Provider: OpenAI</h3>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-white">AI Provider: {health?.provider || 'Gemini'}</h3>
                 <Badge variant={health?.available ? 'success' : 'warning'}>
                   {health?.available ? 'Operational' : 'Provider Setup Required'}
                 </Badge>
               </div>
-              <p className="text-xs text-slate-400 mt-1">
-                Model: <span className="font-mono text-slate-300">{health?.model || 'gpt-4o-mini'}</span> &bull; Embeddings: <span className="font-mono text-slate-300">text-embedding-3-small</span>
+              <p className="text-xs text-slate-400 mt-1 break-words">
+                Model: <span className="font-mono text-slate-300">{health?.model || 'gemini-3.5-flash-lite'}</span>
               </p>
               {!health?.available && (
-                <p className="text-xs text-amber-300/90 mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5">
-                  <strong>Notice:</strong> {health?.error || 'OPENAI_API_KEY is not set in environment. Set OPENAI_API_KEY on the server to enable live LLM generation and vector embeddings.'}
+                <p className="text-xs text-amber-300/90 mt-2 bg-amber-500/10 border border-amber-500/20 rounded-lg p-2.5 break-words">
+                  <strong>Notice:</strong> {health?.error || 'AI Provider is not configured in server environment.'}
                 </p>
               )}
             </div>
@@ -123,8 +123,8 @@ export const AIEmployeePage: React.FC = () => {
 
       {/* Configuration Form */}
       {employee && (
-        <form onSubmit={handleSave} className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+        <form onSubmit={handleSave} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 lg:p-8 space-y-6 min-w-0">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">Receptionist Name</label>
               <input
@@ -215,7 +215,7 @@ export const AIEmployeePage: React.FC = () => {
             <button
               type="submit"
               disabled={saving}
-              className="px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition flex items-center space-x-1.5 shadow-md shadow-emerald-500/20 disabled:opacity-50"
+              className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition flex items-center justify-center space-x-1.5 shadow-md shadow-emerald-500/20 disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
               <span>{saving ? 'Saving...' : 'Save AI Settings'}</span>
@@ -226,10 +226,10 @@ export const AIEmployeePage: React.FC = () => {
 
       {/* AI Usage & Cost Summary */}
       {usage && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4 min-w-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
             <div className="flex items-center space-x-2">
-              <Activity className="w-4 h-4 text-emerald-400" />
+              <Activity className="w-4 h-4 text-emerald-400 shrink-0" />
               <h3 className="text-sm font-bold text-white">AI Token & Cost Tracker</h3>
             </div>
             <span className="text-xs text-slate-400 font-mono">
@@ -237,16 +237,16 @@ export const AIEmployeePage: React.FC = () => {
             </span>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 text-center">
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 min-w-0">
               <p className="text-xs text-slate-400">Total Tokens</p>
               <p className="text-lg font-bold text-white font-mono mt-1">{usage.summary?.totalTokens || 0}</p>
             </div>
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 min-w-0">
               <p className="text-xs text-slate-400">AI Invocations</p>
               <p className="text-lg font-bold text-white font-mono mt-1">{usage.summary?.totalRequests || 0}</p>
             </div>
-            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+            <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 min-w-0">
               <p className="text-xs text-slate-400">Estimated Cost (USD)</p>
               <p className="text-lg font-bold text-emerald-400 font-mono mt-1">
                 ${usage.summary?.totalCostUsd || '0.0000'}
