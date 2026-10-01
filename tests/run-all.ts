@@ -122,6 +122,14 @@ async function runAllTests() {
     await runTrialNotificationEmailTests();
     console.log('');
 
+    const { runChannelRealWorldVerificationTests } = await import('./channel-ai-real-world-verification.test');
+    await runChannelRealWorldVerificationTests();
+    console.log('');
+
+    const { runFinalProductFlowTests } = await import('./final-product-flow.test');
+    await runFinalProductFlowTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

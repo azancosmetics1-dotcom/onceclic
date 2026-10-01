@@ -1765,7 +1765,7 @@ export class IntegrationService {
       organizationId,
       channel: ConversationChannel.INSTAGRAM,
       customerName: senderUsername || `Instagram User ${senderId.slice(-4)}`,
-      customerPhone: undefined,
+      customerPhone: senderId,
     });
 
     // 4. Generate AI response via shared ConversationService
@@ -1976,7 +1976,7 @@ export class IntegrationService {
       organizationId,
       channel: ConversationChannel.FACEBOOK,
       customerName: senderName || `Facebook User ${senderId.slice(-4)}`,
-      customerPhone: undefined,
+      customerPhone: senderId,
     });
 
     // 4. Generate AI response via shared ConversationService

@@ -14,26 +14,32 @@ export const Pricing: React.FC = () => {
     'Automated Business Email & Gmail Answering',
     'Google Calendar & Real-Time Slot Availability Sync',
     'Instagram DM Receptionist with Live Booking',
+    'Facebook Page Messenger AI Receptionist',
     'Double-Booking Prevention Engine',
     'Custom Business Knowledge Base & FAQs Grounding',
     'Seamless Human Handoff & Team Alerts',
     'Multi-Tenant Team Member Roles (Owner, Manager, Staff)',
     'Strict Zero-Hallucination & Anti-Injection Guardrails',
     'Easy 1-Line Website Script Embed or Direct Link',
+    'AI usage is subject to reasonable-use limits.',
   ];
 
   const faqs = [
     {
       q: 'How does the 7-day free trial work?',
-      a: 'Start your 7-day free trial with no credit card required. Your trial is free for 7 days. When the trial ends, you can choose whether to upgrade to ONCEClic Pro.',
+      a: 'Start your 7-day free trial with no credit card required. Your trial is $0 for 7 days with limited AI usage during your free trial. When the trial ends, you can choose whether to upgrade to ONCEClic Pro.',
     },
     {
       q: 'Is a credit card required to start the trial?',
-      a: 'No. You do not need to enter a credit card or payment method to start your 7-day trial.',
+      a: 'No. You do not need to enter a credit card or payment method to start your 7-day free trial.',
     },
     {
       q: 'What happens when my trial expires?',
       a: 'When your trial ends, you are never automatically charged. You can choose whether to upgrade to ONCEClic Pro for $19/month to keep your AI receptionist and booking automation active.',
+    },
+    {
+      q: 'What are the AI usage terms?',
+      a: 'Limited AI usage during your free trial. On the ONCEClic Pro plan, AI usage is subject to reasonable-use limits.',
     },
     {
       q: 'Who processes payments and billing?',
@@ -58,7 +64,7 @@ export const Pricing: React.FC = () => {
         <div className="text-center max-w-3xl mx-auto mb-16">
           <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-4">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>7-Day Free Trial &bull; No Credit Card Required</span>
+            <span>7-Day Free Trial &bull; $0 &bull; No Credit Card Required</span>
           </div>
           <h1 className="text-4xl sm:text-6xl font-black text-white tracking-tight">
             Simple, transparent pricing.
@@ -71,7 +77,7 @@ export const Pricing: React.FC = () => {
         {/* Pricing Card */}
         <div className="max-w-lg mx-auto bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-8 sm:p-10 shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 right-0 bg-emerald-500 text-slate-950 text-xs font-bold px-4 py-1.5 rounded-bl-xl uppercase tracking-wider">
-            7-Day Free Trial
+            7-Day Free Trial ($0)
           </div>
 
           <div className="flex items-center space-x-3 mb-4">
@@ -80,7 +86,7 @@ export const Pricing: React.FC = () => {
             </div>
             <div>
               <h2 className="text-2xl font-black text-white">ONCEClic Pro</h2>
-              <p className="text-xs text-slate-400">Complete AI Receptionist & Booking Suite</p>
+              <p className="text-xs text-slate-400">Complete AI Receptionist &amp; Booking Suite</p>
             </div>
           </div>
 
@@ -89,9 +95,14 @@ export const Pricing: React.FC = () => {
             <span className="text-slate-400 text-sm font-medium">USD / month</span>
           </div>
 
-          <p className="text-xs text-emerald-400 font-semibold mb-6">
-            Start your 7-day free trial with no credit card required.
-          </p>
+          <div className="space-y-1 mb-6">
+            <p className="text-xs text-emerald-400 font-semibold">
+              7-Day Free Trial ($0) • No Credit Card Required
+            </p>
+            <p className="text-[11px] text-slate-400">
+              Limited AI usage during your free trial.
+            </p>
+          </div>
 
           <Link
             to="/signup"

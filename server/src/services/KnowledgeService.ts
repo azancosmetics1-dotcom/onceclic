@@ -169,12 +169,23 @@ export class KnowledgeService {
       // Combined score
       const finalScore = queryEmbedding ? score * 0.7 + keywordScore * 0.3 : keywordScore;
 
-      if (finalScore > 0.1 || !queryEmbedding) {
+      if (finalScore > 0.05 || !queryEmbedding) {
         scoredChunks.push({
           chunkContent: chunk.chunk_content,
           sourceTitle: chunk.source_title,
           sourceId: chunk.source_id,
           score: finalScore,
+        });
+      }
+    }
+
+    if (scoredChunks.length === 0 && chunks.length > 0) {
+      for (const chunk of chunks.slice(0, topK)) {
+        scoredChunks.push({
+          chunkContent: chunk.chunk_content,
+          sourceTitle: chunk.source_title,
+          sourceId: chunk.source_id,
+          score: 0.05,
         });
       }
     }

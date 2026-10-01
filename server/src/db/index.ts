@@ -284,6 +284,23 @@ class EmbeddedDatabase implements IDatabase {
       }
     }
 
+    if (table === 'knowledge_chunks' && /JOIN knowledge_sources/i.test(sql)) {
+      const ksTable = this.tables.get('knowledge_sources');
+      if (ksTable) {
+        rows = rows.map(r => {
+          const ks = ksTable.get(r.source_id) || Array.from(ksTable.values()).find(s => s.id === r.source_id);
+          if (ks) {
+            return {
+              ...r,
+              source_title: ks.title,
+              sourceTitle: ks.title,
+            };
+          }
+          return r;
+        });
+      }
+    }
+
     // Basic WHERE filter parser
     if (/WHERE/i.test(sql)) {
       rows = rows.filter(row => this.evaluateWhere(sql, row, params));

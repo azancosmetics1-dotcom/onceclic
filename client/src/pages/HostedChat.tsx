@@ -241,9 +241,11 @@ export const HostedChat: React.FC = () => {
     }
   };
 
+  const isEmbed = typeof window !== 'undefined' && window.location.search.includes('embed=true');
+
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+      <div className={`w-full ${isEmbed ? 'h-full' : 'min-h-screen'} bg-slate-950 flex items-center justify-center`}>
         <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
@@ -251,7 +253,7 @@ export const HostedChat: React.FC = () => {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 text-center">
+      <div className={`w-full ${isEmbed ? 'h-full' : 'min-h-screen'} bg-slate-950 flex flex-col items-center justify-center p-4 text-center`}>
         <AlertTriangle className="w-12 h-12 text-amber-400 mb-4" />
         <h2 className="text-xl font-bold text-white mb-2">Business Chat Unavailable</h2>
         <p className="text-xs text-slate-400 max-w-sm">{error}</p>
@@ -260,8 +262,8 @@ export const HostedChat: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col p-2 sm:p-6 lg:p-10 justify-center items-center">
-      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl flex flex-col h-[94dvh] sm:h-[90vh] max-h-[800px] overflow-hidden min-w-0">
+    <div className={`w-full ${isEmbed ? 'h-full' : 'min-h-screen p-2 sm:p-6 lg:p-10'} bg-slate-950 text-slate-100 flex flex-col justify-center items-center`}>
+      <div className={`w-full ${isEmbed ? 'h-full max-w-none rounded-none border-0' : 'max-w-2xl rounded-2xl sm:rounded-3xl border border-slate-800 h-[94dvh] sm:h-[90vh] max-h-[800px] shadow-2xl'} bg-slate-900 flex flex-col overflow-hidden min-w-0`}>
         {/* Chat Topbar */}
         <div className="p-3.5 sm:p-5 border-b border-slate-800 bg-slate-950/80 flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center space-x-2.5 sm:space-x-3 min-w-0">

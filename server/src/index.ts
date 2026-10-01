@@ -205,10 +205,13 @@ export async function startServer() {
     console.log(`==================================================`);
   });
 
-  // Start background workers (Gmail Sync & Trial Notifications)
+  // Start background workers (Gmail Sync, Social Channels Sync & Trial Notifications)
   if (config.google.isConfigured || config.nodeEnv !== 'test') {
     const { EmailSyncService } = require('./services/EmailSyncService');
     EmailSyncService.startPolling(30000);
+
+    const { SocialSyncService } = require('./services/SocialSyncService');
+    SocialSyncService.startPolling(30000);
 
     const { TrialNotificationService } = require('./services/TrialNotificationService');
     TrialNotificationService.startScheduledChecks(3600000); // Check hourly

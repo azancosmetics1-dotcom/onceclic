@@ -25,7 +25,10 @@ import {
   Layers,
   CheckCircle2,
   XCircle,
-  HelpCircle,
+  Smartphone,
+  Monitor,
+  X,
+  Bot,
 } from 'lucide-react';
 
 export const IntegrationsPage: React.FC = () => {
@@ -37,6 +40,8 @@ export const IntegrationsPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [verifyingWebsite, setVerifyingWebsite] = useState(false);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [previewViewport, setPreviewViewport] = useState<'desktop' | 'mobile'>('mobile');
 
   const [connectingEmail, setConnectingEmail] = useState(false);
   const [connectingCalendar, setConnectingCalendar] = useState(false);
@@ -349,15 +354,13 @@ export const IntegrationsPage: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-            <a
-              href={websiteConfig?.publicChatUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => setShowPreviewModal(true)}
               className="inline-flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-lg text-xs font-medium border border-slate-700 transition flex-1 sm:flex-initial"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
+              <ExternalLink className="w-3.5 h-3.5 text-emerald-400" />
               Preview Hosted Chat
-            </a>
+            </button>
             {websiteConfig?.status === IntegrationStatus.CONNECTED ? (
               <button
                 onClick={handleDisconnectWebsite}
@@ -676,6 +679,90 @@ export const IntegrationsPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Interactive Hosted Chat Preview Modal */}
+      {showPreviewModal && websiteConfig && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div
+            className={`relative flex flex-col bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden transition-all duration-300 ${
+              previewViewport === 'mobile'
+                ? 'w-full max-w-[420px] h-[88vh] max-h-[740px]'
+                : 'w-full max-w-4xl h-[88vh] max-h-[820px]'
+            }`}
+          >
+            {/* Modal Header */}
+            <div className="px-4 py-3 sm:px-5 sm:py-3.5 border-b border-slate-800 bg-slate-950/90 flex items-center justify-between gap-3 shrink-0">
+              <div className="flex items-center space-x-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                  <Bot className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-xs sm:text-sm font-bold text-white truncate flex items-center space-x-1.5">
+                    <span>{websiteConfig.orgName || 'Hosted Chat Preview'}</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  </h3>
+                  <p className="text-[10px] text-slate-400 truncate">Live AI Receptionist Preview</p>
+                </div>
+              </div>
+
+              {/* Viewport Toggles & Actions */}
+              <div className="flex items-center space-x-2 shrink-0">
+                <div className="hidden sm:flex items-center bg-slate-800/80 border border-slate-700/60 rounded-lg p-0.5">
+                  <button
+                    onClick={() => setPreviewViewport('mobile')}
+                    title="Mobile View"
+                    className={`p-1.5 rounded-md text-xs font-medium transition ${
+                      previewViewport === 'mobile'
+                        ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Smartphone className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setPreviewViewport('desktop')}
+                    title="Desktop View"
+                    className={`p-1.5 rounded-md text-xs font-medium transition ${
+                      previewViewport === 'desktop'
+                        ? 'bg-emerald-500 text-slate-950 font-bold shadow-sm'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <Monitor className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <a
+                  href={websiteConfig.publicChatUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="Open in new window"
+                  className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-emerald-400 hover:bg-slate-700 border border-slate-700 transition"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+
+                <button
+                  onClick={() => setShowPreviewModal(false)}
+                  title="Close preview"
+                  className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:text-rose-400 hover:bg-slate-700 border border-slate-700 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body / Live Embedded Frame */}
+            <div className="flex-1 bg-slate-950 p-2 sm:p-3 overflow-hidden flex items-center justify-center min-w-0">
+              <iframe
+                src={`/chat/${websiteConfig.orgSlug}?embed=true`}
+                title="Hosted Chat Preview"
+                className="w-full h-full border-0 rounded-xl sm:rounded-2xl shadow-inner bg-slate-900"
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

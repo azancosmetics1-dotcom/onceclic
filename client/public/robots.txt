@@ -1,0 +1,23 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+Allow: /pricing
+Allow: /about
+Allow: /faq
+Allow: /security
+Allow: /terms
+Allow: /privacy-policy
+Allow: /refund-policy
+Allow: /cookie-policy
+Allow: /acceptable-use
+Allow: /contact
+Allow: /book/
+Allow: /chat/
+Disallow: /app/
+Disallow: /api/
+Disallow: /onboarding
+Disallow: /verify-email
+Disallow: /welcome
+Disallow: /auth/
+
+Sitemap: https://onceclic.com/sitemap.xml

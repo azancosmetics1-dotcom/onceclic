@@ -50,7 +50,7 @@ export async function runGmailOAuthSecurityTests() {
   const tamperedCipher = `${parts[0]}:${parts[1]}:${parts[2].slice(0, -2)}99`;
   assert.throws(() => {
     decrypt(tamperedCipher);
-  }, 'Tampered ciphertext fails AES-GCM authentication tag check');
+  }, /Crypto Decryption Failed/);
   console.log('  ✓ AES-256-GCM encryption, decryption, and tamper-proofing verified');
 
   // 3. Test OAuth State Generation & Persistence in oauth_states

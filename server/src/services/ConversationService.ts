@@ -41,6 +41,37 @@ export class ConversationService {
       if (existing) return existing;
     }
 
+    // Reuse active/open conversation for the same customer on this channel if available
+    if (params.customerEmail) {
+      const existingByEmail = await db.getOne<Conversation>(
+        `SELECT id, organization_id as "organizationId", ai_employee_id as "aiEmployeeId",
+                channel, customer_name as "customerName", customer_email as "customerEmail",
+                customer_phone as "customerPhone", status, created_at as "createdAt",
+                updated_at as "updatedAt", resolved_at as "resolvedAt", archived_at as "archivedAt"
+         FROM conversations
+         WHERE organization_id = $1 AND channel = $2 AND LOWER(customer_email) = LOWER($3)
+           AND status IN ('OPEN', 'HUMAN_HANDOFF')
+         ORDER BY updated_at DESC LIMIT 1`,
+        [params.organizationId, params.channel, params.customerEmail.trim()]
+      );
+      if (existingByEmail) return existingByEmail;
+    }
+
+    if (params.customerPhone) {
+      const existingByPhone = await db.getOne<Conversation>(
+        `SELECT id, organization_id as "organizationId", ai_employee_id as "aiEmployeeId",
+                channel, customer_name as "customerName", customer_email as "customerEmail",
+                customer_phone as "customerPhone", status, created_at as "createdAt",
+                updated_at as "updatedAt", resolved_at as "resolvedAt", archived_at as "archivedAt"
+         FROM conversations
+         WHERE organization_id = $1 AND channel = $2 AND customer_phone = $3
+           AND status IN ('OPEN', 'HUMAN_HANDOFF')
+         ORDER BY updated_at DESC LIMIT 1`,
+        [params.organizationId, params.channel, params.customerPhone.trim()]
+      );
+      if (existingByPhone) return existingByPhone;
+    }
+
     // Lookup active AI employee for this organization
     const aiEmployee = await db.getOne<AIEmployee>(
       `SELECT id FROM ai_employees WHERE organization_id = $1 AND status = 'ACTIVE' ORDER BY created_at ASC LIMIT 1`,
@@ -749,6 +780,14 @@ ${aiEmployee?.instructions || 'Be helpful and guide customers toward booking or 
 RETRIEVED KNOWLEDGE BASE FACTS:
 ${relevantChunks.map((c, i) => `[Fact ${i + 1} - ${c.sourceTitle}]:\n${c.chunkContent}`).join('\n\n')}
 ${publicKnowledgeContext ? `\n${publicKnowledgeContext}` : ''}
+
+GROUNDING HIERARCHY & PRIORITY:
+1. Organization & Verified Business Profile (Name, Address, Phone, Email, Public Booking URL)
+2. Industry-Specific Configured Information & Terminology (Clinic, Restaurant, Salon)
+3. Knowledge Base & Business Briefing Facts
+4. Relevant Connected-Service Information
+5. Current Booking / Calendar Availability
+6. General AI Reasoning (Must NEVER override explicit business facts with generic assumptions)
 
 CRITICAL MISSING-DATA & ANTI-HALLUCINATION RULES:
 1. STRICT DATA GROUNDING: You must answer customer questions using ONLY the verified business data and retrieved knowledge base facts provided above.

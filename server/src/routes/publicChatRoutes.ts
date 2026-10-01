@@ -12,13 +12,13 @@ const router = Router();
 // Apply public rate limiting: 60 requests per minute per IP
 router.use(rateLimit({ windowMs: 60 * 1000, maxRequests: 60 }));
 
-// Get public organization profile for chat widget
+// Get public organization profile for chat widget and public booking
 router.get('/org/:slug', async (req: Request, res: Response, next) => {
   try {
     const { slug } = req.params;
 
     const org = await db.getOne(
-      'SELECT id, name, slug, business_type, phone, email, website, address, timezone FROM organizations WHERE slug = $1 AND is_active = TRUE',
+      'SELECT id, name, slug, business_type, phone, email, website, address, timezone FROM organizations WHERE (slug = $1 OR id = $1) AND is_active = TRUE',
       [slug]
     );
 
@@ -30,10 +30,6 @@ router.get('/org/:slug', async (req: Request, res: Response, next) => {
       'SELECT services, business_hours, website_chat_enabled, contact_instructions, reservation_settings FROM business_settings WHERE organization_id = $1',
       [org.id]
     );
-
-    if (settings && !settings.website_chat_enabled) {
-      return res.status(403).json({ success: false, error: 'Website chat is currently disabled by the business.' });
-    }
 
     const aiEmployee = await db.getOne(
       "SELECT name, role_title, greeting_message FROM ai_employees WHERE organization_id = $1 AND status = 'ACTIVE' LIMIT 1",
@@ -61,6 +57,7 @@ router.get('/org/:slug', async (req: Request, res: Response, next) => {
             aiEmployee?.greeting_message ||
             `Hi! Welcome to ${org.name}. How can I assist you today?`,
         },
+        websiteChatEnabled: settings?.website_chat_enabled ?? true,
         services: settings?.services ? (typeof settings.services === 'string' ? JSON.parse(settings.services) : settings.services) : [],
         businessHours: settings?.business_hours ? (typeof settings.business_hours === 'string' ? JSON.parse(settings.business_hours) : settings.business_hours) : [],
         reservationSettings: settings?.reservation_settings ? (typeof settings.reservation_settings === 'string' ? JSON.parse(settings.reservation_settings) : settings.reservation_settings) : null,
@@ -76,7 +73,7 @@ router.post('/session', async (req: Request, res: Response, next) => {
   try {
     const { orgSlug, customerName, customerEmail, customerPhone, conversationId } = req.body;
 
-    const org = await db.getOne('SELECT id, name, slug FROM organizations WHERE slug = $1', [orgSlug]);
+    const org = await db.getOne('SELECT id, name, slug FROM organizations WHERE (slug = $1 OR id = $1) AND is_active = TRUE', [orgSlug]);
     if (!org) {
       return res.status(404).json({ success: false, error: 'Organization not found.' });
     }
@@ -181,7 +178,7 @@ router.get('/slots', async (req: Request, res: Response, next) => {
       return res.status(400).json({ success: false, error: 'orgSlug and date are required.' });
     }
 
-    const org = await db.getOne('SELECT id FROM organizations WHERE slug = $1', [orgSlug]);
+    const org = await db.getOne('SELECT id FROM organizations WHERE (slug = $1 OR id = $1) AND is_active = TRUE', [orgSlug]);
     if (!org) {
       return res.status(404).json({ success: false, error: 'Organization not found.' });
     }
@@ -205,7 +202,7 @@ router.post('/book', async (req: Request, res: Response, next) => {
       });
     }
 
-    const org = await db.getOne('SELECT id FROM organizations WHERE slug = $1', [orgSlug]);
+    const org = await db.getOne('SELECT id FROM organizations WHERE (slug = $1 OR id = $1) AND is_active = TRUE', [orgSlug]);
     if (!org) {
       return res.status(404).json({ success: false, error: 'Organization not found.' });
     }

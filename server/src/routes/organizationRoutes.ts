@@ -24,7 +24,7 @@ router.get('/current', async (req: Request, res: Response, next) => {
     const settings = await db.getOne(
       `SELECT id, business_hours as "businessHours", services, cancellation_policy as "cancellationPolicy",
               contact_instructions as "contactInstructions", website_chat_enabled as "websiteChatEnabled",
-              email_answering_enabled as "emailAnsweringEnabled"
+              email_answering_enabled as "emailAnsweringEnabled", reservation_settings as "reservationSettings"
        FROM business_settings WHERE organization_id = $1`,
       [req.organizationId]
     );
@@ -32,6 +32,7 @@ router.get('/current', async (req: Request, res: Response, next) => {
     if (settings) {
       settings.businessHours = typeof settings.businessHours === 'string' ? JSON.parse(settings.businessHours) : settings.businessHours;
       settings.services = typeof settings.services === 'string' ? JSON.parse(settings.services) : settings.services;
+      settings.reservationSettings = typeof settings.reservationSettings === 'string' ? JSON.parse(settings.reservationSettings) : settings.reservationSettings;
     }
 
     res.json({
@@ -61,7 +62,22 @@ router.get('/completeness', async (req: Request, res: Response, next) => {
 // Update organization profile and business settings
 router.put('/current', requirePermission('settings:manage'), async (req: Request, res: Response, next) => {
   try {
-    const { name, businessType, phone, email, website, address, timezone, businessHours, services, cancellationPolicy, contactInstructions, websiteChatEnabled, emailAnsweringEnabled } = req.body;
+    const {
+      name,
+      businessType,
+      phone,
+      email,
+      website,
+      address,
+      timezone,
+      businessHours,
+      services,
+      cancellationPolicy,
+      contactInstructions,
+      websiteChatEnabled,
+      emailAnsweringEnabled,
+      reservationSettings,
+    } = req.body;
 
     // Update organization
     await db.execute(
@@ -87,15 +103,17 @@ router.put('/current', requirePermission('settings:manage'), async (req: Request
            contact_instructions = COALESCE($4, contact_instructions),
            website_chat_enabled = COALESCE($5, website_chat_enabled),
            email_answering_enabled = COALESCE($6, email_answering_enabled),
+           reservation_settings = COALESCE($7, reservation_settings),
            updated_at = CURRENT_TIMESTAMP
-       WHERE organization_id = $7`,
+       WHERE organization_id = $8`,
       [
         businessHours ? JSON.stringify(businessHours) : null,
         services ? JSON.stringify(services) : null,
         cancellationPolicy,
         contactInstructions,
-        websiteChatEnabled,
-        emailAnsweringEnabled,
+        websiteChatEnabled !== undefined ? websiteChatEnabled : null,
+        emailAnsweringEnabled !== undefined ? emailAnsweringEnabled : null,
+        reservationSettings ? (typeof reservationSettings === 'string' ? reservationSettings : JSON.stringify(reservationSettings)) : null,
         req.organizationId,
       ]
     );
