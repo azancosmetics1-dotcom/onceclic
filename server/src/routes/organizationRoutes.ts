@@ -60,7 +60,7 @@ router.get('/completeness', async (req: Request, res: Response, next) => {
 });
 
 // Update organization profile and business settings
-router.put('/current', requirePermission('settings:manage'), async (req: Request, res: Response, next) => {
+const updateOrgHandler = async (req: Request, res: Response, next: any) => {
   try {
     const {
       name,
@@ -122,7 +122,10 @@ router.put('/current', requirePermission('settings:manage'), async (req: Request
   } catch (err) {
     next(err);
   }
-});
+};
+
+router.put('/current', requirePermission('settings:manage'), updateOrgHandler);
+router.patch('/current', requirePermission('settings:manage'), updateOrgHandler);
 
 // Get members
 router.get('/members', requirePermission('org:read'), async (req: Request, res: Response, next) => {
