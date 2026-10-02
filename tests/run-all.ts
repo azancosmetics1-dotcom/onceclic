@@ -134,6 +134,18 @@ async function runAllTests() {
     await runFinalProductFlowTests();
     console.log('');
 
+    const { runGmailAIReplyTests } = await import('./gmail-ai-reply.test');
+    await runGmailAIReplyTests();
+    console.log('');
+
+    const { runInstagramAIReplyTests } = await import('./instagram-ai-reply.test');
+    await runInstagramAIReplyTests();
+    console.log('');
+
+    const { runFacebookAIReplyTests } = await import('./facebook-ai-reply.test');
+    await runFacebookAIReplyTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

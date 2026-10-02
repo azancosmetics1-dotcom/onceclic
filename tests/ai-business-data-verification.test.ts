@@ -235,6 +235,7 @@ export async function runAIBusinessDataVerificationTests() {
   console.log('Testing End-to-End Inbound → AI → Outbound Flow across all 4 channels...');
 
   // Setup deterministic AI mock to simulate Gemini responses grounded in prompt context
+  const originalGenerateResponse = aiProvider.generateResponse;
   aiProvider.generateResponse = async (params: { messages: ChatMessageParam[] }) => {
     const sys = params.messages.find((m) => m.role === 'system')?.content || '';
     const userMsg = params.messages.filter((m) => m.role === 'user').pop()?.content || '';
@@ -600,6 +601,8 @@ export async function runAIBusinessDataVerificationTests() {
   }
 
   console.log('  ✓ AI Cost & Secret Security verified: Zero leaks of keys, internal budgets, or SQL.');
+
+  aiProvider.generateResponse = originalGenerateResponse;
 
   console.log('====================================================');
   console.log('  ALL PRE-LAUNCH AI & BUSINESS DATA TESTS PASSED!   ');

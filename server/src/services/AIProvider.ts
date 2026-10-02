@@ -489,31 +489,41 @@ export class MockAIProvider implements IAIProvider {
     let content = 'Hello! I am your AI Receptionist. How can I assist you today?';
 
     if (lowerUser.includes('hour') || lowerUser.includes('open') || lowerUser.includes('time')) {
-      const hoursMatch =
-        sysPrompt.match(/(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)\s*(?:to|-)\s*\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm))/i) ||
-        sysPrompt.match(/(?:open|hours)[^\n.]*?(\d{1,2}[^\n.]*(?:AM|PM|am|pm))/i);
-      if (hoursMatch) {
-        content = `We are open ${hoursMatch[0]}.`;
-      } else if (lowerSys.includes('9 am') || lowerSys.includes('9:00 am')) {
-        content = 'We are open Monday to Friday from 9 AM to 5 PM.';
-      } else if (lowerSys.includes('10 am') || lowerSys.includes('10:00 am')) {
-        content = 'We are open from 10 AM.';
-      } else if (lowerSys.includes('8 am') || lowerSys.includes('8:00 am')) {
-        content = 'We are open at 8 AM.';
+      if (lowerUser.includes('sunday') && !lowerSys.includes('sunday')) {
+        content = "Sorry, I don't have information about Sunday hours. Please contact the business directly.";
       } else {
-        content = "Sorry, I don't have that information yet. Please contact the business directly.";
+        const hoursMatch =
+          sysPrompt.match(/(\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm)\s*(?:to|-)\s*\d{1,2}(?::\d{2})?\s*(?:AM|PM|am|pm))/i) ||
+          sysPrompt.match(/(?:open|hours)[^\n.]*?(\d{1,2}[^\n.]*(?:AM|PM|am|pm))/i);
+        if (hoursMatch) {
+          content = `We are open Monday to Friday from ${hoursMatch[0]}.`;
+        } else if (lowerSys.includes('9 am') || lowerSys.includes('9:00 am')) {
+          content = 'We are open Monday to Friday from 9 AM to 5 PM.';
+        } else if (lowerSys.includes('10 am') || lowerSys.includes('10:00 am')) {
+          content = 'We are open from 10 AM.';
+        } else if (lowerSys.includes('8 am') || lowerSys.includes('8:00 am')) {
+          content = 'We are open at 8 AM.';
+        } else {
+          content = "Sorry, I don't have that information yet. Please contact the business directly.";
+        }
       }
     } else if (lowerUser.includes('price') || lowerUser.includes('cost') || lowerUser.includes('how much') || lowerUser.includes('fee')) {
-      if (lowerSys.includes('$50') || lowerSys.includes('50$')) {
+      if (lowerSys.includes('2500 pkr') || lowerSys.includes('2500pkr') || lowerSys.includes('fee is 2500') || lowerSys.includes('fee: 2500')) {
+        content = 'Our consultation fee is 2500 PKR.';
+      } else if (lowerSys.includes('3000 pkr') || lowerSys.includes('3000pkr') || lowerSys.includes('fee is 3000') || lowerSys.includes('fee: 3000')) {
+        content = 'Our consultation fee is 3000 PKR.';
+      } else if (lowerSys.includes('9000 pkr') || lowerSys.includes('9000pkr') || lowerSys.includes('fee is 9000') || lowerSys.includes('fee: 9000')) {
+        content = 'Our consultation fee is 9000 PKR.';
+      } else if (lowerSys.includes('$50') || lowerSys.includes('50$') || lowerSys.includes('50 dollar')) {
         content = 'Consultation is $50.';
       } else if (lowerSys.includes('$150')) {
         content = 'Our Teeth Whitening service is $150 and Dental Cleaning is $80.';
       } else if (lowerSys.includes('$120')) {
         content = 'Our Chef Omakase is $120.';
       } else {
-        const priceMatch = sysPrompt.match(/\$\d+(?:\.\d{2})?/);
-        if (priceMatch) {
-          content = `Our service price is ${priceMatch[0]}.`;
+        const pkrMatch = sysPrompt.match(/(\d[\d,]*(?:\.\d{2})?\s*(?:PKR|pkr|USD|usd|\$|Rs\.?))|((?:PKR|pkr|USD|usd|\$|Rs\.?)\s*\d[\d,]*(?:\.\d{2})?)/);
+        if (pkrMatch && !pkrMatch[0].includes('$0') && !pkrMatch[0].includes('3000')) {
+          content = `Our service price is ${pkrMatch[0]}.`;
         } else {
           content = "Sorry, I don't have that information yet. Please contact the business directly.";
         }

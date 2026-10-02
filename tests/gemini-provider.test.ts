@@ -254,6 +254,9 @@ export async function runGeminiProviderTests() {
     [uuidv4(), orgId]
   );
 
+  const originalHealthCheck = aiProvider.healthCheck;
+  const originalGenerateResponse = aiProvider.generateResponse;
+
   // Set active provider mock with deterministic Gemini generator
   (aiProvider as any).healthCheck = async () => ({
     available: true,
@@ -382,6 +385,9 @@ export async function runGeminiProviderTests() {
   assert(promptTenantB.includes('Bistro Gourmet'), 'Tenant B prompt has Tenant B name');
   assert(!promptTenantB.includes('Apex Dental Clinic'), 'Tenant B prompt has NO Tenant A data');
   console.log('  ✓ 13. Strict multi-tenant isolation under Gemini verified');
+
+  (aiProvider as any).healthCheck = originalHealthCheck;
+  aiProvider.generateResponse = originalGenerateResponse;
 
   console.log('\n====================================================');
   console.log('  ALL GEMINI PROVIDER & INTEGRATION TESTS PASSED!');
