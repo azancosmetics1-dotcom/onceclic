@@ -514,6 +514,8 @@ export class MockAIProvider implements IAIProvider {
         content = 'Our consultation fee is 3000 PKR.';
       } else if (lowerSys.includes('9000 pkr') || lowerSys.includes('9000pkr') || lowerSys.includes('fee is 9000') || lowerSys.includes('fee: 9000')) {
         content = 'Our consultation fee is 9000 PKR.';
+      } else if (lowerSys.includes('8000 pkr') || lowerSys.includes('8000pkr') || lowerSys.includes('fee is 8000') || lowerSys.includes('fee: 8000') || lowerSys.includes('scaling fee is 8000') || lowerSys.includes('scaling is 8000')) {
+        content = 'Our scaling fee is 8000 PKR.';
       } else if (lowerSys.includes('$50') || lowerSys.includes('50$') || lowerSys.includes('50 dollar')) {
         content = 'Consultation is $50.';
       } else if (lowerSys.includes('$150')) {

@@ -121,6 +121,29 @@ router.get('/composio/callback', async (req: Request, res: Response, next) => {
 
 
 // ------------------------------------------
+// Public Inbound Webhook Verification for Instagram / Meta
+// ------------------------------------------
+router.get('/instagram/webhook', (req: Request, res: Response) => {
+  const mode = req.query['hub.mode'] || (req.query.hub as any)?.mode || req.query.hub_mode;
+  const token = req.query['hub.verify_token'] || (req.query.hub as any)?.verify_token || req.query.hub_verify_token;
+  const challenge = req.query['hub.challenge'] || (req.query.hub as any)?.challenge || req.query.hub_challenge;
+
+  const expectedToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
+
+  if (
+    mode === 'subscribe' &&
+    expectedToken &&
+    token === expectedToken &&
+    challenge !== undefined &&
+    challenge !== null
+  ) {
+    return res.status(200).send(String(challenge));
+  }
+
+  return res.status(403).send('Forbidden');
+});
+
+// ------------------------------------------
 // Public Inbound Webhook for Instagram Messages
 // ------------------------------------------
 router.post('/instagram/webhook', async (req: Request, res: Response, next) => {

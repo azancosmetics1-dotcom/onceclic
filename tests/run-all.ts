@@ -146,6 +146,10 @@ async function runAllTests() {
     await runFacebookAIReplyTests();
     console.log('');
 
+    const { runComposioTriggersAndWebhooksTests } = await import('./composio-triggers-and-webhooks.test');
+    await runComposioTriggersAndWebhooksTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);
@@ -160,4 +164,3 @@ async function runAllTests() {
 }
 
 runAllTests();
-

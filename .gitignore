@@ -48,6 +48,7 @@ test-results/
 *.crt
 *.p12
 *.sqlite
+scratch/
 *.db
 *.secret
 secrets/

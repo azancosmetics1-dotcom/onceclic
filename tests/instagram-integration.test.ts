@@ -4,6 +4,7 @@ import { AuthService } from '../server/src/services/AuthService';
 import { AppointmentService } from '../server/src/services/AppointmentService';
 import { getDatabase } from '../server/src/db';
 import { ConversationChannel, IntegrationStatus } from '@onceclic/shared';
+import integrationRoutes from '../server/src/routes/integrationRoutes';
 
 export async function runInstagramIntegrationTests() {
   console.log('--- Running Instagram AI Receptionist & Multi-Industry AI Tests ---');
@@ -322,6 +323,100 @@ export async function runInstagramIntegrationTests() {
     throw new Error(`Expected DISCONNECTED status, got: ${disconnected.status}`);
   }
   console.log('  ✓ Instagram disconnected and audit log recorded');
+
+  // Test 11: Meta / Instagram GET Webhook Verification Handshake
+  console.log('Testing Meta/Instagram GET Webhook Verification Handshake...');
+  const originalVerifyToken = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
+  const mockToken = 'mock_meta_verify_token_test_suite';
+  process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN = mockToken;
+
+  const testGetWebhook = async (query: Record<string, any>) => {
+    let statusCode = 200;
+    let responseBody = '';
+    const req: any = { query };
+    const res: any = {
+      status(code: number) {
+        statusCode = code;
+        return this;
+      },
+      send(body: string) {
+        responseBody = body;
+        return this;
+      },
+    };
+    const layer = (integrationRoutes as any).stack.find(
+      (s: any) => s.route && s.route.path === '/instagram/webhook' && s.route.methods.get
+    );
+    if (!layer) {
+      throw new Error('GET /instagram/webhook route handler not found on router');
+    }
+    await layer.route.stack[0].handle(req, res, () => {});
+    return { statusCode, responseBody };
+  };
+
+  try {
+    // Case A: Valid Meta verification handshake → HTTP 200 + exact challenge
+    const validRes = await testGetWebhook({
+      'hub.mode': 'subscribe',
+      'hub.verify_token': mockToken,
+      'hub.challenge': '1158201258',
+    });
+    if (validRes.statusCode !== 200 || validRes.responseBody !== '1158201258') {
+      throw new Error(`Expected 200 with challenge, got: ${validRes.statusCode} - ${validRes.responseBody}`);
+    }
+    console.log('  ✓ Valid Meta verification token returns HTTP 200 with exact hub.challenge');
+
+    // Case B: Invalid verification token → HTTP 403
+    const invalidRes = await testGetWebhook({
+      'hub.mode': 'subscribe',
+      'hub.verify_token': 'wrong_token',
+      'hub.challenge': '1158201258',
+    });
+    if (invalidRes.statusCode !== 403) {
+      throw new Error(`Expected 403 for invalid token, got: ${invalidRes.statusCode}`);
+    }
+    console.log('  ✓ Invalid verify token returns HTTP 403');
+
+    // Case C: Missing server token configuration → HTTP 403 (safe failure)
+    delete process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
+    const missingConfigRes = await testGetWebhook({
+      'hub.mode': 'subscribe',
+      'hub.verify_token': mockToken,
+      'hub.challenge': '1158201258',
+    });
+    if (missingConfigRes.statusCode !== 403) {
+      throw new Error(`Expected 403 when INSTAGRAM_WEBHOOK_VERIFY_TOKEN is unset, got: ${missingConfigRes.statusCode}`);
+    }
+    console.log('  ✓ Missing server token configuration returns HTTP 403');
+
+    // Case D: Missing challenge → HTTP 403 (safe failure)
+    process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN = mockToken;
+    const missingChallengeRes = await testGetWebhook({
+      'hub.mode': 'subscribe',
+      'hub.verify_token': mockToken,
+    });
+    if (missingChallengeRes.statusCode !== 403) {
+      throw new Error(`Expected 403 when hub.challenge is missing, got: ${missingChallengeRes.statusCode}`);
+    }
+    console.log('  ✓ Missing hub.challenge returns HTTP 403');
+
+    // Case E: Invalid hub.mode → HTTP 403
+    const invalidModeRes = await testGetWebhook({
+      'hub.mode': 'unsubscribe',
+      'hub.verify_token': mockToken,
+      'hub.challenge': '1158201258',
+    });
+    if (invalidModeRes.statusCode !== 403) {
+      throw new Error(`Expected 403 when hub.mode is not subscribe, got: ${invalidModeRes.statusCode}`);
+    }
+    console.log('  ✓ Non-subscribe hub.mode returns HTTP 403');
+  } finally {
+    if (originalVerifyToken !== undefined) {
+      process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN = originalVerifyToken;
+    } else {
+      delete process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN;
+    }
+  }
 
   console.log('--- Instagram AI Receptionist & Multi-Industry Tests Passed! ---');
   } finally {

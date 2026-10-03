@@ -166,6 +166,7 @@ class EmbeddedDatabase implements IDatabase {
       'facebook_connections',
       'trial_redemptions',
       'trial_notifications',
+      'composio_trigger_instances',
     ];
     for (const t of tableNames) {
       if (!this.tables.has(t)) {

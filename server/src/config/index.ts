@@ -55,7 +55,9 @@ export const config = {
 
   composio: {
     apiKey: process.env.COMPOSIO_API_KEY || '',
+    webhookSecret: process.env.COMPOSIO_WEBHOOK_SECRET || '',
     isConfigured: !!process.env.COMPOSIO_API_KEY && !process.env.COMPOSIO_API_KEY.includes('placeholder'),
+    isWebhookConfigured: !!process.env.COMPOSIO_WEBHOOK_SECRET && !process.env.COMPOSIO_WEBHOOK_SECRET.includes('placeholder'),
     baseUrl: process.env.COMPOSIO_BASE_URL || 'https://backend.composio.dev/api',
   },
 

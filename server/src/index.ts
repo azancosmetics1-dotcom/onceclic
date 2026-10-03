@@ -17,6 +17,7 @@ import billingRoutes from './routes/billingRoutes';
 import publicChatRoutes from './routes/publicChatRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
 import integrationRoutes from './routes/integrationRoutes';
+import webhookRoutes from './routes/webhookRoutes';
 
 dotenv.config();
 
@@ -88,6 +89,7 @@ app.get(['/health', '/api/health'], (req, res) => {
     aiAvailable: config.ai.provider === 'gemini' ? config.gemini.isAvailable : config.openai.isAvailable,
     paddleConfigured: config.paddle.isConfigured,
     composioConfigured: config.composio.isConfigured,
+    composioWebhookConfigured: config.composio.isWebhookConfigured,
   });
 });
 
@@ -150,6 +152,7 @@ app.use('/api/billing', billingRoutes);
 app.use('/api/public/chat', publicChatRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/integrations', integrationRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 // Fallback JSON 404 handler for API routes
 app.use('/api', (req, res) => {

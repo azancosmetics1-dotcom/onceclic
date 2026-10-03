@@ -16,6 +16,7 @@ import {
 } from '@onceclic/shared';
 import { AuditService } from './AuditService';
 import { ComposioService } from './ComposioService';
+import { ComposioTriggerService } from './ComposioTriggerService';
 import { ConversationService } from './ConversationService';
 import { encrypt, decrypt } from '../utils/crypto';
 import { v4 as uuidv4 } from 'uuid';
@@ -1440,6 +1441,7 @@ export class IntegrationService {
 
       if (app === 'gmail') {
         const emailAddr = account.email || 'Connected Gmail Account';
+        const connectedAccountId = account.accountId || null;
         const existing = await db.getOne('SELECT id FROM email_connections WHERE organization_id = $1', [orgId]);
         if (existing) {
           await db.execute(
@@ -1447,12 +1449,13 @@ export class IntegrationService {
              SET is_active = TRUE,
                  status = 'CONNECTED',
                  connected_email = $1,
+                 composio_connected_account_id = COALESCE($2, composio_connected_account_id),
                  provider_type = 'OAUTH',
                  error_message = NULL,
                  last_synced_at = CURRENT_TIMESTAMP,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE organization_id = $2`,
-            [emailAddr, orgId]
+             WHERE organization_id = $3`,
+            [emailAddr, connectedAccountId, orgId]
           );
         } else {
           const connId = uuidv4();
@@ -1461,10 +1464,19 @@ export class IntegrationService {
           await db.execute(
             `INSERT INTO email_connections (
                id, organization_id, provider_type, inbound_address, webhook_token,
-               is_active, status, connected_email, last_synced_at, created_at, updated_at
-             ) VALUES ($1, $2, 'OAUTH', $3, $4, TRUE, 'CONNECTED', $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-            [connId, orgId, inboundAddress, webhookToken, emailAddr]
+               is_active, status, connected_email, composio_connected_account_id, last_synced_at, created_at, updated_at
+             ) VALUES ($1, $2, 'OAUTH', $3, $4, TRUE, 'CONNECTED', $5, $6, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [connId, orgId, inboundAddress, webhookToken, emailAddr, connectedAccountId]
           );
+        }
+
+        // Auto-provision Gmail Inbound Trigger idempotently
+        if (connectedAccountId) {
+          try {
+            await ComposioTriggerService.provisionGmailTrigger(orgId, connectedAccountId);
+          } catch (trigErr) {
+            console.warn(`[IntegrationService] Gmail trigger auto-provisioning notice for ${orgId}:`, trigErr);
+          }
         }
 
         await AuditService.log({
@@ -1472,13 +1484,14 @@ export class IntegrationService {
           action: AuditAction.EMAIL_CONNECTED,
           entityType: 'ORGANIZATION',
           entityId: orgId,
-          metadata: { connectedEmail: emailAddr, provider: 'COMPOSIO_MANAGED' },
+          metadata: { connectedEmail: emailAddr, provider: 'COMPOSIO_MANAGED', connectedAccountId },
           ipAddress,
         });
 
         return { returnUrl: effectiveReturnUrl, connectedItem: emailAddr };
       } else if (app === 'instagram') {
         const username = account.username || account.summary || 'Connected Instagram Account';
+        const connectedAccountId = account.accountId || null;
         const existing = await db.getOne('SELECT id FROM instagram_connections WHERE organization_id = $1', [orgId]);
 
         if (existing) {
@@ -1488,20 +1501,30 @@ export class IntegrationService {
                  status = 'CONNECTED',
                  username = $1,
                  instagram_user_id = COALESCE($2, instagram_user_id),
+                 composio_connected_account_id = COALESCE($2, composio_connected_account_id),
                  error_message = NULL,
                  last_synced_at = CURRENT_TIMESTAMP,
                  updated_at = CURRENT_TIMESTAMP
              WHERE organization_id = $3`,
-            [username, account.accountId || null, orgId]
+            [username, connectedAccountId, orgId]
           );
         } else {
           await db.execute(
             `INSERT INTO instagram_connections (
-               id, organization_id, instagram_user_id, username, account_type,
+               id, organization_id, instagram_user_id, composio_connected_account_id, username, account_type,
                is_active, status, last_synced_at, created_at, updated_at
-             ) VALUES ($1, $2, $3, $4, 'BUSINESS', TRUE, 'CONNECTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-            [uuidv4(), orgId, account.accountId || null, username]
+             ) VALUES ($1, $2, $3, $4, $5, 'BUSINESS', TRUE, 'CONNECTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [uuidv4(), orgId, connectedAccountId, connectedAccountId, username]
           );
+        }
+
+        // Auto-provision Instagram Inbound DM Trigger idempotently
+        if (connectedAccountId) {
+          try {
+            await ComposioTriggerService.provisionInstagramTrigger(orgId, connectedAccountId);
+          } catch (trigErr) {
+            console.warn(`[IntegrationService] Instagram trigger auto-provisioning notice for ${orgId}:`, trigErr);
+          }
         }
 
         await AuditService.log({
@@ -1509,13 +1532,14 @@ export class IntegrationService {
           action: AuditAction.INSTAGRAM_CONNECTED,
           entityType: 'INTEGRATION',
           entityId: orgId,
-          metadata: { username, provider: 'COMPOSIO_MANAGED' },
+          metadata: { username, provider: 'COMPOSIO_MANAGED', connectedAccountId },
           ipAddress,
         });
 
         return { returnUrl: effectiveReturnUrl, connectedItem: username };
       } else if (app === 'facebook') {
         const pageName = account.username || account.summary || 'Connected Facebook Page';
+        const connectedAccountId = account.accountId || null;
         const existing = await db.getOne('SELECT id FROM facebook_connections WHERE organization_id = $1', [orgId]);
 
         if (existing) {
@@ -1525,20 +1549,30 @@ export class IntegrationService {
                  status = 'CONNECTED',
                  page_name = $1,
                  page_id = COALESCE($2, page_id),
+                 composio_connected_account_id = COALESCE($2, composio_connected_account_id),
                  error_message = NULL,
                  last_synced_at = CURRENT_TIMESTAMP,
                  updated_at = CURRENT_TIMESTAMP
              WHERE organization_id = $3`,
-            [pageName, account.accountId || null, orgId]
+            [pageName, connectedAccountId, orgId]
           );
         } else {
           await db.execute(
             `INSERT INTO facebook_connections (
-               id, organization_id, page_id, page_name,
+               id, organization_id, page_id, composio_connected_account_id, page_name,
                is_active, status, last_synced_at, created_at, updated_at
-             ) VALUES ($1, $2, $3, $4, TRUE, 'CONNECTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-            [uuidv4(), orgId, account.accountId || null, pageName]
+             ) VALUES ($1, $2, $3, $4, $5, TRUE, 'CONNECTED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [uuidv4(), orgId, connectedAccountId, connectedAccountId, pageName]
           );
+        }
+
+        // Auto-provision Facebook Inbound Message Trigger idempotently
+        if (connectedAccountId) {
+          try {
+            await ComposioTriggerService.provisionFacebookTrigger(orgId, connectedAccountId);
+          } catch (trigErr) {
+            console.warn(`[IntegrationService] Facebook trigger auto-provisioning notice for ${orgId}:`, trigErr);
+          }
         }
 
         await AuditService.log({
@@ -1546,7 +1580,7 @@ export class IntegrationService {
           action: AuditAction.FACEBOOK_CONNECTED,
           entityType: 'INTEGRATION',
           entityId: orgId,
-          metadata: { pageName, provider: 'COMPOSIO_MANAGED' },
+          metadata: { pageName, provider: 'COMPOSIO_MANAGED', connectedAccountId },
           ipAddress,
         });
 
