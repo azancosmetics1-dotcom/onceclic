@@ -1,0 +1,12 @@
+# Nixpacks configuration for Railway deployment
+[phases.setup]
+nixPkgs = ["nodejs_20", "npm-10_x"]
+
+[phases.install]
+cmds = ["npm install --include=dev"]
+
+[phases.build]
+cmds = ["npm run build:shared && npm run build:server"]
+
+[start]
+cmd = "npm start"

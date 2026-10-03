@@ -31,6 +31,10 @@
   ],
   "author": "ONCEClic",
   "license": "UNLICENSED",
+  "dependencies": {
+    "typescript": "^5.4.5",
+    "tsx": "^4.16.2"
+  },
   "devDependencies": {
     "@paddle/paddle-node-sdk": "^3.10.0"
   }
