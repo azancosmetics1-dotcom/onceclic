@@ -90,7 +90,7 @@ export async function runFacebookAIReplyTests() {
     }
 
     // Check that outbound Facebook message was dispatched with correct recipient PSID
-    if (outboundPageMessagesSent.length !== 1 || outboundPageMessagesSent[0].recipientId !== fakeSenderPsid) {
+    if ((outboundPageMessagesSent.length as number) !== 1 || outboundPageMessagesSent[0].recipientId !== fakeSenderPsid) {
       throw new Error(`Facebook Test 1 Failed: Outbound message not sent to recipient PSID ${fakeSenderPsid}`);
     }
 
@@ -120,7 +120,7 @@ export async function runFacebookAIReplyTests() {
     if (!resDuplicate.ignoredDuplicate || resDuplicate.aiReplySent) {
       throw new Error('Facebook Test 2 Failed: Replaying exact duplicate event was not ignored.');
     }
-    if (outboundPageMessagesSent.length !== 1) {
+    if ((outboundPageMessagesSent.length as number) !== 1) {
       throw new Error('Facebook Test 2 Failed: Duplicate message caused a second outbound Facebook message.');
     }
     console.log('  ✓ 9. Duplicate inbound Facebook event strictly ignored (Zero duplicate messages sent)');
@@ -177,7 +177,7 @@ export async function runFacebookAIReplyTests() {
     await db.execute('DELETE FROM knowledge_sources WHERE organization_id = $1', [orgAId]);
     await KnowledgeService.addSource({
       organizationId: orgAId,
-      sourceType: KnowledgeSourceType.CUSTOM_TEXT,
+      sourceType: KnowledgeSourceType.TEXT,
       title: 'Updated Clinic Knowledge',
       rawContent: 'ONCEClic Test Clinic is open Monday to Friday from 9 AM to 5 PM. Consultation fee is 3000 PKR. Located at 10 Health Avenue.',
     });
@@ -254,3 +254,16 @@ export async function runFacebookAIReplyTests() {
   console.log('  ALL FACEBOOK AI REPLY INTEGRATION TESTS PASSED!');
   console.log('====================================================\n');
 }
+
+if (require.main === module) {
+  process.env.USE_EMBEDDED_DB = 'true';
+  process.env.NODE_ENV = 'test';
+  process.env.AI_PROVIDER = 'mock';
+  runFacebookAIReplyTests()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}
+

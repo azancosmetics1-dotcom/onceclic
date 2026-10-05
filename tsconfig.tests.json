@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@onceclic/shared": ["shared/src/index.ts"]
+    }
+  },
+  "include": [
+    "tests/**/*",
+    "server/src/**/*",
+    "shared/src/**/*"
+  ]
+}

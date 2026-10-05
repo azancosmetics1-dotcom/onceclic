@@ -605,6 +605,14 @@ export class DelegatingAIProvider implements IAIProvider {
   private overrideProviderName: string | null = null;
 
   private getProvider(): IAIProvider {
+    const envProvider = (process.env.AI_PROVIDER || '').toLowerCase().trim();
+    if (envProvider === 'mock' || envProvider === 'test' || process.env.NODE_ENV === 'test') {
+      if (!this.activeProvider || !(this.activeProvider instanceof MockAIProvider)) {
+        this.activeProvider = new MockAIProvider();
+      }
+      return this.activeProvider;
+    }
+
     if (this.activeProvider) {
       return this.activeProvider;
     }

@@ -237,6 +237,58 @@ export class ComposioTriggerService {
    * Provision or upsert a trigger instance for a connected account.
    * Fully idempotent: will never create duplicate triggers on repeated callbacks.
    */
+  /**
+   * Query Composio API for a real active remote trigger instance for this connected account.
+   */
+  static async getRemoteTriggerInstance(
+    connectedAccountId: string,
+    triggerSlug: string
+  ): Promise<{ exists: boolean; triggerId?: string; status?: string; raw?: any }> {
+    if (!ComposioService.isAvailable()) {
+      return { exists: false };
+    }
+
+    try {
+      const listRes = await this.request<any>(
+        `/v3.1/trigger_instances?connected_account_id=${encodeURIComponent(connectedAccountId)}`,
+        { method: 'GET' }
+      );
+
+      let remoteInstances: any[] = [];
+      if (listRes.ok && listRes.data) {
+        if (Array.isArray(listRes.data)) remoteInstances = listRes.data;
+        else if (Array.isArray(listRes.data.items)) remoteInstances = listRes.data.items;
+        else if (Array.isArray(listRes.data.data)) remoteInstances = listRes.data.data;
+        else if (Array.isArray(listRes.data.trigger_instances)) remoteInstances = listRes.data.trigger_instances;
+      }
+
+      const match = remoteInstances.find(
+        (inst) =>
+          (inst.trigger_slug === triggerSlug || inst.slug === triggerSlug || inst.trigger_name === triggerSlug) &&
+          (inst.status === 'ACTIVE' || inst.status === 'ENABLED' || !inst.status)
+      );
+
+      if (match) {
+        const triggerId = match.id || match.trigger_id || match.trigger_instance_id;
+        return {
+          exists: true,
+          triggerId,
+          status: match.status || 'ACTIVE',
+          raw: match,
+        };
+      }
+    } catch (err: any) {
+      console.warn('[ComposioTriggerService] Remote trigger check notice:', err.message || err);
+    }
+
+    return { exists: false };
+  }
+
+  /**
+   * Provision or upsert a trigger instance for a connected account.
+   * Fully idempotent: will never create duplicate triggers on repeated callbacks.
+   * Only marks status as ACTIVE after the remote Composio trigger is confirmed active.
+   */
   static async provisionTriggerForConnection(params: {
     organizationId: string;
     app: 'gmail' | 'instagram' | 'facebook';
@@ -262,69 +314,18 @@ export class ComposioTriggerService {
     const triggerSlug = await this.getTriggerSlugForApp(app);
     const entityId = ComposioService.getEntityId(organizationId);
 
-    // 1. Check local database for existing trigger instance
-    try {
-      const existingLocal = await db.getOne<{
-        id: string;
-        trigger_id: string;
-        trigger_slug: string;
-        status: string;
-      }>(
-        'SELECT id, trigger_id, trigger_slug, status FROM composio_trigger_instances WHERE connected_account_id = $1 AND trigger_slug = $2',
-        [connectedAccountId, triggerSlug]
-      );
-
-      if (existingLocal && existingLocal.trigger_id && existingLocal.status === 'ACTIVE') {
-        console.log(`[ComposioTriggerService] Found existing local trigger instance ${existingLocal.trigger_id} for ${app} (org ${organizationId})`);
-        await this.updateConnectionAutomationStatus(organizationId, app, connectedAccountId, existingLocal.trigger_id, 'AUTOMATION_READY');
-        return {
-          success: true,
-          triggerId: existingLocal.trigger_id,
-          triggerSlug: existingLocal.trigger_slug,
-          isReused: true,
-        };
-      }
-    } catch (dbErr) {
-      console.warn('[ComposioTriggerService] Local trigger lookup notice:', dbErr);
-    }
-
-    // 2. Check Composio API for existing trigger instances on this connected account
-    try {
-      const listRes = await this.request<any>(
-        `/v3.1/trigger_instances?connected_account_id=${encodeURIComponent(connectedAccountId)}`,
-        { method: 'GET' }
-      );
-
-      let remoteInstances: any[] = [];
-      if (listRes.ok && listRes.data) {
-        if (Array.isArray(listRes.data)) remoteInstances = listRes.data;
-        else if (Array.isArray(listRes.data.items)) remoteInstances = listRes.data.items;
-        else if (Array.isArray(listRes.data.data)) remoteInstances = listRes.data.data;
-        else if (Array.isArray(listRes.data.trigger_instances)) remoteInstances = listRes.data.trigger_instances;
-      }
-
-      const matchingRemote = remoteInstances.find(
-        (inst) =>
-          (inst.trigger_slug === triggerSlug || inst.slug === triggerSlug) &&
-          (inst.status === 'ACTIVE' || inst.status === 'ENABLED' || !inst.status)
-      );
-
-      if (matchingRemote) {
-        const triggerId = matchingRemote.id || matchingRemote.trigger_id || matchingRemote.trigger_instance_id;
-        if (triggerId) {
-          console.log(`[ComposioTriggerService] Reusing active remote trigger instance ${triggerId} for ${app}`);
-          await this.recordLocalTriggerInstance(organizationId, app, triggerSlug, triggerId, connectedAccountId);
-          await this.updateConnectionAutomationStatus(organizationId, app, connectedAccountId, triggerId, 'AUTOMATION_READY');
-          return {
-            success: true,
-            triggerId,
-            triggerSlug,
-            isReused: true,
-          };
-        }
-      }
-    } catch (listErr) {
-      console.warn('[ComposioTriggerService] Remote trigger list notice:', listErr);
+    // 1. First, check Composio API for an active remote trigger instance
+    const remoteCheck = await this.getRemoteTriggerInstance(connectedAccountId, triggerSlug);
+    if (remoteCheck.exists && remoteCheck.triggerId) {
+      console.log(`[ComposioTriggerService] Verified active remote trigger instance ${remoteCheck.triggerId} for ${app} (org ${organizationId})`);
+      await this.recordLocalTriggerInstance(organizationId, app, triggerSlug, remoteCheck.triggerId, connectedAccountId);
+      await this.updateConnectionAutomationStatus(organizationId, app, connectedAccountId, remoteCheck.triggerId, 'AUTOMATION_READY');
+      return {
+        success: true,
+        triggerId: remoteCheck.triggerId,
+        triggerSlug,
+        isReused: true,
+      };
     }
 
     // 3. Upsert trigger instance in Composio

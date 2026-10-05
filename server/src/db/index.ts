@@ -684,23 +684,30 @@ class EmbeddedDatabase implements IDatabase {
 let dbInstance: IDatabase | null = null;
 
 export function getDatabase(): IDatabase {
+  const forceEmbedded =
+    process.env.USE_EMBEDDED_DB?.trim() === 'true' ||
+    process.env.NODE_ENV === 'test';
+
+  if (forceEmbedded) {
+    if (!dbInstance || !(dbInstance instanceof EmbeddedDatabase)) {
+      dbInstance = new EmbeddedDatabase();
+    }
+    return dbInstance;
+  }
+
   if (!dbInstance) {
     const dbUrl = process.env.DATABASE_URL;
     const isProduction = process.env.NODE_ENV === 'production';
-    const forceEmbedded =
-      process.env.USE_EMBEDDED_DB?.trim() === 'true' ||
-      process.env.NODE_ENV === 'test';
 
     const hasRealPassword =
       dbUrl &&
-      !forceEmbedded &&
       !dbUrl.includes('placeholder') &&
       !dbUrl.includes('[YOUR-PASSWORD]') &&
       !dbUrl.includes('[password]') &&
       !dbUrl.includes('yourdbpassword') &&
       !dbUrl.includes(':yourpassword@');
 
-    if (hasRealPassword && dbUrl && !forceEmbedded) {
+    if (hasRealPassword && dbUrl) {
       const sanitizedUrl = dbUrl.replace(/\/\/[^@]+@/, '//***:***@');
       console.log(`[DB] Database: PostgreSQL/Supabase (${sanitizedUrl})`);
       dbInstance = new PostgresDatabase(dbUrl);
@@ -717,4 +724,14 @@ export function getDatabase(): IDatabase {
   return dbInstance;
 }
 
-export const db = getDatabase();
+export const db: IDatabase = new Proxy({} as IDatabase, {
+  get(_target, prop) {
+    const currentDb = getDatabase();
+    const val = (currentDb as any)[prop];
+    if (typeof val === 'function') {
+      return val.bind(currentDb);
+    }
+    return val;
+  }
+});
+

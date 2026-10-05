@@ -1,3 +1,7 @@
+process.env.USE_EMBEDDED_DB = 'true';
+process.env.NODE_ENV = 'test';
+process.env.AI_PROVIDER = 'mock';
+
 import { getDatabase } from '../server/src/db';
 import { AuthService } from '../server/src/services/AuthService';
 import { ComposioService } from '../server/src/services/ComposioService';
@@ -89,7 +93,7 @@ export async function runInstagramAIReplyTests() {
     }
 
     // Check that outbound Instagram DM was dispatched with correct recipient
-    if (outboundDMsSent.length !== 1 || outboundDMsSent[0].recipientId !== fakeSenderId) {
+    if ((outboundDMsSent.length as number) !== 1 || outboundDMsSent[0].recipientId !== fakeSenderId) {
       throw new Error(`Instagram Test 1 Failed: Outbound DM not sent to recipient ${fakeSenderId}`);
     }
 
@@ -119,7 +123,7 @@ export async function runInstagramAIReplyTests() {
     if (!resDuplicate.ignoredDuplicate || resDuplicate.aiReplySent) {
       throw new Error('Instagram Test 2 Failed: Replaying exact duplicate event was not ignored.');
     }
-    if (outboundDMsSent.length !== 1) {
+    if ((outboundDMsSent.length as number) !== 1) {
       throw new Error('Instagram Test 2 Failed: Duplicate message caused a second outbound DM.');
     }
     console.log('  ✓ 9. Duplicate inbound Instagram event strictly ignored (Zero duplicate DMs sent)');
@@ -176,7 +180,7 @@ export async function runInstagramAIReplyTests() {
     await db.execute('DELETE FROM knowledge_sources WHERE organization_id = $1', [orgAId]);
     await KnowledgeService.addSource({
       organizationId: orgAId,
-      sourceType: KnowledgeSourceType.CUSTOM_TEXT,
+      sourceType: KnowledgeSourceType.TEXT,
       title: 'Updated Clinic Knowledge',
       rawContent: 'ONCEClic Test Clinic is open Monday to Friday from 9 AM to 5 PM. Consultation fee is 3000 PKR. Located at 10 Health Avenue.',
     });
@@ -253,3 +257,16 @@ export async function runInstagramAIReplyTests() {
   console.log('  ALL INSTAGRAM AI REPLY INTEGRATION TESTS PASSED!');
   console.log('====================================================\n');
 }
+
+if (require.main === module) {
+  process.env.USE_EMBEDDED_DB = 'true';
+  process.env.NODE_ENV = 'test';
+  process.env.AI_PROVIDER = 'mock';
+  runInstagramAIReplyTests()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}
+

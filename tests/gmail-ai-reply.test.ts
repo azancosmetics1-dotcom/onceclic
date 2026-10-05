@@ -92,7 +92,7 @@ export async function runGmailAIReplyTests() {
     }
 
     // Check that outbound email was dispatched
-    if (outboundEmailsSent.length !== 1 || outboundEmailsSent[0].toEmail !== fakeCustomerEmail) {
+    if ((outboundEmailsSent.length as number) !== 1 || outboundEmailsSent[0].toEmail !== fakeCustomerEmail) {
       throw new Error(`Gmail Test 1 Failed: Outbound email not sent to ${fakeCustomerEmail}`);
     }
 
@@ -123,7 +123,7 @@ export async function runGmailAIReplyTests() {
     if (!resDuplicate.ignoredDuplicate || resDuplicate.aiReplySent) {
       throw new Error('Gmail Test 2 Failed: Replaying exact duplicate event was not ignored.');
     }
-    if (outboundEmailsSent.length !== 1) {
+    if ((outboundEmailsSent.length as number) !== 1) {
       throw new Error('Gmail Test 2 Failed: Duplicate message caused a second outbound email.');
     }
     console.log('  ✓ 9. Duplicate inbound email event strictly ignored (Zero duplicate emails sent)');
@@ -182,7 +182,7 @@ export async function runGmailAIReplyTests() {
     await db.execute('DELETE FROM knowledge_sources WHERE organization_id = $1', [orgAId]);
     await KnowledgeService.addSource({
       organizationId: orgAId,
-      sourceType: KnowledgeSourceType.CUSTOM_TEXT,
+      sourceType: KnowledgeSourceType.TEXT,
       title: 'Updated Clinic Knowledge',
       rawContent: 'ONCEClic Test Clinic is open Monday to Friday from 9 AM to 5 PM. Consultation fee is 3000 PKR. Located at 10 Health Avenue.',
     });
@@ -264,3 +264,16 @@ export async function runGmailAIReplyTests() {
   console.log('  ALL GMAIL AI REPLY INTEGRATION TESTS PASSED!');
   console.log('====================================================\n');
 }
+
+if (require.main === module) {
+  process.env.USE_EMBEDDED_DB = 'true';
+  process.env.NODE_ENV = 'test';
+  process.env.AI_PROVIDER = 'mock';
+  runGmailAIReplyTests()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}
+

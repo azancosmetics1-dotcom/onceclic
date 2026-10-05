@@ -65,6 +65,9 @@ async function testPublicKnowledgeGrounding() {
     content: 'Hi! Can you tell me what ONCEClic is, what is the price for Pro, and how the free trial works?',
   });
 
+  if (!reply.aiMessage) {
+    throw new Error('AI receptionist returned no aiMessage object.');
+  }
   const aiContent = reply.aiMessage.content;
   console.log('\n[Simulated AI Reply Sample]:\n', aiContent);
 

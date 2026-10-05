@@ -596,3 +596,16 @@ export async function runComposioTriggersAndWebhooksTests() {
     ComposioService.sendFacebookReply = originalSendFacebookReply;
   }
 }
+
+if (require.main === module) {
+  process.env.USE_EMBEDDED_DB = 'true';
+  process.env.NODE_ENV = 'test';
+  process.env.AI_PROVIDER = 'mock';
+  runComposioTriggersAndWebhooksTests()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error(err);
+      process.exit(1);
+    });
+}
+
