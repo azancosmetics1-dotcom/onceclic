@@ -30,6 +30,7 @@ import { Dashboard } from './pages/Dashboard';
 import { AnalyticsPage } from './pages/Analytics';
 import { IntegrationsPage } from './pages/Integrations';
 import { AIEmployeePage } from './pages/AIEmployee';
+import { AIReceptionistPage } from './pages/AIReceptionist';
 import { KnowledgeBase } from './pages/KnowledgeBase';
 import { AppointmentsPage } from './pages/Appointments';
 import { ConversationsPage } from './pages/Conversations';
@@ -118,6 +119,7 @@ export const App: React.FC = () => {
             <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="integrations" element={<IntegrationsPage />} />
             <Route path="ai-employee" element={<AIEmployeePage />} />
+            <Route path="ai-receptionist" element={<AIReceptionistPage />} />
             <Route path="knowledge" element={<KnowledgeBase />} />
             <Route path="appointments" element={<AppointmentsPage />} />
             <Route path="conversations" element={<ConversationsPage />} />

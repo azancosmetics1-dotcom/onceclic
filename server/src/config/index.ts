@@ -94,5 +94,20 @@ export const config = {
     trialPriceUsd: 0,
     trialAiBudgetUsd: parseFloat(process.env.TRIAL_AI_BUDGET_USD || '0.50'),
     proAiBudgetUsd: parseFloat(process.env.PRO_AI_BUDGET_USD || '10.00'),
-  }
+  },
+
+  voice: {
+    provider: (process.env.VOICE_PROVIDER || 'retell').toLowerCase().trim(),
+    retellApiKey: process.env.RETELL_API_KEY || '',
+    retellAgentId: process.env.RETELL_AGENT_ID || '',
+    retellWebhookSecret: process.env.RETELL_WEBHOOK_SECRET || '',
+    vapiApiKey: process.env.VAPI_API_KEY || '',
+    isConfigured: !!process.env.RETELL_API_KEY && !process.env.RETELL_API_KEY.includes('placeholder'),
+    planLimits: {
+      TRIAL: parseInt(process.env.VOICE_TRIAL_LIMIT_MINUTES || '15', 10),
+      STARTER: parseInt(process.env.VOICE_STARTER_LIMIT_MINUTES || '50', 10),
+      PRO: parseInt(process.env.VOICE_PRO_LIMIT_MINUTES || '150', 10),
+      BUSINESS: parseInt(process.env.VOICE_BUSINESS_LIMIT_MINUTES || '400', 10),
+    },
+  },
 };

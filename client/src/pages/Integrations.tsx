@@ -184,7 +184,7 @@ export const IntegrationsPage: React.FC = () => {
     } catch (err: any) {
       setActionMessage({
         type: 'error',
-        text: err.message || 'Failed to initiate Instagram connection. Ensure Composio is configured on the server.',
+        text: err.message || 'Failed to initiate Instagram connection. Please try again or contact support.',
       });
       setConnectingInstagram(false);
     }
@@ -210,7 +210,7 @@ export const IntegrationsPage: React.FC = () => {
     } catch (err: any) {
       setActionMessage({
         type: 'error',
-        text: err.message || 'Failed to initiate Facebook Page connection. Ensure Composio is configured on the server.',
+        text: err.message || 'Failed to initiate Facebook Page connection. Please try again or contact support.',
       });
       setConnectingFacebook(false);
     }
@@ -412,6 +412,9 @@ export const IntegrationsPage: React.FC = () => {
             <div className="min-w-0">
               <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
                 <span>Business Email Channel</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  COMING SOON
+                </span>
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
                     emailConfig?.status === IntegrationStatus.CONNECTED
@@ -500,6 +503,9 @@ export const IntegrationsPage: React.FC = () => {
             <div className="min-w-0">
               <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
                 <span>Instagram AI Receptionist</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  COMING SOON
+                </span>
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
                     instagramConfig?.status === IntegrationStatus.CONNECTED
@@ -569,7 +575,7 @@ export const IntegrationsPage: React.FC = () => {
                   Connect Instagram Business Account
                 </label>
                 <p className="text-xs text-slate-400 mb-3">
-                  Connect your Instagram Professional/Business account via Composio. Your AI receptionist will answer customer questions, share business hours, and schedule appointments directly in Instagram DMs.
+                  Connect your Instagram Professional/Business account. Your AI receptionist will answer customer questions, share business hours, and schedule appointments directly in Instagram DMs.
                 </p>
               </div>
               <button
@@ -595,6 +601,9 @@ export const IntegrationsPage: React.FC = () => {
             <div className="min-w-0">
               <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
                 <span>Facebook Page AI Receptionist</span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                  COMING SOON
+                </span>
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
                     facebookConfig?.status === IntegrationStatus.CONNECTED
@@ -664,7 +673,7 @@ export const IntegrationsPage: React.FC = () => {
                   Connect Facebook Business Page
                 </label>
                 <p className="text-xs text-slate-400 mb-3">
-                  Connect your Meta Facebook Page via Composio. Your AI receptionist will answer inquiries, provide pricing, and book appointments/reservations directly on Messenger.
+                  Connect your Facebook Business Page. Your AI receptionist will answer inquiries, provide pricing, and book appointments/reservations directly on Messenger.
                 </p>
               </div>
               <button

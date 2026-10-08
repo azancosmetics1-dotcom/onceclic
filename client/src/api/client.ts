@@ -25,6 +25,10 @@ import {
   CustomerBillingConfig,
   CustomerAIStatus,
   TrialEligibilityResponse,
+  CustomerVoiceConfig,
+  VoicePhoneNumber,
+  VoiceCallRecord,
+  VoiceAnalyticsSummary,
 } from '@onceclic/shared';
 
 const getApiBase = (): string => {
@@ -521,6 +525,50 @@ class ApiClient {
 
   async disconnectFacebookIntegration(): Promise<FacebookIntegrationConfig> {
     return this.request('/integrations/facebook/disconnect', { method: 'POST' });
+  }
+
+  // AI Phone Receptionist & Voice
+  async getVoiceStatus(): Promise<CustomerVoiceConfig> {
+    return this.request('/voice/status');
+  }
+
+  async getVoiceNumbers(): Promise<VoicePhoneNumber[]> {
+    return this.request('/voice/numbers');
+  }
+
+  async connectExistingVoiceNumber(data: {
+    phoneNumber: string;
+    connectionMethod: string;
+    forwardingTarget?: string;
+    sipEndpoint?: string;
+  }): Promise<VoicePhoneNumber> {
+    return this.request('/voice/numbers/existing', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async provisionNewVoiceNumber(data?: { areaCode?: string; country?: string }): Promise<VoicePhoneNumber> {
+    return this.request('/voice/numbers/new', {
+      method: 'POST',
+      body: JSON.stringify(data || {}),
+    });
+  }
+
+  async disconnectVoiceNumber(id: string): Promise<{ success: boolean; message?: string }> {
+    return this.request(`/voice/numbers/${id}`, { method: 'DELETE' });
+  }
+
+  async testVoiceNumberConnection(id: string): Promise<{ success: boolean; data: { success: boolean; status: string; message: string; testedAt: string } }> {
+    return this.request(`/voice/numbers/${id}/test`, { method: 'POST' });
+  }
+
+  async getVoiceCalls(limit: number = 50): Promise<VoiceCallRecord[]> {
+    return this.request(`/voice/calls?limit=${limit}`);
+  }
+
+  async getVoiceAnalytics(): Promise<VoiceAnalyticsSummary> {
+    return this.request('/voice/analytics');
   }
 }
 

@@ -150,6 +150,14 @@ async function runAllTests() {
     await runComposioTriggersAndWebhooksTests();
     console.log('');
 
+    const { runVoiceReceptionistTests } = await import('./voice-receptionist.test');
+    await runVoiceReceptionistTests();
+    console.log('');
+
+    const { runMigrationAndPricingSafetyTests } = await import('./migration-and-pricing-safety.test');
+    await runMigrationAndPricingSafetyTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

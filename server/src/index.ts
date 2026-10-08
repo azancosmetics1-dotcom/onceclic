@@ -18,6 +18,8 @@ import publicChatRoutes from './routes/publicChatRoutes';
 import analyticsRoutes from './routes/analyticsRoutes';
 import integrationRoutes from './routes/integrationRoutes';
 import webhookRoutes from './routes/webhookRoutes';
+import voiceRoutes from './routes/voiceRoutes';
+import voiceWebhookRoutes from './routes/voiceWebhookRoutes';
 
 dotenv.config();
 
@@ -152,7 +154,9 @@ app.use('/api/billing', billingRoutes);
 app.use('/api/public/chat', publicChatRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/integrations', integrationRoutes);
+app.use('/api/webhooks/voice', voiceWebhookRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/voice', voiceRoutes);
 
 // Fallback JSON 404 handler for API routes
 app.use('/api', (req, res) => {

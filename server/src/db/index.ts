@@ -116,13 +116,43 @@ class PostgresDatabase implements IDatabase {
       return;
     }
 
+    // Ensure schema_migrations table exists for idempotency and migration tracking
+    await this.pool.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        version VARCHAR(255) PRIMARY KEY,
+        applied_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    const appliedResult = await this.pool.query('SELECT version FROM schema_migrations');
+    const appliedVersions = new Set<string>(appliedResult.rows.map((r: any) => r.version));
+
     const files = fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql')).sort();
     for (const file of files) {
+      if (appliedVersions.has(file)) {
+        console.log(`[Postgres] Migration already applied: ${file}`);
+        continue;
+      }
+
       const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
       console.log(`[Postgres] Running migration: ${file}`);
-      await this.pool.query(sql);
+
+      const client = await this.pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(sql);
+        await client.query('INSERT INTO schema_migrations (version) VALUES ($1)', [file]);
+        await client.query('COMMIT');
+        console.log(`[Postgres] Migration successfully applied: ${file}`);
+      } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(`[Postgres] Failed applying migration ${file}:`, err);
+        throw err;
+      } finally {
+        client.release();
+      }
     }
-    console.log('[Postgres] All migrations applied successfully.');
+    console.log('[Postgres] All migrations verified and applied successfully.');
   }
 
   async close(): Promise<void> {
@@ -167,6 +197,8 @@ class EmbeddedDatabase implements IDatabase {
       'trial_redemptions',
       'trial_notifications',
       'composio_trigger_instances',
+      'voice_phone_numbers',
+      'voice_call_records',
     ];
     for (const t of tableNames) {
       if (!this.tables.has(t)) {

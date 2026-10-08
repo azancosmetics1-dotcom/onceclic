@@ -57,18 +57,18 @@ export const Home: React.FC = () => {
 
         <div className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-6">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>AI Receptionist & Booking Suite</span>
+          <span>AI Phone Receptionist & Booking Automation</span>
         </div>
 
         <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white max-w-4xl leading-[1.1]">
-          Your AI receptionist for{' '}
+          Never Miss Another{' '}
           <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-emerald-500">
-            website, email, & appointments.
+            Customer Call.
           </span>
         </h1>
 
         <p className="mt-6 text-lg sm:text-xl text-slate-300 max-w-2xl font-normal leading-relaxed">
-          Never miss a customer inquiry again. ONCEClic answers questions from your business knowledge, schedules appointments directly into your calendar, and hands off to your team when needed.
+          ONCEClic's AI receptionist answers customer calls, answers questions, and books appointments automatically — 24/7.
         </p>
 
         {/* CTA Buttons */}
@@ -84,13 +84,13 @@ export const Home: React.FC = () => {
             to="/pricing"
             className="w-full sm:w-auto px-6 py-4 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-base transition flex items-center justify-center"
           >
-            <span>View Pricing ($19/mo)</span>
+            <span>View Pricing & Plans</span>
           </Link>
         </div>
 
         <p className="mt-3 text-xs text-slate-400 flex items-center justify-center space-x-1.5">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>7-Day Free Trial &bull; No credit card required &bull; ONCEClic Pro $19/mo</span>
+          <span>7-Day Free Trial &bull; $0 &bull; No credit card required</span>
         </p>
 
         {/* Interactive Live Demo Preview Box */}
@@ -254,6 +254,49 @@ export const Home: React.FC = () => {
               <span>Start 7-Day Free Trial</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* CEO / Founder Section */}
+      <section className="pb-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full">
+        <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-8 sm:p-10 shadow-xl relative overflow-hidden backdrop-blur-sm">
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-8">
+            {/* CEO Photo */}
+            <div className="relative shrink-0">
+              <div className="w-32 h-32 sm:w-36 sm:h-36 rounded-2xl overflow-hidden border-2 border-emerald-500/40 shadow-lg shadow-emerald-500/10 bg-slate-950">
+                <img
+                  src="/founder.jpg"
+                  alt="Kamran Ali, Founder & CEO of ONCEClic"
+                  className="w-full h-full object-cover object-center"
+                  loading="lazy"
+                />
+              </div>
+              <div className="absolute -bottom-2 -right-2 px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+                Founder
+              </div>
+            </div>
+
+            {/* CEO Message & Details */}
+            <div className="flex-1 text-center sm:text-left space-y-3">
+              <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Meet the Founder</span>
+              </div>
+
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight leading-snug">
+                Built with a clear mission: make business communication simpler with AI.
+              </h2>
+
+              <p className="text-sm text-slate-300 leading-relaxed max-w-2xl">
+                ONCEClic was founded with a single focus: empower small businesses and service professionals to handle customer inquiries, voice phone reception, and real-time appointment bookings 24/7 without technical complexity or lost opportunities.
+              </p>
+
+              <div className="pt-2">
+                <div className="font-bold text-white text-base">Kamran Ali</div>
+                <div className="text-xs text-emerald-400 font-medium">Founder &amp; CEO, ONCEClic</div>
+              </div>
+            </div>
           </div>
         </div>
       </section>

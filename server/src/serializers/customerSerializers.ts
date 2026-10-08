@@ -200,3 +200,96 @@ export function toCustomerFacebookConfig(data: any) {
   };
 }
 
+/**
+ * Customer-safe Voice Receptionist Config & Usage Serializer
+ */
+export function toCustomerVoiceConfig(config: any) {
+  const usage = config?.voiceUsage || {};
+  return {
+    receptionistActive: Boolean(config?.receptionistActive),
+    isConfigured: Boolean(config?.isConfigured),
+    activeNumber: config?.activeNumber ? String(config.activeNumber) : undefined,
+    connectionMethod: config?.connectionMethod ? String(config.connectionMethod) : undefined,
+    setupState: String(config?.setupState || 'NOT_CONFIGURED'),
+    connectionTestStatus: String(config?.connectionTestStatus || 'NOT_TESTED'),
+    phoneNumbers: Array.isArray(config?.phoneNumbers)
+      ? config.phoneNumbers.map((p: any) => ({
+          id: String(p.id),
+          phoneNumber: String(p.phoneNumber || p.phone_number),
+          phoneNumberType: String(p.phoneNumberType || p.phone_number_type || 'EXISTING'),
+          connectionMethod: String(p.connectionMethod || p.connection_method || 'EXISTING_FORWARDING'),
+          forwardingTarget: p.forwardingTarget || p.forwarding_target ? String(p.forwardingTarget || p.forwarding_target) : undefined,
+          sipEndpoint: p.sipEndpoint || p.sip_endpoint ? String(p.sipEndpoint || p.sip_endpoint) : undefined,
+          status: String(p.status || 'ACTIVE'),
+          createdAt: String(p.createdAt || p.created_at),
+        }))
+      : [],
+    voiceUsage: {
+      planTier: String(usage.planTier || 'PRO'),
+      includedMinutes: Number(usage.includedMinutes) || 150,
+      usedMinutes: Number(usage.usedMinutes) || 0,
+      remainingMinutes: Number(usage.remainingMinutes) || 0,
+      percentageUsed: Number(usage.percentageUsed) || 0,
+      limitReached: Boolean(usage.limitReached),
+      billingPeriodStart: String(usage.billingPeriodStart || new Date().toISOString()),
+      billingPeriodEnd: String(usage.billingPeriodEnd || new Date().toISOString()),
+    },
+  };
+}
+
+/**
+ * Customer-safe Voice Analytics Serializer
+ */
+export function toCustomerVoiceAnalytics(analytics: any) {
+  return {
+    totalCalls: Number(analytics?.totalCalls) || 0,
+    answeredCalls: Number(analytics?.answeredCalls) || 0,
+    totalDurationSeconds: Number(analytics?.totalDurationSeconds) || 0,
+    totalMinutes: Number(analytics?.totalMinutes) || 0,
+    averageDurationSeconds: Number(analytics?.averageDurationSeconds) || 0,
+    appointmentsBooked: Number(analytics?.appointmentsBooked) || 0,
+    appointmentsRescheduled: Number(analytics?.appointmentsRescheduled) || 0,
+    appointmentsCanceled: Number(analytics?.appointmentsCanceled) || 0,
+    generalInquiries: Number(analytics?.generalInquiries) || 0,
+  };
+}
+
+/**
+ * Mask caller phone number for privacy in UI while keeping identification useful
+ */
+export function maskPhoneNumber(phone: string | undefined | null): string {
+  if (!phone) return 'Unknown Caller';
+  const clean = phone.trim();
+  if (clean.length <= 4) return clean;
+  const last4 = clean.slice(-4);
+  const prefix = clean.slice(0, 3);
+  return `${prefix}***${last4}`;
+}
+
+/**
+ * Customer-safe Voice Call Record Serializer
+ */
+export function toCustomerCallRecord(call: any) {
+  return {
+    id: String(call.id),
+    callerPhone: maskPhoneNumber(call.callerPhone || call.caller_phone),
+    direction: String(call.direction || 'INBOUND'),
+    startedAt: String(call.startedAt || call.started_at),
+    endedAt: call.endedAt || call.ended_at ? String(call.endedAt || call.ended_at) : undefined,
+    durationSeconds: Number(call.durationSeconds ?? call.duration_seconds) || 0,
+    durationMinutes: Number(call.durationMinutes ?? call.duration_minutes) || 0,
+    status: String(call.status || 'COMPLETED'),
+    outcome: String(call.outcome || 'GENERAL_INQUIRY'),
+    hasBookedAppointment: Boolean(call.bookedAppointmentId || call.booked_appointment_id),
+    hasTranscript: Boolean(call.transcript && call.transcript.trim().length > 0),
+    transcript: call.transcript ? String(call.transcript) : undefined,
+    hasRecording: Boolean(call.recordingUrl || call.recording_url),
+    createdAt: String(call.createdAt || call.created_at),
+  };
+}
+
+export function toCustomerCallRecordList(calls: any[]) {
+  if (!Array.isArray(calls)) return [];
+  return calls.map((c) => toCustomerCallRecord(c));
+}
+

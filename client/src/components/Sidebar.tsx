@@ -8,6 +8,7 @@ import {
   Calendar,
   MessageSquare,
   Mail,
+  PhoneCall,
   Layers,
   CreditCard,
   Settings,
@@ -30,6 +31,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
   const navItems = [
     { label: 'Dashboard', path: '/app', icon: LayoutDashboard },
     { label: 'Analytics', path: '/app/analytics', icon: BarChart3 },
+    { label: 'AI Receptionist', path: '/app/ai-receptionist', icon: PhoneCall, badge: 'NEW' },
     { label: 'Integrations', path: '/app/integrations', icon: Layers },
     { label: 'AI Employee', path: '/app/ai-employee', icon: Bot },
     { label: 'Knowledge Base', path: '/app/knowledge', icon: BookOpen },
@@ -109,14 +111,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
                 key={item.path}
                 to={item.path}
                 onClick={handleNavClick}
-                className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   active
                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold'
                     : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
                 }`}
               >
-                <Icon className={`w-4 h-4 ${active ? 'text-emerald-400' : 'text-slate-400'}`} />
-                <span>{item.label}</span>
+                <div className="flex items-center space-x-3">
+                  <Icon className={`w-4 h-4 ${active ? 'text-emerald-400' : 'text-slate-400'}`} />
+                  <span>{item.label}</span>
+                </div>
+                {item.badge && (
+                  <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                    {item.badge}
+                  </span>
+                )}
               </Link>
             );
           })}

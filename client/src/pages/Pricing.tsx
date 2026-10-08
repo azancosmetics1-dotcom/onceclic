@@ -74,65 +74,177 @@ export const Pricing: React.FC = () => {
           </p>
         </div>
 
-        {/* Pricing Card */}
-        <div className="max-w-lg mx-auto bg-slate-900 border-2 border-emerald-500/50 rounded-3xl p-8 sm:p-10 shadow-2xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 bg-emerald-500 text-slate-950 text-xs font-bold px-4 py-1.5 rounded-bl-xl uppercase tracking-wider">
-            7-Day Free Trial ($0)
-          </div>
-
-          <div className="flex items-center space-x-3 mb-4">
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
-              <Bot className="w-5 h-5" />
-            </div>
+        {/* Pricing Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+          {/* Starter Plan */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-xl flex flex-col justify-between">
             <div>
-              <h2 className="text-2xl font-black text-white">ONCEClic Pro</h2>
-              <p className="text-xs text-slate-400">Complete AI Receptionist &amp; Booking Suite</p>
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="w-9 h-9 rounded-xl bg-slate-800 text-slate-300 flex items-center justify-center">
+                  <Bot className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">Starter</h2>
+                  <p className="text-xs text-slate-400">Essential Phone & Web AI</p>
+                </div>
+              </div>
+
+              <div className="mt-4 mb-2 flex items-baseline space-x-2">
+                <span className="text-4xl font-black text-white">$19</span>
+                <span className="text-slate-400 text-xs font-medium">USD / month</span>
+              </div>
+              <p className="text-xs text-emerald-400 font-semibold mb-6">
+                Includes 50 Voice Call Minutes / mo
+              </p>
+
+              <Link
+                to="/signup"
+                className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-center block transition text-sm mb-6 border border-slate-700"
+              >
+                Start 7-Day Free Trial
+              </Link>
+
+              <div className="border-t border-slate-800 pt-5">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-3">Included:</p>
+                <ul className="space-y-2.5 text-xs text-slate-300">
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>50 Included Voice Minutes</strong> / mo</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>24/7 AI Phone Receptionist</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Existing Business Number Forwarding</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Google Calendar Real-Time Booking</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>24/7 Website Live Chat Widget</span>
+                  </li>
+                </ul>
+              </div>
             </div>
+            <p className="text-[11px] text-slate-500 mt-6 text-center">AI usage subject to reasonable-use limits.</p>
           </div>
 
-          <div className="mt-6 mb-2 flex items-baseline space-x-2">
-            <span className="text-5xl font-black text-white">$19</span>
-            <span className="text-slate-400 text-sm font-medium">USD / month</span>
-          </div>
-
-          <div className="space-y-1 mb-6">
-            <p className="text-xs text-emerald-400 font-semibold">
-              7-Day Free Trial ($0) • No Credit Card Required
-            </p>
-            <p className="text-[11px] text-slate-400">
-              Limited AI usage during your free trial.
-            </p>
-          </div>
-
-          <Link
-            to="/signup"
-            className="w-full py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-center block transition shadow-lg shadow-emerald-500/20 mb-4"
-          >
-            Start 7-Day Free Trial
-          </Link>
-
-          <div className="text-xs text-slate-400 mb-6 flex flex-col items-center space-y-1 text-center">
-            <div className="flex items-center space-x-1.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>No payment method required to start trial</span>
+          {/* Pro Plan (Most Popular) */}
+          <div className="bg-slate-900 border-2 border-emerald-500 rounded-3xl p-8 shadow-2xl relative overflow-hidden flex flex-col justify-between">
+            <div className="absolute top-0 right-0 bg-emerald-500 text-slate-950 text-[11px] font-bold px-3.5 py-1 rounded-bl-xl uppercase tracking-wider">
+              Most Popular
             </div>
-            <span className="text-[11px] text-slate-500">
-              Upgrade to Pro for $19/mo when you're ready. Merchant of Record: Paddle.
-            </span>
+
+            <div>
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">ONCEClic Pro</h2>
+                  <p className="text-xs text-slate-400">Complete AI Voice & Booking Suite</p>
+                </div>
+              </div>
+
+              <div className="mt-4 mb-2 flex items-baseline space-x-2">
+                <span className="text-4xl font-black text-white">$49</span>
+                <span className="text-slate-400 text-xs font-medium">USD / month</span>
+              </div>
+              <p className="text-xs text-emerald-400 font-semibold mb-6">
+                Includes 150 Voice Call Minutes / mo
+              </p>
+
+              <Link
+                to="/signup"
+                className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-center block transition text-sm mb-6 shadow-md shadow-emerald-500/20"
+              >
+                Start 7-Day Free Trial ($0)
+              </Link>
+
+              <div className="border-t border-slate-800 pt-5">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-3">Everything in Starter plus:</p>
+                <ul className="space-y-2.5 text-xs text-slate-300">
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>150 Included Voice Minutes</strong> / mo</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Call Transcripts &amp; Recordings</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>SMS &amp; Email Confirmation Alerts</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Custom Industry Knowledge &amp; FAQs</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Priority Support</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-6 text-center">AI usage subject to reasonable-use limits.</p>
           </div>
 
-          <div className="border-t border-slate-800 pt-6">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-4">
-              Everything included in ONCEClic Pro:
-            </p>
-            <ul className="space-y-3.5 text-sm text-slate-300">
-              {planFeatures.map((feat, i) => (
-                <li key={i} className="flex items-start space-x-3">
-                  <Check className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                  <span>{feat}</span>
-                </li>
-              ))}
-            </ul>
+          {/* Business Plan */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-8 shadow-xl flex flex-col justify-between">
+            <div>
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="w-9 h-9 rounded-xl bg-slate-800 text-slate-300 flex items-center justify-center">
+                  <Bot className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white">Business</h2>
+                  <p className="text-xs text-slate-400">High Volume Phone Answering</p>
+                </div>
+              </div>
+
+              <div className="mt-4 mb-2 flex items-baseline space-x-2">
+                <span className="text-4xl font-black text-white">$99</span>
+                <span className="text-slate-400 text-xs font-medium">USD / month</span>
+              </div>
+              <p className="text-xs text-emerald-400 font-semibold mb-6">
+                Includes 400 Voice Call Minutes / mo
+              </p>
+
+              <Link
+                to="/signup"
+                className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-center block transition text-sm mb-6 border border-slate-700"
+              >
+                Start 7-Day Free Trial
+              </Link>
+
+              <div className="border-t border-slate-800 pt-5">
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-300 mb-3">Everything in Pro plus:</p>
+                <ul className="space-y-2.5 text-xs text-slate-300">
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>400 Included Voice Minutes</strong> / mo</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Multiple Phone Numbers Support</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Dedicated Team Member Inboxes</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Advanced Call Analytics &amp; Reporting</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <p className="text-[11px] text-slate-500 mt-6 text-center">AI usage subject to reasonable-use limits.</p>
           </div>
         </div>
 

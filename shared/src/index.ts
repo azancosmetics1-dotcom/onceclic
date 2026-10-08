@@ -131,6 +131,11 @@ export enum AuditAction {
   TRIAL_REMINDER_2_DAYS_SENT = 'TRIAL_REMINDER_2_DAYS_SENT',
   TRIAL_EXPIRATION_EMAIL_SENT = 'TRIAL_EXPIRATION_EMAIL_SENT',
   AI_BUDGET_EXCEEDED = 'AI_BUDGET_EXCEEDED',
+  VOICE_CALL_STARTED = 'VOICE_CALL_STARTED',
+  VOICE_CALL_COMPLETED = 'VOICE_CALL_COMPLETED',
+  VOICE_NUMBER_CONNECTED = 'VOICE_NUMBER_CONNECTED',
+  VOICE_NUMBER_DISCONNECTED = 'VOICE_NUMBER_DISCONNECTED',
+  VOICE_LIMIT_REACHED = 'VOICE_LIMIT_REACHED',
 }
 
 // ------------------------------------------
@@ -156,7 +161,9 @@ export type Permission =
   | 'settings:read'
   | 'analytics:read'
   | 'integrations:manage'
-  | 'integrations:read';
+  | 'integrations:read'
+  | 'voice:manage'
+  | 'voice:read';
 
 export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
   [UserRole.OWNER]: [
@@ -179,6 +186,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'analytics:read',
     'integrations:manage',
     'integrations:read',
+    'voice:manage',
+    'voice:read',
   ],
   [UserRole.MANAGER]: [
     'org:read',
@@ -196,6 +205,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'settings:read',
     'analytics:read',
     'integrations:read',
+    'voice:manage',
+    'voice:read',
   ],
   [UserRole.EMPLOYEE]: [
     'org:read',
@@ -206,6 +217,7 @@ export const ROLE_PERMISSIONS: Record<UserRole, Permission[]> = {
     'conversations:manage',
     'conversations:read',
     'settings:read',
+    'voice:read',
   ],
 };
 
@@ -850,6 +862,139 @@ export function normalizeEmail(email: string | null | undefined): string {
     return '';
   }
   return email.trim().toLowerCase();
+}
+
+// ------------------------------------------
+// AI Phone Receptionist & Voice Interfaces
+// ------------------------------------------
+
+export enum VoiceConnectionMethod {
+  EXISTING_FORWARDING = 'EXISTING_FORWARDING',
+  EXISTING_SIP = 'EXISTING_SIP',
+  EXISTING_PORT = 'EXISTING_PORT',
+  NEW_PROVIDER_NUMBER = 'NEW_PROVIDER_NUMBER',
+}
+
+export enum VoicePhoneNumberType {
+  EXISTING = 'EXISTING',
+  NEW = 'NEW',
+}
+
+export enum VoiceCallStatus {
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+  MISSED = 'MISSED',
+  NO_ANSWER = 'NO_ANSWER',
+}
+
+export enum VoiceCallOutcome {
+  GENERAL_INQUIRY = 'GENERAL_INQUIRY',
+  APPOINTMENT_BOOKED = 'APPOINTMENT_BOOKED',
+  APPOINTMENT_RESCHEDULED = 'APPOINTMENT_RESCHEDULED',
+  APPOINTMENT_CANCELED = 'APPOINTMENT_CANCELED',
+  HUMAN_TRANSFER = 'HUMAN_TRANSFER',
+  SPAM_OR_SILENCE = 'SPAM_OR_SILENCE',
+  OTHER = 'OTHER',
+}
+
+export interface VoicePhoneNumber {
+  id: string;
+  organizationId: string;
+  provider: string;
+  phoneNumber: string;
+  phoneNumberType: VoicePhoneNumberType;
+  connectionMethod: VoiceConnectionMethod;
+  providerPhoneNumberId?: string;
+  forwardingTarget?: string;
+  sipEndpoint?: string;
+  status: 'ACTIVE' | 'PENDING_VERIFICATION' | 'INACTIVE';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface VoiceCallRecord {
+  id: string;
+  organizationId: string;
+  provider: string;
+  providerCallId: string;
+  phoneNumberId?: string;
+  callerPhone?: string;
+  direction: 'INBOUND' | 'OUTBOUND';
+  startedAt: string;
+  endedAt?: string;
+  durationSeconds: number;
+  durationMinutes: number;
+  status: VoiceCallStatus;
+  outcome?: VoiceCallOutcome;
+  bookedAppointmentId?: string;
+  conversationId?: string;
+  transcript?: string;
+  recordingUrl?: string;
+  metadata?: Record<string, any>;
+  createdAt: string;
+}
+
+export interface VoicePlanLimit {
+  planTier: 'TRIAL' | 'STARTER' | 'PRO' | 'BUSINESS';
+  includedMinutes: number;
+  overageAllowed: boolean;
+  overageRatePerMinuteUsd?: number;
+}
+
+export const DEFAULT_VOICE_PLAN_LIMITS: Record<'TRIAL' | 'STARTER' | 'PRO' | 'BUSINESS', number> = {
+  TRIAL: 15,
+  STARTER: 50,
+  PRO: 150,
+  BUSINESS: 400,
+};
+
+export interface CustomerVoiceUsage {
+  planTier: 'TRIAL' | 'STARTER' | 'PRO' | 'BUSINESS';
+  includedMinutes: number;
+  usedMinutes: number;
+  remainingMinutes: number;
+  percentageUsed: number;
+  limitReached: boolean;
+  billingPeriodStart: string;
+  billingPeriodEnd: string;
+}
+
+export type VoiceSetupState =
+  | 'NOT_CONFIGURED'
+  | 'SETUP_REQUIRED'
+  | 'READY'
+  | 'ACTIVE'
+  | 'PAUSED'
+  | 'EXPIRED';
+
+export type VoiceConnectionTestStatus =
+  | 'NOT_TESTED'
+  | 'TESTING'
+  | 'CONNECTED'
+  | 'FAILED';
+
+export interface CustomerVoiceConfig {
+  receptionistActive: boolean;
+  phoneNumbers: VoicePhoneNumber[];
+  activeNumber?: string;
+  connectionMethod?: VoiceConnectionMethod;
+  setupState: VoiceSetupState;
+  connectionTestStatus: VoiceConnectionTestStatus;
+  voiceUsage: CustomerVoiceUsage;
+  isConfigured: boolean;
+}
+
+export interface VoiceAnalyticsSummary {
+  totalCalls: number;
+  answeredCalls: number;
+  totalDurationSeconds: number;
+  totalMinutes: number;
+  averageDurationSeconds: number;
+  appointmentsBooked: number;
+  appointmentsRescheduled: number;
+  appointmentsCanceled: number;
+  generalInquiries: number;
 }
 
 
