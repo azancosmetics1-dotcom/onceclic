@@ -158,6 +158,10 @@ async function runAllTests() {
     await runMigrationAndPricingSafetyTests();
     console.log('');
 
+    const { runLegacyAccountChatAndComingSoonTests } = await import('./legacy-account-chat-and-coming-soon.test');
+    await runLegacyAccountChatAndComingSoonTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

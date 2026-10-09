@@ -40,29 +40,38 @@ export const About: React.FC = () => {
           </section>
 
           {/* Founder Section */}
-          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                <User className="w-5 h-5" />
+          <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-6">
+            <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6 sm:gap-8">
+              {/* CEO Photo */}
+              <div className="relative shrink-0">
+                <div className="w-28 h-28 sm:w-36 sm:h-36 rounded-2xl overflow-hidden border-2 border-emerald-500/40 shadow-lg shadow-emerald-500/10 bg-slate-950">
+                  <img
+                    src="/founder.jpg"
+                    alt="Kamran Ali, Founder & CEO of ONCEClic"
+                    className="w-full h-full object-cover object-center"
+                    loading="lazy"
+                  />
+                </div>
+                <div className="absolute -bottom-2 -right-2 px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-bold uppercase tracking-wider shadow-sm">
+                  Founder
+                </div>
               </div>
-              <div>
-                <h2 className="text-xl font-bold text-white">Leadership</h2>
-                <p className="text-xs text-slate-400">Founder & CEO</p>
+
+              {/* CEO Details & Message */}
+              <div className="flex-1 text-center sm:text-left space-y-3 min-w-0">
+                <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                  <h2 className="text-xl sm:text-2xl font-bold text-white">Kamran Ali</h2>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                    Founder &amp; CEO
+                  </span>
+                </div>
+                <p className="text-sm text-slate-200 leading-relaxed font-normal">
+                  Kamran Ali is the Founder and CEO of ONCEClic, an AI-powered business automation platform for customer communication, appointments, and business workflows.
+                </p>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Founded with a focus on practical operational efficiency, ONCEClic equips independent businesses with reliable, grounded customer communication and real-time scheduling automation.
+                </p>
               </div>
-            </div>
-            <div className="pt-2 space-y-3">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <h3 className="text-lg font-bold text-white">Kamran Ali</h3>
-                <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
-                  Founder &amp; CEO
-                </span>
-              </div>
-              <p className="text-sm text-slate-200 leading-relaxed font-normal">
-                Kamran Ali is the Founder and CEO of ONCEClic, an AI-powered business automation platform for customer communication, appointments, and business workflows.
-              </p>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                Founded with a focus on practical operational efficiency, ONCEClic equips independent businesses with reliable, grounded customer communication and real-time scheduling automation.
-              </p>
             </div>
           </section>
 

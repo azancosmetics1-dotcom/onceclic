@@ -128,15 +128,37 @@ router.post('/message', async (req: Request, res: Response, next) => {
 
     const { organizationId, conversationId } = decoded;
 
-    // Check organization subscription status
-    const sub = await db.getOne('SELECT status, trial_ends_at FROM subscriptions WHERE organization_id = $1', [
+    // Check organization subscription status and reconcile if needed for legacy accounts
+    let sub = await db.getOne<{
+      status: string;
+      trial_ends_at: string;
+      paddle_subscription_id?: string;
+    }>('SELECT status, trial_ends_at, paddle_subscription_id FROM subscriptions WHERE organization_id = $1', [
       organizationId,
     ]);
 
+    if (!sub) {
+      const org = await db.getOne('SELECT id FROM organizations WHERE id = $1 AND is_active = TRUE', [organizationId]);
+      if (org) {
+        try {
+          const { PaddleBillingService } = await import('../services/PaddleBillingService');
+          const createdSub = await PaddleBillingService.createTrialSubscription(organizationId);
+          sub = {
+            status: createdSub.status,
+            trial_ends_at: createdSub.trialEndsAt,
+            paddle_subscription_id: createdSub.paddleSubscriptionId,
+          };
+        } catch {}
+      }
+    }
+
+    const subStatus = (sub?.status || '').toUpperCase();
     const isSubActive =
       sub &&
-      (sub.status === SubscriptionStatus.ACTIVE ||
-        (sub.status === SubscriptionStatus.TRIALING && new Date(sub.trial_ends_at) > new Date()));
+      (subStatus === SubscriptionStatus.ACTIVE ||
+        subStatus === SubscriptionStatus.PAST_DUE ||
+        (subStatus === SubscriptionStatus.TRIALING &&
+          (Boolean(sub.paddle_subscription_id) || new Date(sub.trial_ends_at).getTime() > Date.now())));
 
     if (!isSubActive) {
       return res.status(402).json({

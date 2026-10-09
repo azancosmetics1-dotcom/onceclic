@@ -38,7 +38,7 @@ export class AIBudgetService {
    * Check budget availability and subscription status server-side
    */
   static async checkBudget(organizationId: string): Promise<BudgetStatus> {
-    const sub = await db.getOne<{
+    let sub = await db.getOne<{
       id: string;
       status: string;
       trial_ends_at: string;
@@ -47,6 +47,22 @@ export class AIBudgetService {
       `SELECT id, status, trial_ends_at, trial_ends_at as "trialEndsAt" FROM subscriptions WHERE organization_id = $1`,
       [organizationId]
     );
+
+    if (!sub) {
+      const org = await db.getOne('SELECT id FROM organizations WHERE id = $1 AND is_active = TRUE', [organizationId]);
+      if (org) {
+        try {
+          const { PaddleBillingService } = await import('./PaddleBillingService');
+          const createdSub = await PaddleBillingService.createTrialSubscription(organizationId);
+          sub = {
+            id: createdSub.id,
+            status: createdSub.status,
+            trial_ends_at: createdSub.trialEndsAt,
+            trialEndsAt: createdSub.trialEndsAt,
+          };
+        } catch {}
+      }
+    }
 
     const spentUsd = await this.getOrganizationSpentUsd(organizationId);
 
@@ -61,11 +77,11 @@ export class AIBudgetService {
       };
     }
 
-    const status = sub.status as SubscriptionStatus;
+    const status = (sub.status || '').toUpperCase() as SubscriptionStatus;
     const now = new Date();
 
-    // 1. Check Active Pro Customers
-    if (status === SubscriptionStatus.ACTIVE) {
+    // 1. Check Active Pro Customers (and PAST_DUE grace period)
+    if (status === SubscriptionStatus.ACTIVE || status === SubscriptionStatus.PAST_DUE) {
       const budgetUsd = config.billing.proAiBudgetUsd;
       const remainingUsd = Math.max(0, Math.round((budgetUsd - spentUsd) * 1000000) / 1000000);
 

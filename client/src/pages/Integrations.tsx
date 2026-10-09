@@ -43,10 +43,7 @@ export const IntegrationsPage: React.FC = () => {
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewViewport, setPreviewViewport] = useState<'desktop' | 'mobile'>('mobile');
 
-  const [connectingEmail, setConnectingEmail] = useState(false);
   const [connectingCalendar, setConnectingCalendar] = useState(false);
-  const [connectingInstagram, setConnectingInstagram] = useState(false);
-  const [connectingFacebook, setConnectingFacebook] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const loadIntegrations = async () => {
@@ -129,18 +126,6 @@ export const IntegrationsPage: React.FC = () => {
     }
   };
 
-  const handleConnectGoogleEmail = async () => {
-    setConnectingEmail(true);
-    setActionMessage(null);
-    try {
-      const { url } = await api.getGoogleEmailAuthUrl('/app/integrations');
-      window.location.href = url;
-    } catch (err: any) {
-      setActionMessage({ type: 'error', text: err.message || 'Failed to initiate Google Email connection. Ensure Google OAuth is configured on the server.' });
-      setConnectingEmail(false);
-    }
-  };
-
   const handleDisconnectEmail = async () => {
     if (!confirm('Are you sure you want to disconnect this business email?')) return;
     try {
@@ -175,21 +160,6 @@ export const IntegrationsPage: React.FC = () => {
     }
   };
 
-  const handleConnectInstagram = async () => {
-    setConnectingInstagram(true);
-    setActionMessage(null);
-    try {
-      const { url } = await api.getInstagramAuthUrl('/app/integrations');
-      window.location.href = url;
-    } catch (err: any) {
-      setActionMessage({
-        type: 'error',
-        text: err.message || 'Failed to initiate Instagram connection. Please try again or contact support.',
-      });
-      setConnectingInstagram(false);
-    }
-  };
-
   const handleDisconnectInstagram = async () => {
     if (!confirm('Are you sure you want to disconnect Instagram? The AI receptionist will stop responding to Instagram DMs.')) return;
     try {
@@ -198,21 +168,6 @@ export const IntegrationsPage: React.FC = () => {
       setActionMessage({ type: 'success', text: 'Instagram account disconnected.' });
     } catch (err: any) {
       setActionMessage({ type: 'error', text: err.message || 'Failed to disconnect Instagram.' });
-    }
-  };
-
-  const handleConnectFacebook = async () => {
-    setConnectingFacebook(true);
-    setActionMessage(null);
-    try {
-      const { url } = await api.getFacebookAuthUrl('/app/integrations');
-      window.location.href = url;
-    } catch (err: any) {
-      setActionMessage({
-        type: 'error',
-        text: err.message || 'Failed to initiate Facebook Page connection. Please try again or contact support.',
-      });
-      setConnectingFacebook(false);
     }
   };
 
@@ -412,25 +367,14 @@ export const IntegrationsPage: React.FC = () => {
             <div className="min-w-0">
               <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
                 <span>Business Email Channel</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  COMING SOON
+                <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 select-none cursor-default pointer-events-none">
+                  Coming Soon
                 </span>
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
-                    emailConfig?.status === IntegrationStatus.CONNECTED
-                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                      : emailConfig?.status === IntegrationStatus.ERROR
-                      ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                      : emailConfig?.status === IntegrationStatus.DISCONNECTED
-                      ? 'bg-red-950 text-red-400 border border-red-800'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700'
-                  }`}
-                >
-                  {emailConfig?.status === IntegrationStatus.CONNECTED && '● CONNECTED'}
-                  {emailConfig?.status === IntegrationStatus.ERROR && '⚠ RECONNECT REQUIRED'}
-                  {emailConfig?.status === IntegrationStatus.DISCONNECTED && '● DISCONNECTED'}
-                  {emailConfig?.status === IntegrationStatus.NOT_CONNECTED && '○ NOT CONNECTED'}
-                </span>
+                {emailConfig?.status === IntegrationStatus.CONNECTED && (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                    ● CONNECTED
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
                 Authorize your Gmail mailbox so ONCEClic can read inbound customer emails and send AI-drafted replies.
@@ -454,41 +398,19 @@ export const IntegrationsPage: React.FC = () => {
               Disconnect Email
             </button>
           </div>
-        ) : emailConfig?.status === IntegrationStatus.ERROR ? (
-          <div className="space-y-4 min-w-0">
-            <div className="bg-amber-950/40 p-4 rounded-xl border border-amber-700/40 text-xs text-amber-300 flex items-start sm:items-center gap-2.5">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
-              <span>{emailConfig?.errorMessage || 'Email authorization expired or was revoked. Please reconnect your Gmail mailbox.'}</span>
-            </div>
-            <button
-              onClick={handleConnectGoogleEmail}
-              disabled={connectingEmail}
-              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
-            >
-              {connectingEmail ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-              Reconnect Gmail
-            </button>
-          </div>
         ) : (
-          <div className="space-y-4 min-w-0">
-            <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  Connect Gmail Mailbox
-                </label>
-                <p className="text-xs text-slate-400 mb-3">
-                  Click the button below to authorize ONCEClic with your Google account. You will be redirected to the secure Google consent screen. No Google Cloud project setup or payment verification is required.
-                </p>
-              </div>
-              <button
-                onClick={handleConnectGoogleEmail}
-                disabled={connectingEmail}
-                className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
-              >
-                {connectingEmail ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
-                Connect Gmail
-              </button>
+          <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 space-y-2 select-none">
+            <div className="flex items-center gap-2">
+              <span className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                Inbound &amp; Outbound Email Receptionist
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-slate-800 text-slate-400 border border-slate-700">
+                Coming Soon
+              </span>
             </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              Automated AI business email answering and drafting is currently in development and will be available in an upcoming update. No connection action is required at this time.
+            </p>
           </div>
         )}
       </div>
@@ -503,25 +425,14 @@ export const IntegrationsPage: React.FC = () => {
             <div className="min-w-0">
               <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
                 <span>Instagram AI Receptionist</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  COMING SOON
+                <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 select-none cursor-default pointer-events-none">
+                  Coming Soon
                 </span>
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
-                    instagramConfig?.status === IntegrationStatus.CONNECTED
-                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                      : instagramConfig?.status === IntegrationStatus.ERROR
-                      ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                      : instagramConfig?.status === IntegrationStatus.DISCONNECTED
-                      ? 'bg-red-950 text-red-400 border border-red-800'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700'
-                  }`}
-                >
-                  {instagramConfig?.status === IntegrationStatus.CONNECTED && '● CONNECTED'}
-                  {instagramConfig?.status === IntegrationStatus.ERROR && '⚠ RECONNECT REQUIRED'}
-                  {instagramConfig?.status === IntegrationStatus.DISCONNECTED && '● DISCONNECTED'}
-                  {instagramConfig?.status === IntegrationStatus.NOT_CONNECTED && '○ NOT CONNECTED'}
-                </span>
+                {instagramConfig?.status === IntegrationStatus.CONNECTED && (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                    ● CONNECTED
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
                 AI receptionist responds 24/7 to customer direct messages (DMs) on your Instagram Business account.
@@ -549,44 +460,19 @@ export const IntegrationsPage: React.FC = () => {
               Disconnect Instagram
             </button>
           </div>
-        ) : instagramConfig?.status === IntegrationStatus.ERROR ? (
-          <div className="space-y-4 min-w-0">
-            <div className="bg-amber-950/40 p-4 rounded-xl border border-amber-700/40 text-xs text-amber-300 flex items-start sm:items-center gap-2.5">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
-              <span>
-                {instagramConfig?.errorMessage ||
-                  'Instagram authorization expired or requires reconnection. Please reconnect your account.'}
+        ) : (
+          <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 space-y-2 select-none">
+            <div className="flex items-center gap-2">
+              <span className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                Instagram Direct Messages (DMs)
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-slate-800 text-slate-400 border border-slate-700">
+                Coming Soon
               </span>
             </div>
-            <button
-              onClick={handleConnectInstagram}
-              disabled={connectingInstagram}
-              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
-            >
-              {connectingInstagram ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Instagram className="w-4 h-4" />}
-              Reconnect Instagram
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-4 min-w-0">
-            <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  Connect Instagram Business Account
-                </label>
-                <p className="text-xs text-slate-400 mb-3">
-                  Connect your Instagram Professional/Business account. Your AI receptionist will answer customer questions, share business hours, and schedule appointments directly in Instagram DMs.
-                </p>
-              </div>
-              <button
-                onClick={handleConnectInstagram}
-                disabled={connectingInstagram}
-                className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-pink-600 to-rose-500 hover:from-pink-500 hover:to-rose-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
-              >
-                {connectingInstagram ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Instagram className="w-4 h-4" />}
-                Connect Instagram
-              </button>
-            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              24/7 AI response automation for Instagram direct messages (DMs) is currently in development and will be available in an upcoming release.
+            </p>
           </div>
         )}
       </div>
@@ -601,25 +487,14 @@ export const IntegrationsPage: React.FC = () => {
             <div className="min-w-0">
               <h2 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 flex-wrap">
                 <span>Facebook Page AI Receptionist</span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                  COMING SOON
+                <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-500/10 text-amber-400 border border-amber-500/20 select-none cursor-default pointer-events-none">
+                  Coming Soon
                 </span>
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold ${
-                    facebookConfig?.status === IntegrationStatus.CONNECTED
-                      ? 'bg-emerald-950 text-emerald-400 border border-emerald-800'
-                      : facebookConfig?.status === IntegrationStatus.ERROR
-                      ? 'bg-amber-950 text-amber-400 border border-amber-800'
-                      : facebookConfig?.status === IntegrationStatus.DISCONNECTED
-                      ? 'bg-red-950 text-red-400 border border-red-800'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700'
-                  }`}
-                >
-                  {facebookConfig?.status === IntegrationStatus.CONNECTED && '● CONNECTED'}
-                  {facebookConfig?.status === IntegrationStatus.ERROR && '⚠ RECONNECT REQUIRED'}
-                  {facebookConfig?.status === IntegrationStatus.DISCONNECTED && '● DISCONNECTED'}
-                  {facebookConfig?.status === IntegrationStatus.NOT_CONNECTED && '○ NOT CONNECTED'}
-                </span>
+                {facebookConfig?.status === IntegrationStatus.CONNECTED && (
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-800">
+                    ● CONNECTED
+                  </span>
+                )}
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
                 AI receptionist responds 24/7 to customer messages on your authorized Facebook Business Page.
@@ -647,44 +522,19 @@ export const IntegrationsPage: React.FC = () => {
               Disconnect Facebook
             </button>
           </div>
-        ) : facebookConfig?.status === IntegrationStatus.ERROR ? (
-          <div className="space-y-4 min-w-0">
-            <div className="bg-amber-950/40 p-4 rounded-xl border border-amber-700/40 text-xs text-amber-300 flex items-start sm:items-center gap-2.5">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5 sm:mt-0" />
-              <span>
-                {facebookConfig?.errorMessage ||
-                  'Facebook authorization expired or requires reconnection. Please reconnect your Facebook Page.'}
+        ) : (
+          <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 space-y-2 select-none">
+            <div className="flex items-center gap-2">
+              <span className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                Facebook Messenger Receptionist
+              </span>
+              <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase bg-slate-800 text-slate-400 border border-slate-700">
+                Coming Soon
               </span>
             </div>
-            <button
-              onClick={handleConnectFacebook}
-              disabled={connectingFacebook}
-              className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
-            >
-              {connectingFacebook ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Facebook className="w-4 h-4" />}
-              Reconnect Facebook
-            </button>
-          </div>
-        ) : (
-          <div className="space-y-4 min-w-0">
-            <div className="bg-slate-950 p-4 sm:p-5 rounded-xl border border-slate-800 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  Connect Facebook Business Page
-                </label>
-                <p className="text-xs text-slate-400 mb-3">
-                  Connect your Facebook Business Page. Your AI receptionist will answer inquiries, provide pricing, and book appointments/reservations directly on Messenger.
-                </p>
-              </div>
-              <button
-                onClick={handleConnectFacebook}
-                disabled={connectingFacebook}
-                className="inline-flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-500 hover:from-blue-500 hover:to-indigo-400 text-white font-medium px-5 py-2.5 rounded-lg text-xs sm:text-sm transition disabled:opacity-50 w-full sm:w-auto"
-              >
-                {connectingFacebook ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Facebook className="w-4 h-4" />}
-                Connect Facebook Page
-              </button>
-            </div>
+            <p className="text-xs text-slate-400 leading-relaxed">
+              24/7 AI inquiry answering and booking on Facebook Messenger is currently in development and will be available in an upcoming release.
+            </p>
           </div>
         )}
       </div>

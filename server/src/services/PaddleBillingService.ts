@@ -394,7 +394,7 @@ export class PaddleBillingService {
       plan: string;
     };
   }> {
-    const sub = await db.getOne<Subscription>(
+    let sub = await db.getOne<Subscription>(
       `SELECT id, organization_id as "organizationId", paddle_customer_id as "paddleCustomerId",
               paddle_subscription_id as "paddleSubscriptionId", paddle_transaction_id as "paddleTransactionId",
               price_id as "priceId", status, trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
@@ -403,6 +403,17 @@ export class PaddleBillingService {
        FROM subscriptions WHERE organization_id = $1`,
       [organizationId]
     );
+
+    if (!sub) {
+      const org = await db.getOne('SELECT id FROM organizations WHERE id = $1 AND is_active = TRUE', [organizationId]);
+      if (org) {
+        try {
+          sub = await this.createTrialSubscription(organizationId);
+        } catch {
+          // Fall back if cannot create
+        }
+      }
+    }
 
     const budgetStatus = await AIBudgetService.checkBudget(organizationId);
 
