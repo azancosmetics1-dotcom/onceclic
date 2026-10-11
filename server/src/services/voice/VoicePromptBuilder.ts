@@ -24,7 +24,7 @@ export class VoicePromptBuilder {
     );
 
     const aiEmployee = await db.getOne(
-      "SELECT name, role_title, greeting_message, instructions, voice_id FROM ai_employees WHERE organization_id = $1 AND status = 'ACTIVE' LIMIT 1",
+      "SELECT name, role_title, greeting_message, instructions FROM ai_employees WHERE organization_id = $1 AND status = 'ACTIVE' LIMIT 1",
       [organizationId]
     );
 
