@@ -47,7 +47,8 @@ export async function runGmailOAuthSecurityTests() {
 
   // Test Tamper-proofing (altering auth tag or ciphertext throws)
   const parts = encrypted.split(':');
-  const tamperedCipher = `${parts[0]}:${parts[1]}:${parts[2].slice(0, -2)}99`;
+  const tamperedTag = (parts[1].startsWith('ff') ? '00' : 'ff') + parts[1].slice(2);
+  const tamperedCipher = `${parts[0]}:${tamperedTag}:${parts[2]}`;
   assert.throws(() => {
     decrypt(tamperedCipher);
   }, /Crypto Decryption Failed/);

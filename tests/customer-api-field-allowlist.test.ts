@@ -106,6 +106,7 @@ export async function runCustomerApiFieldAllowlistTests() {
     'monthlyPriceUsd',
     'trialPeriodDays',
     'trialPriceUsd',
+    'plans',
   ];
   for (const key of Object.keys(safeConfig)) {
     if (!allowedConfigKeys.includes(key)) {
@@ -200,6 +201,7 @@ export async function runCustomerApiFieldAllowlistTests() {
   const allowedBillingStatusKeys = [
     'subscription',
     'isPro',
+    'planTier',
     'daysRemainingInTrial',
     'billingConfigured',
     'aiUsageStatus',

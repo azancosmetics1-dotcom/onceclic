@@ -185,7 +185,7 @@ export function printPreflightSummary(env: Record<string, string | undefined> = 
   console.log(`Production mode: ${report.isProductionMode ? 'YES (UNSAFE)' : 'NO'}`);
   console.log(`Database: ${report.databaseTarget}`);
   console.log(`Paddle: ${report.paddleEnvironment}`);
-  console.log('OpenAI: CONTROLLED TEST MODE');
+  console.log('AI Provider: GEMINI (CONTROLLED MOCK MODE)');
   console.log('Composio: TEST/MOCK');
   console.log('Production API target: BLOCKED');
   console.log('Production database target: BLOCKED');

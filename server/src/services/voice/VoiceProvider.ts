@@ -1,3 +1,5 @@
+import { AvailablePhoneNumber } from '@onceclic/shared';
+
 export interface InboundCallEvent {
   callId: string;
   fromNumber: string;
@@ -54,4 +56,63 @@ export interface IVoiceProvider {
   formatErrorResponse(toolCallId: string | undefined, errorMessage: string): any;
 
   provisionNumber?(params: { areaCode?: string; country?: string }): Promise<{ phoneNumber: string; providerPhoneNumberId: string }>;
+
+  createOrUpdateAssistant?(config: VoiceAgentConfig): Promise<{ assistantId: string }>;
+
+  linkPhoneNumberToAssistant?(params: { phoneNumberIdOrNumber: string; assistantId: string }): Promise<boolean>;
+
+  simulateTestCall?(params: { organizationId: string; phoneNumber: string; assistantId?: string }): Promise<{
+    success: boolean;
+    durationSeconds: number;
+    transcript: string;
+    summary: string;
+  }>;
+}
+
+export interface ITelephonyProvider {
+  readonly providerName: string;
+
+  searchAvailableNumbers(params: {
+    countryCode: string;
+    numberType?: string;
+    areaCode?: string;
+    limit?: number;
+  }): Promise<AvailablePhoneNumber[]>;
+
+  provisionNumber(params: {
+    organizationId: string;
+    phoneNumber: string;
+    countryCode: string;
+    numberType?: string;
+    idempotencyKey?: string;
+  }): Promise<{
+    telnyxPhoneNumberId: string;
+    phoneNumber: string;
+    monthlyCostUsd: number;
+    setupCostUsd: number;
+    regulatoryStatus: 'NOT_REQUIRED' | 'PENDING_DOCUMENTATION' | 'APPROVED';
+    requiredDocuments: string[];
+  }>;
+
+  verifyExistingNumberOwnership(params: {
+    phoneNumber: string;
+    code?: string;
+  }): Promise<{
+    verified: boolean;
+    codeSent?: boolean;
+    message: string;
+  }>;
+
+  configureRoutingToVapi(params: {
+    telnyxPhoneNumberId: string;
+    phoneNumber: string;
+    vapiSipUri?: string;
+  }): Promise<boolean>;
+
+  verifyWebhookSignature?(params: {
+    rawBody: string | Buffer;
+    signature?: string;
+    timestamp?: string;
+    publicKey?: string;
+  }): boolean;
 }

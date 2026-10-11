@@ -549,6 +549,7 @@ export class ComposioService {
 
   /**
    * Execute a Composio Tool / Action on behalf of an organization's entity.
+   * Uses the v3.1 API exclusively — the v1 /actions endpoint is deprecated (HTTP 410 Gone).
    */
   static async executeTool<T = any>(params: {
     organizationId: string;
@@ -557,7 +558,7 @@ export class ComposioService {
   }): Promise<{ success: boolean; data?: T; error?: string }> {
     const entityId = this.getEntityId(params.organizationId);
 
-    // Primary: v3.1 tools execute endpoint
+    // v3.1 tools execute endpoint (only supported path — v1 is deprecated / 410 Gone)
     const v3Res = await this.request(`/v3.1/tools/execute/${encodeURIComponent(params.toolSlug)}`, {
       method: 'POST',
       body: JSON.stringify({
@@ -571,23 +572,7 @@ export class ComposioService {
       return { success: true, data: responseData };
     }
 
-    // Fallback: v1 actions execute endpoint
-    const v1Res = await this.request(`/v1/actions/${encodeURIComponent(params.toolSlug)}/execute`, {
-      method: 'POST',
-      body: JSON.stringify({
-        user_uuid: entityId,
-        entityId: entityId,
-        input: params.args,
-        arguments: params.args,
-      }),
-    });
-
-    if (v1Res.ok && v1Res.data) {
-      const responseData = v1Res.data.data || v1Res.data.response_data || v1Res.data.result || v1Res.data;
-      return { success: true, data: responseData };
-    }
-
-    const errMsg = v3Res.error || v1Res.error || `Failed to execute Composio tool ${params.toolSlug}`;
+    const errMsg = v3Res.error || `Failed to execute Composio tool ${params.toolSlug}`;
     return { success: false, error: errMsg };
   }
 

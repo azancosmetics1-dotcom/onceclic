@@ -501,6 +501,22 @@ class EmbeddedDatabase implements IDatabase {
         }
       }
     }
+    if (table === 'voice_phone_numbers') {
+      if (row.phone_number) {
+        for (const existing of tableData.values()) {
+          if (existing.phone_number === row.phone_number) {
+            throw new Error(`duplicate key value violates unique constraint "uq_voice_phone_number"`);
+          }
+        }
+      }
+      if (row.organization_id && row.idempotency_key) {
+        for (const existing of tableData.values()) {
+          if (existing.organization_id === row.organization_id && existing.idempotency_key === row.idempotency_key) {
+            throw new Error(`duplicate key value violates unique constraint "idx_voice_phone_org_idempotency"`);
+          }
+        }
+      }
+    }
 
     tableData.set(row.id, row);
     return { rows: [row] as T[], rowCount: 1 };

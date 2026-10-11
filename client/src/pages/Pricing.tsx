@@ -6,7 +6,7 @@ import { Check, ShieldCheck, HelpCircle, Bot, Sparkles, ArrowRight } from 'lucid
 
 export const Pricing: React.FC = () => {
   useEffect(() => {
-    document.title = 'ONCEClic Pricing — Pro Plan ($19/mo, 7-Day Free Trial)';
+    document.title = 'ONCEClic Pricing — Starter ($19/mo), Pro ($49/mo) & Business ($99/mo)';
   }, []);
 
   const planFeatures = [
@@ -98,7 +98,7 @@ export const Pricing: React.FC = () => {
               </p>
 
               <Link
-                to="/signup"
+                to="/signup?plan=starter"
                 className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-center block transition text-sm mb-6 border border-slate-700"
               >
                 Start 7-Day Free Trial
@@ -159,7 +159,7 @@ export const Pricing: React.FC = () => {
               </p>
 
               <Link
-                to="/signup"
+                to="/signup?plan=pro"
                 className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-center block transition text-sm mb-6 shadow-md shadow-emerald-500/20"
               >
                 Start 7-Day Free Trial ($0)
@@ -216,7 +216,7 @@ export const Pricing: React.FC = () => {
               </p>
 
               <Link
-                to="/signup"
+                to="/signup?plan=business"
                 className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-center block transition text-sm mb-6 border border-slate-700"
               >
                 Start 7-Day Free Trial

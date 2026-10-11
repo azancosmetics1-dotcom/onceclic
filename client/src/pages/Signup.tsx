@@ -1,13 +1,21 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
-import { Bot, ArrowRight, AlertCircle, Check } from 'lucide-react';
+import { PaidPlanTier, SUBSCRIPTION_PLANS } from '@onceclic/shared';
+import { Bot, ArrowRight, AlertCircle, Check, Sparkles } from 'lucide-react';
 
 export const Signup: React.FC = () => {
   const { register } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
+  const rawPlan = (searchParams.get('plan') || '').toUpperCase();
+  const initialPlan: PaidPlanTier = (rawPlan === 'STARTER' || rawPlan === 'PRO' || rawPlan === 'BUSINESS')
+    ? rawPlan
+    : 'STARTER';
+
+  const [selectedPlan, setSelectedPlan] = useState<PaidPlanTier>(initialPlan);
   const [fullName, setFullName] = useState('');
   const [businessName, setBusinessName] = useState('');
   const [email, setEmail] = useState('');
@@ -15,6 +23,14 @@ export const Signup: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('onceclic_selected_plan', selectedPlan);
+    } catch {
+      // ignore localStorage errors
+    }
+  }, [selectedPlan]);
 
   const handleGoogleSignup = async () => {
     setError(null);
@@ -69,6 +85,22 @@ export const Signup: React.FC = () => {
 
       <div className="mt-6 sm:mt-8 sm:mx-auto sm:w-full sm:max-w-md min-w-0">
         <div className="bg-slate-900 border border-slate-800 py-6 sm:py-8 px-4 sm:px-10 shadow-xl rounded-2xl sm:rounded-3xl space-y-6 min-w-0">
+          {/* Selected Plan Banner */}
+          <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-3 flex items-center justify-between text-xs text-emerald-300">
+            <div className="flex items-center space-x-2">
+              <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                Plan:{' '}
+                <strong className="text-white">
+                  {SUBSCRIPTION_PLANS[selectedPlan]?.name} (${SUBSCRIPTION_PLANS[selectedPlan]?.priceUsd}/mo)
+                </strong>
+              </span>
+            </div>
+            <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+              7-Day Cardless Trial
+            </span>
+          </div>
+
           {error && (
             <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4 flex items-start space-x-3 text-xs text-rose-300">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
@@ -192,7 +224,7 @@ export const Signup: React.FC = () => {
               </div>
               <div className="flex items-center space-x-1.5">
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span>$19/month after trial &bull; Cancel anytime</span>
+                <span>${SUBSCRIPTION_PLANS[selectedPlan]?.priceUsd || 19}/month after trial &bull; Cancel anytime</span>
               </div>
             </div>
           </form>

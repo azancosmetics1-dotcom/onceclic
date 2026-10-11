@@ -73,7 +73,7 @@ export class AIBudgetService {
         budgetUsd: 0,
         spentUsd,
         remainingUsd: 0,
-        reason: 'No subscription found. Please start your 7-day free trial or subscribe to ONCEClic Pro ($19/month).',
+        reason: 'No subscription found. Please start your 7-day free trial or choose an ONCEClic plan starting from $19/month.',
       };
     }
 
@@ -124,7 +124,7 @@ export class AIBudgetService {
           budgetUsd: config.billing.trialAiBudgetUsd,
           spentUsd,
           remainingUsd: 0,
-          reason: 'Your 7-day free trial has expired. Upgrade to ONCEClic Pro ($19/month) to continue using your AI receptionist.',
+          reason: 'Your 7-day free trial has expired. Upgrade to a paid plan starting from $19/month to continue using your AI receptionist.',
         };
       }
 
@@ -168,7 +168,7 @@ export class AIBudgetService {
       budgetUsd: 0,
       spentUsd,
       remainingUsd: 0,
-      reason: `Your subscription is ${status.toLowerCase()}. Upgrade to ONCEClic Pro ($19/month) to continue using AI services.`,
+      reason: `Your subscription is ${status.toLowerCase()}. Upgrade to an ONCEClic paid plan starting from $19/month to continue using AI services.`,
     };
   }
 

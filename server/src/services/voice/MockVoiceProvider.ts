@@ -7,8 +7,12 @@ export class MockVoiceProvider implements IVoiceProvider {
   public lastInboundConfig: VoiceAgentConfig | null = null;
   public lastToolExecutionResult: any = null;
 
+  public simulateAssistantFailure: boolean = false;
+  public simulateLinkFailure: boolean = false;
+  public simulateTestCallFailure: boolean = false;
+
   verifyWebhookSignature(_rawBody: string | Buffer, _signature: string | undefined, _secret?: string): boolean {
-    // In mock mode for testing, permit test calls unless signature is explicitly 'invalid_sig'
+    // In mock mode for testing, permit test calls unless signature is explicitly 'invalid_signature_test'
     if (_signature === 'invalid_signature_test') {
       return false;
     }
@@ -89,6 +93,40 @@ export class MockVoiceProvider implements IVoiceProvider {
     return {
       phoneNumber: num,
       providerPhoneNumberId: `mock_pn_${Date.now()}_${this.mockPhoneCounter}`,
+    };
+  }
+
+  async createOrUpdateAssistant(config: VoiceAgentConfig): Promise<{ assistantId: string }> {
+    if (this.simulateAssistantFailure) {
+      throw new Error('Simulated Vapi assistant creation failure: API rate limit or prompt validation error.');
+    }
+    this.lastInboundConfig = config;
+    return {
+      assistantId: `vapi_asst_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+    };
+  }
+
+  async linkPhoneNumberToAssistant(params: { phoneNumberIdOrNumber: string; assistantId: string }): Promise<boolean> {
+    if (this.simulateLinkFailure) {
+      throw new Error('Simulated Vapi phone link failure: Phone number not found in Vapi account.');
+    }
+    return true;
+  }
+
+  async simulateTestCall(params: { organizationId: string; phoneNumber: string; assistantId?: string }): Promise<{
+    success: boolean;
+    durationSeconds: number;
+    transcript: string;
+    summary: string;
+  }> {
+    if (this.simulateTestCallFailure) {
+      throw new Error('Simulated test call failure: Phone routing did not answer within 15 seconds.');
+    }
+    return {
+      success: true,
+      durationSeconds: 15,
+      transcript: 'AI: Hello! Thank you for calling. How can I help you today?\nCustomer: Hello, this is a test call.\nAI: Everything is working perfectly! Your AI Receptionist is ready to answer customer calls.',
+      summary: 'Test call answered by AI assistant. Audio and tool dispatch verified.',
     };
   }
 }

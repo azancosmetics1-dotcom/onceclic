@@ -55,6 +55,7 @@ export async function runPaddleWebhookTests() {
       customer_id: paddleCustomerId,
       status: 'active',
       custom_data: { organization_id: orgId },
+      items: [{ price: { id: config.paddle.priceId } }],
       current_billing_period: {
         starts_at: new Date().toISOString(),
         ends_at: new Date(Date.now() + 30 * 86400000).toISOString(),

@@ -274,6 +274,7 @@ export interface Subscription {
   paddleSubscriptionId?: string;
   paddleTransactionId?: string;
   priceId?: string;
+  planTier?: PlanTier;
   status: SubscriptionStatus;
   trialStartedAt: string;
   trialEndsAt: string;
@@ -807,10 +808,100 @@ export interface TrialEligibilityResponse {
 
 export type AIUsageStatus = 'AVAILABLE' | 'LIMITED' | 'LIMIT_REACHED';
 
+export type PlanTier = 'TRIAL' | 'STARTER' | 'PRO' | 'BUSINESS';
+export type PaidPlanTier = 'STARTER' | 'PRO' | 'BUSINESS';
+
+export interface PlanDetails {
+  id: PlanTier;
+  name: string;
+  priceUsd: number;
+  billingPeriod: 'month';
+  voiceMinutes: number;
+  features: string[];
+  highlight?: boolean;
+  badge?: string;
+}
+
+export const SUBSCRIPTION_PLANS: Record<PlanTier, PlanDetails> = {
+  TRIAL: {
+    id: 'TRIAL',
+    name: '7-Day Free Trial',
+    priceUsd: 0,
+    billingPeriod: 'month',
+    voiceMinutes: 15,
+    features: [
+      '15 Included Voice Minutes',
+      '24/7 AI Phone Receptionist',
+      'Google Calendar Real-Time Booking',
+      '24/7 Website Live Chat Widget',
+      'No Credit Card Required',
+    ],
+  },
+  STARTER: {
+    id: 'STARTER',
+    name: 'Starter',
+    priceUsd: 19,
+    billingPeriod: 'month',
+    voiceMinutes: 50,
+    features: [
+      '50 Included Voice Minutes / mo',
+      '24/7 AI Phone Receptionist',
+      'Existing Business Number Forwarding',
+      'Google Calendar Real-Time Booking',
+      '24/7 Website Live Chat Widget',
+    ],
+  },
+  PRO: {
+    id: 'PRO',
+    name: 'ONCEClic Pro',
+    priceUsd: 49,
+    billingPeriod: 'month',
+    voiceMinutes: 150,
+    highlight: true,
+    badge: 'Most Popular',
+    features: [
+      '150 Included Voice Minutes / mo',
+      'Everything in Starter',
+      'Call Transcripts & Recordings',
+      'SMS & Email Confirmation Alerts',
+      'Custom Industry Knowledge & FAQs',
+      'Priority Support',
+    ],
+  },
+  BUSINESS: {
+    id: 'BUSINESS',
+    name: 'Business',
+    priceUsd: 99,
+    billingPeriod: 'month',
+    voiceMinutes: 400,
+    features: [
+      '400 Included Voice Minutes / mo',
+      'Everything in Pro',
+      'Multiple Phone Numbers Support',
+      'Dedicated Team Member Inboxes',
+      'Advanced Call Analytics & Reporting',
+    ],
+  },
+};
+
+export interface CustomerPlanConfig {
+  id: PaidPlanTier;
+  name: string;
+  priceUsd: number;
+  priceId: string | null;
+  isConfigured: boolean;
+  voiceMinutes: number;
+  features: string[];
+  highlight?: boolean;
+  badge?: string;
+}
+
 export interface CustomerSubscription {
   id: string;
   organizationId: string;
   status: SubscriptionStatus;
+  planTier?: PlanTier;
+  priceId?: string | null;
   trialStartedAt?: string | null;
   trialEndsAt?: string | null;
   currentPeriodStart?: string | null;
@@ -821,6 +912,7 @@ export interface CustomerSubscription {
 export interface CustomerBillingStatus {
   subscription: CustomerSubscription | null;
   isPro: boolean;
+  planTier: PlanTier;
   daysRemainingInTrial: number;
   billingConfigured: boolean;
   aiUsageStatus: AIUsageStatus;
@@ -835,6 +927,7 @@ export interface CustomerBillingConfig {
   monthlyPriceUsd: number;
   trialPeriodDays: number;
   trialPriceUsd: number;
+  plans: Record<PaidPlanTier, CustomerPlanConfig>;
 }
 
 export interface CustomerAIStatus {
@@ -878,6 +971,10 @@ export enum VoiceConnectionMethod {
 export enum VoicePhoneNumberType {
   EXISTING = 'EXISTING',
   NEW = 'NEW',
+  LOCAL = 'local',
+  TOLL_FREE = 'toll_free',
+  NATIONAL = 'national',
+  MOBILE = 'mobile',
 }
 
 export enum VoiceCallStatus {
@@ -898,17 +995,326 @@ export enum VoiceCallOutcome {
   OTHER = 'OTHER',
 }
 
+export enum VoiceProvisioningStatus {
+  NOT_CONFIGURED = 'NOT_CONFIGURED',
+  CHECKING_AVAILABILITY = 'CHECKING_AVAILABILITY',
+  ACTION_REQUIRED = 'ACTION_REQUIRED',
+  PROVISIONING = 'PROVISIONING',
+  CONNECTING = 'CONNECTING',
+  TEST_REQUIRED = 'TEST_REQUIRED',
+  ACTIVE = 'ACTIVE',
+  FAILED = 'FAILED',
+}
+
+export interface CarrierForwardingGuide {
+  carrierName: string;
+  enableCode: string;
+  disableCode: string;
+  instructions: string;
+}
+
+export interface TelephonyCountryInfo {
+  countryCode: string;
+  countryName: string;
+  dialCode: string;
+  supportedNumberTypes: ('local' | 'toll_free' | 'national' | 'mobile')[];
+  supportedConnectionMethods: VoiceConnectionMethod[];
+  monthlyCostUsd: Record<string, number>;
+  setupCostUsd: Record<string, number>;
+  regulatoryLevel: 'NONE' | 'ADDRESS_REQUIRED' | 'IDENTITY_PROOF_REQUIRED' | 'MANUAL_APPROVAL_REQUIRED';
+  requiredDocuments: string[];
+  instantProvisioning: boolean;
+  regulatoryNotice: string;
+  carrierForwardingGuides: CarrierForwardingGuide[];
+}
+
+export const SUPPORTED_TELEPHONY_COUNTRIES: Record<string, TelephonyCountryInfo> = {
+  US: {
+    countryCode: 'US',
+    countryName: 'United States',
+    dialCode: '+1',
+    supportedNumberTypes: ['local', 'toll_free'],
+    supportedConnectionMethods: [
+      VoiceConnectionMethod.EXISTING_FORWARDING,
+      VoiceConnectionMethod.EXISTING_SIP,
+      VoiceConnectionMethod.EXISTING_PORT,
+      VoiceConnectionMethod.NEW_PROVIDER_NUMBER,
+    ],
+    monthlyCostUsd: {
+      local: 1.50,
+      toll_free: 2.50,
+    },
+    setupCostUsd: {
+      local: 0.00,
+      toll_free: 0.00,
+    },
+    regulatoryLevel: 'NONE',
+    requiredDocuments: [],
+    instantProvisioning: true,
+    regulatoryNotice: 'FCC regulations apply. Emergency 911 calls are not routed by this receptionist. No regulatory documents required for local or toll-free provisioning.',
+    carrierForwardingGuides: [
+      {
+        carrierName: 'AT&T Wireless / Business',
+        enableCode: '*21*{FORWARDING_NUMBER}#',
+        disableCode: '#21#',
+        instructions: 'Dial *21* followed by your ONCEClic routing number and press Call. Dial #21# to disable.',
+      },
+      {
+        carrierName: 'Verizon Wireless / Business',
+        enableCode: '*72{FORWARDING_NUMBER}',
+        disableCode: '*73',
+        instructions: 'Dial *72 followed by your ONCEClic routing number and press Call. Dial *73 to turn off forwarding.',
+      },
+      {
+        carrierName: 'T-Mobile',
+        enableCode: '**21*{FORWARDING_NUMBER}#',
+        disableCode: '##21#',
+        instructions: 'Dial **21* followed by your ONCEClic routing number and #, then Call. Dial ##21# to cancel.',
+      },
+    ],
+  },
+  CA: {
+    countryCode: 'CA',
+    countryName: 'Canada',
+    dialCode: '+1',
+    supportedNumberTypes: ['local', 'toll_free'],
+    supportedConnectionMethods: [
+      VoiceConnectionMethod.EXISTING_FORWARDING,
+      VoiceConnectionMethod.EXISTING_SIP,
+      VoiceConnectionMethod.EXISTING_PORT,
+      VoiceConnectionMethod.NEW_PROVIDER_NUMBER,
+    ],
+    monthlyCostUsd: {
+      local: 1.75,
+      toll_free: 2.50,
+    },
+    setupCostUsd: {
+      local: 0.00,
+      toll_free: 0.00,
+    },
+    regulatoryLevel: 'NONE',
+    requiredDocuments: [],
+    instantProvisioning: true,
+    regulatoryNotice: 'CRTC guidelines apply. No regulatory identity documents required for Canadian local numbers.',
+    carrierForwardingGuides: [
+      {
+        carrierName: 'Rogers Wireless',
+        enableCode: '*21*{FORWARDING_NUMBER}#',
+        disableCode: '#21#',
+        instructions: 'Dial *21* followed by routing number, then send. Dial #21# to disable.',
+      },
+      {
+        carrierName: 'Bell Mobility',
+        enableCode: '*72{FORWARDING_NUMBER}',
+        disableCode: '*720',
+        instructions: 'Dial *72 followed by routing number. Dial *720 to cancel.',
+      },
+      {
+        carrierName: 'Telus Mobility',
+        enableCode: '*72{FORWARDING_NUMBER}',
+        disableCode: '*73',
+        instructions: 'Dial *72 followed by routing number. Dial *73 to deactivate.',
+      },
+    ],
+  },
+  GB: {
+    countryCode: 'GB',
+    countryName: 'United Kingdom',
+    dialCode: '+44',
+    supportedNumberTypes: ['local', 'national'],
+    supportedConnectionMethods: [
+      VoiceConnectionMethod.EXISTING_FORWARDING,
+      VoiceConnectionMethod.EXISTING_SIP,
+      VoiceConnectionMethod.EXISTING_PORT,
+      VoiceConnectionMethod.NEW_PROVIDER_NUMBER,
+    ],
+    monthlyCostUsd: {
+      local: 2.50,
+      national: 2.50,
+    },
+    setupCostUsd: {
+      local: 0.00,
+      national: 0.00,
+    },
+    regulatoryLevel: 'ADDRESS_REQUIRED',
+    requiredDocuments: ['UK Business or Residential Address Proof'],
+    instantProvisioning: true,
+    regulatoryNotice: 'Ofcom telecom regulations require a valid UK business or physical address registered on file. Emergency services not supported.',
+    carrierForwardingGuides: [
+      {
+        carrierName: 'Vodafone UK',
+        enableCode: '**21*{FORWARDING_NUMBER}#',
+        disableCode: '##21#',
+        instructions: 'Dial **21* followed by the destination number and #. Dial ##21# to cancel.',
+      },
+      {
+        carrierName: 'EE / BT Mobile',
+        enableCode: '*21*{FORWARDING_NUMBER}#',
+        disableCode: '#21#',
+        instructions: 'Dial *21* followed by destination number, then call. Dial #21# to disable.',
+      },
+      {
+        carrierName: 'O2 UK',
+        enableCode: '*21*{FORWARDING_NUMBER}#',
+        disableCode: '#21#',
+        instructions: 'Dial *21* followed by destination number. Dial #21# to cancel.',
+      },
+    ],
+  },
+  AU: {
+    countryCode: 'AU',
+    countryName: 'Australia',
+    dialCode: '+61',
+    supportedNumberTypes: ['local', 'toll_free'],
+    supportedConnectionMethods: [
+      VoiceConnectionMethod.EXISTING_FORWARDING,
+      VoiceConnectionMethod.EXISTING_SIP,
+      VoiceConnectionMethod.EXISTING_PORT,
+      VoiceConnectionMethod.NEW_PROVIDER_NUMBER,
+    ],
+    monthlyCostUsd: {
+      local: 3.00,
+      toll_free: 3.50,
+    },
+    setupCostUsd: {
+      local: 0.00,
+      toll_free: 0.00,
+    },
+    regulatoryLevel: 'IDENTITY_PROOF_REQUIRED',
+    requiredDocuments: ['Australian Business Number (ABN) or Local Address Proof'],
+    instantProvisioning: false,
+    regulatoryNotice: 'ACMA regulations require identity and address proof before local Australian numbers can route calls. Verification typically takes 1 business hour.',
+    carrierForwardingGuides: [
+      {
+        carrierName: 'Telstra',
+        enableCode: '*21*{FORWARDING_NUMBER}#',
+        disableCode: '#21#',
+        instructions: 'Dial *21* followed by destination number and #. Dial #21# to deactivate.',
+      },
+      {
+        carrierName: 'Optus',
+        enableCode: '**21*{FORWARDING_NUMBER}#',
+        disableCode: '##21#',
+        instructions: 'Dial **21* followed by number and #. Dial ##21# to cancel.',
+      },
+    ],
+  },
+  DE: {
+    countryCode: 'DE',
+    countryName: 'Germany',
+    dialCode: '+49',
+    supportedNumberTypes: ['local', 'national'],
+    supportedConnectionMethods: [
+      VoiceConnectionMethod.EXISTING_FORWARDING,
+      VoiceConnectionMethod.EXISTING_SIP,
+      VoiceConnectionMethod.EXISTING_PORT,
+      VoiceConnectionMethod.NEW_PROVIDER_NUMBER,
+    ],
+    monthlyCostUsd: {
+      local: 3.00,
+      national: 3.00,
+    },
+    setupCostUsd: {
+      local: 1.00,
+      national: 1.00,
+    },
+    regulatoryLevel: 'MANUAL_APPROVAL_REQUIRED',
+    requiredDocuments: ['German Local Address Verification (Meldebescheinigung or Gewerbeanmeldung)'],
+    instantProvisioning: false,
+    regulatoryNotice: 'BNetzA (Federal Network Agency) requires proof of address in the exact geographical area code for local numbers. Approval requires document review before number is activated.',
+    carrierForwardingGuides: [
+      {
+        carrierName: 'Telekom Deutschland',
+        enableCode: '*21*{FORWARDING_NUMBER}#',
+        disableCode: '#21#',
+        instructions: 'Wähle *21* gefolgt von der Weiterleitungsnummer und #. Deaktivieren mit #21#.',
+      },
+      {
+        carrierName: 'Vodafone Deutschland',
+        enableCode: '**21*{FORWARDING_NUMBER}#',
+        disableCode: '##21#',
+        instructions: 'Wähle **21* gefolgt von der Weiterleitungsnummer und #. Deaktivieren mit ##21#.',
+      },
+    ],
+  },
+  FR: {
+    countryCode: 'FR',
+    countryName: 'France',
+    dialCode: '+33',
+    supportedNumberTypes: ['local', 'national'],
+    supportedConnectionMethods: [
+      VoiceConnectionMethod.EXISTING_FORWARDING,
+      VoiceConnectionMethod.EXISTING_SIP,
+      VoiceConnectionMethod.EXISTING_PORT,
+      VoiceConnectionMethod.NEW_PROVIDER_NUMBER,
+    ],
+    monthlyCostUsd: {
+      local: 2.75,
+      national: 2.75,
+    },
+    setupCostUsd: {
+      local: 0.50,
+      national: 0.50,
+    },
+    regulatoryLevel: 'ADDRESS_REQUIRED',
+    requiredDocuments: ['French Business Registration (Extrait Kbis) or Local Address Proof'],
+    instantProvisioning: false,
+    regulatoryNotice: 'ARCEP requires proof of presence or registration in France for geographic numbers.',
+    carrierForwardingGuides: [
+      {
+        carrierName: 'Orange France',
+        enableCode: '*21*{FORWARDING_NUMBER}#',
+        disableCode: '#21#',
+        instructions: 'Composez *21* suivi du numéro et terminez par #. Pour annuler : composez #21#.',
+      },
+      {
+        carrierName: 'SFR',
+        enableCode: '*21*{FORWARDING_NUMBER}#',
+        disableCode: '#21#',
+        instructions: 'Composez *21* suivi du numéro. Pour désactiver : #21#.',
+      },
+    ],
+  },
+};
+
+export interface AvailablePhoneNumber {
+  phoneNumber: string;
+  nationalFormat: string;
+  countryCode: string;
+  numberType: 'local' | 'toll_free' | 'national' | 'mobile';
+  region?: string;
+  monthlyCostUsd: number;
+  setupCostUsd: number;
+  regulatoryRequirement: string;
+  requiresDocuments: boolean;
+  requiredDocuments: string[];
+}
+
 export interface VoicePhoneNumber {
   id: string;
   organizationId: string;
   provider: string;
   phoneNumber: string;
-  phoneNumberType: VoicePhoneNumberType;
+  countryCode?: string;
+  phoneNumberType: VoicePhoneNumberType | string;
   connectionMethod: VoiceConnectionMethod;
   providerPhoneNumberId?: string;
+  vapiAssistantId?: string;
+  vapiPhoneNumberId?: string;
+  telnyxPhoneNumberId?: string;
   forwardingTarget?: string;
   sipEndpoint?: string;
-  status: 'ACTIVE' | 'PENDING_VERIFICATION' | 'INACTIVE';
+  status: 'ACTIVE' | 'PENDING_VERIFICATION' | 'INACTIVE' | VoiceProvisioningStatus | string;
+  provisioningStatus: VoiceProvisioningStatus;
+  monthlyCostUsd?: number;
+  setupCostUsd?: number;
+  regulatoryStatus?: 'NOT_REQUIRED' | 'PENDING_DOCUMENTATION' | 'APPROVED' | 'REJECTED';
+  requiredDocuments?: string[];
+  actionRequiredReason?: string;
+  lastError?: string;
+  idempotencyKey?: string;
+  verificationCode?: string;
+  verificationStatus?: 'UNVERIFIED' | 'VERIFIED' | 'FAILED';
   createdAt: string;
   updatedAt: string;
 }
@@ -980,6 +1386,7 @@ export interface CustomerVoiceConfig {
   activeNumber?: string;
   connectionMethod?: VoiceConnectionMethod;
   setupState: VoiceSetupState;
+  provisioningStatus?: VoiceProvisioningStatus;
   connectionTestStatus: VoiceConnectionTestStatus;
   voiceUsage: CustomerVoiceUsage;
   isConfigured: boolean;
@@ -996,5 +1403,3 @@ export interface VoiceAnalyticsSummary {
   appointmentsCanceled: number;
   generalInquiries: number;
 }
-
-

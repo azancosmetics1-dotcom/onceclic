@@ -100,6 +100,7 @@ router.get('/status', requirePermission('billing:read'), async (req: Request, re
     const safeStatus = toCustomerBillingStatus({
       subscription: rawStatus.subscription,
       isPro: rawStatus.isPro,
+      planTier: rawStatus.planTier,
       daysRemainingInTrial: rawStatus.daysRemainingInTrial,
       billingConfigured: rawStatus.billingConfigured,
       budgetStatus,

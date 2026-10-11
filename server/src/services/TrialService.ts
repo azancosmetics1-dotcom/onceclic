@@ -34,7 +34,7 @@ export class TrialService {
         eligible: false,
         normalizedEmail: normalized,
         hasUsedTrial: true,
-        message: 'Your free trial has already been used for this email address. You can subscribe to ONCEClic Pro for $19/month.',
+        message: 'Your free trial has already been used for this email address. You can subscribe to an ONCEClic plan starting from $19/month.',
         pricePerMonthUsd: config.billing.monthlyPriceUsd,
       };
     }
@@ -79,7 +79,7 @@ export class TrialService {
       });
 
       throw new Error(
-        'Your free trial has already been used for this email address. You can subscribe to ONCEClic Pro for $19/month.'
+        'Your free trial has already been used for this email address. You can subscribe to an ONCEClic plan starting from $19/month.'
       );
     }
 
@@ -169,7 +169,7 @@ export class TrialService {
         });
 
         throw new Error(
-          'Your free trial has already been used for this email address. You can subscribe to ONCEClic Pro for $19/month.'
+          'Your free trial has already been used for this email address. You can subscribe to an ONCEClic plan starting from $19/month.'
         );
       }
       throw err;

@@ -29,13 +29,15 @@ export class PublicKnowledgeGroundingService {
     },
     {
       category: 'Pricing & Trial',
-      topic: 'ONCEClic Pro Plan & 7-Day Free Trial',
+      topic: 'ONCEClic Pricing Plans & 7-Day Free Trial',
       url: 'https://onceclic.com/pricing',
       summary:
-        'ONCEClic offers a single, transparent Pro subscription at $19/month USD with a 7-day free trial requiring no credit card upfront.',
+        'ONCEClic offers three transparent subscription plans with a 7-day free trial requiring no credit card upfront: Starter ($19/month, 50 voice minutes), Pro ($49/month, 150 voice minutes), and Business ($99/month, 400 voice minutes).',
       keyPoints: [
-        'Price: $19 USD / month for ONCEClic Pro.',
-        'Free Trial: 7 days free with $0 upfront cost.',
+        'Starter Plan: $19 USD / month — includes 50 voice minutes, 24/7 AI Phone Receptionist, Google Calendar booking, and Website Chat.',
+        'Pro Plan: $49 USD / month — includes 150 voice minutes, call transcripts & recordings, SMS & email confirmations, custom knowledge & FAQs, and priority support.',
+        'Business Plan: $99 USD / month — includes 400 voice minutes, multiple phone numbers, dedicated team inboxes, and advanced analytics.',
+        'Free Trial: 7 days free with $0 upfront cost. Includes 15 voice minutes.',
         'No Credit Card Required to start the 7-day trial.',
         'No automatic trial charges when the trial expires.',
         'Merchant of Record: Paddle processes all subscription payments securely.',

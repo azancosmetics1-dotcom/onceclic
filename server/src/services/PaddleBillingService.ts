@@ -2,7 +2,7 @@ import crypto from 'crypto';
 import { Paddle, Environment } from '@paddle/paddle-node-sdk';
 import { db } from '../db';
 import { config } from '../config';
-import { Subscription, SubscriptionStatus, AuditAction } from '@onceclic/shared';
+import { Subscription, SubscriptionStatus, AuditAction, PlanTier, PaidPlanTier } from '@onceclic/shared';
 import { AuditService } from './AuditService';
 import { TrialService } from './TrialService';
 import { AIBudgetService } from './AIBudgetService';
@@ -10,6 +10,30 @@ import { normalizeEmail } from '../utils/emailNormalizer';
 import { v4 as uuidv4 } from 'uuid';
 
 export class PaddleBillingService {
+  /**
+   * Authoritatively resolve a Paddle Price ID to its configured PlanTier.
+   * Returns null if the price ID is unknown or not mapped to any configured paid plan.
+   */
+  static resolvePlanTierFromPriceId(priceId: string | null | undefined): PaidPlanTier | null {
+    if (!priceId) return null;
+    const p = priceId.trim();
+
+    const starterId = config.paddle.plans?.STARTER?.priceId;
+    if (starterId && p === starterId) return 'STARTER';
+
+    const proId = config.paddle.plans?.PRO?.priceId;
+    if (proId && p === proId) return 'PRO';
+
+    const businessId = config.paddle.plans?.BUSINESS?.priceId;
+    if (businessId && p === businessId) return 'BUSINESS';
+
+    // Legacy fallback configured price ID (maps to PRO)
+    if (config.paddle.proMonthlyPriceId && p === config.paddle.proMonthlyPriceId) return 'PRO';
+    if (config.paddle.priceId && p === config.paddle.priceId) return 'PRO';
+
+    return null;
+  }
+
   private static getPaddleSdk(): Paddle | null {
     if (!config.paddle.apiKey || config.paddle.apiKey.includes('placeholder')) {
       return null;
@@ -87,12 +111,12 @@ export class PaddleBillingService {
         const subId = uuidv4();
         await db.execute(
           `INSERT INTO subscriptions (
-             id, organization_id, status, trial_started_at, trial_ends_at, cancel_at_period_end, created_at, updated_at
-           ) VALUES ($1, $2, 'EXPIRED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+             id, organization_id, status, plan_tier, trial_started_at, trial_ends_at, cancel_at_period_end, created_at, updated_at
+           ) VALUES ($1, $2, 'EXPIRED', 'TRIAL', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
           [subId, organizationId]
         );
         return (await db.getOne<Subscription>(
-          `SELECT id, organization_id as "organizationId", status, trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
+          `SELECT id, organization_id as "organizationId", status, plan_tier as "planTier", trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
                   cancel_at_period_end as "cancelAtPeriodEnd", created_at as "createdAt", updated_at as "updatedAt"
            FROM subscriptions WHERE id = $1`,
           [subId]
@@ -102,7 +126,7 @@ export class PaddleBillingService {
       return (await db.getOne<Subscription>(
         `SELECT id, organization_id as "organizationId", paddle_customer_id as "paddleCustomerId",
                 paddle_subscription_id as "paddleSubscriptionId", paddle_transaction_id as "paddleTransactionId",
-                price_id as "priceId", status, trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
+                price_id as "priceId", plan_tier as "planTier", status, trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
                 current_period_start as "currentPeriodStart", current_period_end as "currentPeriodEnd",
                 cancel_at_period_end as "cancelAtPeriodEnd", created_at as "createdAt", updated_at as "updatedAt"
          FROM subscriptions WHERE organization_id = $1`,
@@ -117,8 +141,8 @@ export class PaddleBillingService {
 
     await db.execute(
       `INSERT INTO subscriptions (
-         id, organization_id, status, trial_started_at, trial_ends_at, cancel_at_period_end, created_at, updated_at
-       ) VALUES ($1, $2, $3, $4, $5, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         id, organization_id, status, plan_tier, trial_started_at, trial_ends_at, cancel_at_period_end, created_at, updated_at
+       ) VALUES ($1, $2, $3, 'TRIAL', $4, $5, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         subId,
         organizationId,
@@ -133,13 +157,13 @@ export class PaddleBillingService {
       action: AuditAction.SUBSCRIPTION_CREATED,
       entityType: 'SUBSCRIPTION',
       entityId: subId,
-      metadata: { status: SubscriptionStatus.TRIALING, trialEndsAt: trialEndsAt.toISOString() },
+      metadata: { status: SubscriptionStatus.TRIALING, trialEndsAt: trialEndsAt.toISOString(), planTier: 'TRIAL' },
     });
 
     const sub = await db.getOne<Subscription>(
       `SELECT id, organization_id as "organizationId", paddle_customer_id as "paddleCustomerId",
               paddle_subscription_id as "paddleSubscriptionId", paddle_transaction_id as "paddleTransactionId",
-              price_id as "priceId", status, trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
+              price_id as "priceId", plan_tier as "planTier", status, trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
               current_period_start as "currentPeriodStart", current_period_end as "currentPeriodEnd",
               cancel_at_period_end as "cancelAtPeriodEnd", created_at as "createdAt", updated_at as "updatedAt"
        FROM subscriptions WHERE id = $1`,
@@ -246,7 +270,27 @@ export class PaddleBillingService {
 
         const currentPeriodStart = data.current_billing_period?.starts_at || data.currentBillingPeriod?.startsAt;
         const currentPeriodEnd = data.current_billing_period?.ends_at || data.currentBillingPeriod?.endsAt;
-        const priceId = data.items?.[0]?.price?.id || data.items?.[0]?.price_id || data.price_id || config.paddle.priceId;
+        const rawPriceId = data.items?.[0]?.price?.id || data.items?.[0]?.price_id || data.price_id;
+        const priceId = rawPriceId !== undefined ? rawPriceId : (config.paddle.plans?.PRO?.priceId || config.paddle.priceId);
+
+        // Authoritatively map price ID to plan tier
+        const matchedTier = this.resolvePlanTierFromPriceId(priceId);
+
+        if (!matchedTier) {
+          console.warn(`[Paddle Webhook] Unknown or unmapped price_id "${priceId}". Refusing to activate paid plan.`);
+          if (organizationId) {
+            await db.execute(
+              `UPDATE subscriptions
+               SET paddle_customer_id = COALESCE($1, paddle_customer_id),
+                   paddle_subscription_id = COALESCE($2, paddle_subscription_id),
+                   price_id = $3,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE organization_id = $4`,
+              [paddleCustomerId, paddleSubId, priceId || null, organizationId]
+            );
+          }
+          break;
+        }
 
         if (organizationId) {
           await db.execute(
@@ -254,20 +298,21 @@ export class PaddleBillingService {
              SET paddle_customer_id = COALESCE($1, paddle_customer_id),
                  paddle_subscription_id = COALESCE($2, paddle_subscription_id),
                  price_id = COALESCE($3, price_id),
-                 status = $4,
-                 current_period_start = $5,
-                 current_period_end = $6,
+                 plan_tier = $4,
+                 status = $5,
+                 current_period_start = $6,
+                 current_period_end = $7,
                  cancel_at_period_end = FALSE,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE organization_id = $7`,
-            [paddleCustomerId, paddleSubId, priceId, status, currentPeriodStart, currentPeriodEnd, organizationId]
+             WHERE organization_id = $8`,
+            [paddleCustomerId, paddleSubId, priceId, matchedTier, status, currentPeriodStart, currentPeriodEnd, organizationId]
           );
 
           await AuditService.log({
             organizationId,
             action: AuditAction.SUBSCRIPTION_ACTIVATED,
             entityType: 'SUBSCRIPTION',
-            metadata: { paddleSubscriptionId: paddleSubId, status },
+            metadata: { paddleSubscriptionId: paddleSubId, status, planTier: matchedTier },
           });
         }
         break;
@@ -285,7 +330,9 @@ export class PaddleBillingService {
         const cancelAtPeriodEnd = scheduledChange?.action === 'cancel' || scheduledChange?.action === 'canceled';
         const currentPeriodStart = data.current_billing_period?.starts_at || data.currentBillingPeriod?.startsAt;
         const currentPeriodEnd = data.current_billing_period?.ends_at || data.currentBillingPeriod?.endsAt;
-        const priceId = data.items?.[0]?.price?.id || data.items?.[0]?.price_id || data.price_id;
+        const rawPriceId = data.items?.[0]?.price?.id || data.items?.[0]?.price_id || data.price_id;
+        const priceId = rawPriceId !== undefined ? rawPriceId : null;
+        const matchedTier = priceId ? this.resolvePlanTierFromPriceId(priceId) : null;
 
         await db.execute(
           `UPDATE subscriptions
@@ -294,10 +341,11 @@ export class PaddleBillingService {
                current_period_start = COALESCE($3, current_period_start),
                current_period_end = COALESCE($4, current_period_end),
                price_id = COALESCE($5, price_id),
-               paddle_customer_id = COALESCE($6, paddle_customer_id),
+               plan_tier = COALESCE($6, plan_tier),
+               paddle_customer_id = COALESCE($7, paddle_customer_id),
                updated_at = CURRENT_TIMESTAMP
-           WHERE paddle_subscription_id = $7 OR organization_id = $8`,
-          [status, cancelAtPeriodEnd, currentPeriodStart, currentPeriodEnd, priceId, paddleCustomerId, paddleSubId, organizationId]
+           WHERE paddle_subscription_id = $8 OR organization_id = $9`,
+          [status, cancelAtPeriodEnd, currentPeriodStart, currentPeriodEnd, priceId || null, matchedTier, paddleCustomerId, paddleSubId, organizationId]
         );
 
         if (organizationId) {
@@ -305,7 +353,7 @@ export class PaddleBillingService {
             organizationId,
             action: AuditAction.SUBSCRIPTION_UPDATED,
             entityType: 'SUBSCRIPTION',
-            metadata: { paddleSubscriptionId: paddleSubId, status, cancelAtPeriodEnd },
+            metadata: { paddleSubscriptionId: paddleSubId, status, cancelAtPeriodEnd, planTier: matchedTier },
           });
         }
         break;
@@ -384,6 +432,7 @@ export class PaddleBillingService {
   static async getSubscription(organizationId: string, referenceTime?: Date): Promise<{
     subscription: Subscription | null;
     isPro: boolean;
+    planTier: PlanTier;
     daysRemainingInTrial: number;
     billingConfigured: boolean;
     aiBudget: {
@@ -397,7 +446,7 @@ export class PaddleBillingService {
     let sub = await db.getOne<Subscription>(
       `SELECT id, organization_id as "organizationId", paddle_customer_id as "paddleCustomerId",
               paddle_subscription_id as "paddleSubscriptionId", paddle_transaction_id as "paddleTransactionId",
-              price_id as "priceId", status, trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
+              price_id as "priceId", plan_tier as "planTier", status, trial_started_at as "trialStartedAt", trial_ends_at as "trialEndsAt",
               current_period_start as "currentPeriodStart", current_period_end as "currentPeriodEnd",
               cancel_at_period_end as "cancelAtPeriodEnd", created_at as "createdAt", updated_at as "updatedAt"
        FROM subscriptions WHERE organization_id = $1`,
@@ -421,6 +470,7 @@ export class PaddleBillingService {
       return {
         subscription: null,
         isPro: false,
+        planTier: 'TRIAL',
         daysRemainingInTrial: 0,
         billingConfigured: config.paddle.isConfigured,
         aiBudget: {
@@ -446,16 +496,30 @@ export class PaddleBillingService {
       sub.status = SubscriptionStatus.EXPIRED;
     }
 
-    // Access is granted during ACTIVE or TRIALING (or PAST_DUE grace period).
-    // If scheduled cancellation is pending (cancel_at_period_end = true), access is RETAINED until period actually ends.
-    const isPro =
-      sub.status === SubscriptionStatus.ACTIVE ||
-      (sub.status === SubscriptionStatus.TRIALING && (!!sub.paddleSubscriptionId || diffDays > 0)) ||
-      sub.status === SubscriptionStatus.PAST_DUE;
+    // Determine plan tier and paid entitlement
+    let planTier: PlanTier = 'TRIAL';
+    const rawTier = (sub as any).planTier || (sub as any).plan_tier;
+    const resolvedTier = rawTier ? rawTier.toUpperCase() : (sub.priceId ? this.resolvePlanTierFromPriceId(sub.priceId) : null);
+
+    const isPaidActive =
+      (sub.status === SubscriptionStatus.ACTIVE || sub.status === SubscriptionStatus.PAST_DUE) &&
+      Boolean(resolvedTier && (resolvedTier === 'STARTER' || resolvedTier === 'PRO' || resolvedTier === 'BUSINESS'));
+
+    if (isPaidActive && resolvedTier) {
+      planTier = resolvedTier as PlanTier;
+    } else {
+      planTier = 'TRIAL';
+    }
+
+    const isTrialActive = sub.status === SubscriptionStatus.TRIALING && diffDays > 0;
+    // Access is granted if paid subscription is active for a valid tier, or currently trialing.
+    // An active paid subscription with an unknown/missing price ID will NOT receive isPro.
+    const isPro = isPaidActive || isTrialActive;
 
     return {
       subscription: sub,
       isPro,
+      planTier,
       daysRemainingInTrial: diffDays,
       billingConfigured: config.paddle.isConfigured,
       aiBudget: {

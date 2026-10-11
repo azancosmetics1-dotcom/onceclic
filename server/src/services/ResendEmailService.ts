@@ -826,10 +826,10 @@ export class ResendEmailService {
             Continue using ONCEClic
           </p>
           <h3 style="margin: 0 0 10px; font-size: 22px; font-weight: 700; color: #ffffff;">
-            ONCEClic Pro &mdash; <span style="color: #10b981;">$19/month</span>
+            Plans from <span style="color: #10b981;">$19/month</span>
           </h3>
           <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-            Upgrade to Pro to continue using your AI receptionist and other Pro functionality.
+            Upgrade to continue using your AI receptionist. Plans available from $19/month (Starter) to $99/month (Business).
           </p>
           <a href="${upgradeUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; font-weight: 600; font-size: 15px; text-decoration: none; padding: 14px 32px; border-radius: 10px; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);">
             Upgrade to Pro
@@ -856,7 +856,7 @@ export class ResendEmailService {
 </html>
     `.trim();
 
-    const text = `Hi ${name},\n\nYour ONCEClic 7-day free trial ends in 2 days.\n\nYour trial is still active, and you can continue testing your ONCEClic AI receptionist and business automation features.\n\nWhen your trial ends, your trial access will expire and no automatic payment will be taken.\n\nIf you want to continue using ONCEClic after the trial, you can upgrade to:\n\nONCEClic Pro — $19/month\n\nUpgrade to Pro to continue using your AI receptionist and other Pro functionality.\n\nUpgrade to Pro: ${upgradeUrl}\n\nYour upgrade requires payment through Paddle. No payment is taken automatically when the free trial ends.\n\nThanks,\nONCEClic`;
+    const text = `Hi ${name},\n\nYour ONCEClic 7-day free trial ends in 2 days.\n\nYour trial is still active, and you can continue testing your ONCEClic AI receptionist and business automation features.\n\nWhen your trial ends, your trial access will expire and no automatic payment will be taken.\n\nIf you want to continue using ONCEClic after the trial, you can upgrade to a paid plan starting from $19/month (Starter) up to $99/month (Business).\n\nUpgrade your plan: ${upgradeUrl}\n\nYour upgrade requires payment through Paddle. No payment is taken automatically when the free trial ends.\n\nThanks,\nONCEClic`;
 
     const result = await this.sendEmail({
       to: params.toEmail,
@@ -933,10 +933,10 @@ export class ResendEmailService {
         </p>
         <div style="background-color: #020617; border-radius: 12px; border: 1px solid #10b981; padding: 24px; margin-bottom: 28px; text-align: center;">
           <h3 style="margin: 0 0 10px; font-size: 22px; font-weight: 700; color: #ffffff;">
-            ONCEClic Pro &mdash; <span style="color: #10b981;">$19/month</span>
+            Plans from <span style="color: #10b981;">$19/month</span>
           </h3>
           <p style="margin: 0 0 20px; font-size: 14px; line-height: 1.5; color: #94a3b8;">
-            Your Pro subscription gives you continued access to ONCEClic's Pro functionality and AI receptionist features, subject to the applicable reasonable-use AI limits.
+            Choose a plan that fits your needs. Starter ($19/month, 50 voice minutes), Pro ($49/month, 150 voice minutes), or Business ($99/month, 400 voice minutes).
           </p>
           <a href="${upgradeUrl}" style="display: inline-block; background-color: #10b981; color: #ffffff; font-weight: 600; font-size: 15px; text-decoration: none; padding: 14px 32px; border-radius: 10px; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);">
             Upgrade to Pro
@@ -963,7 +963,7 @@ export class ResendEmailService {
 </html>
     `.trim();
 
-    const text = `Hi ${name},\n\nYour ONCEClic 7-day free trial has ended.\n\nYour trial access has now expired.\n\nNo automatic payment was taken.\n\nIf you would like to continue using ONCEClic, you can upgrade to:\n\nONCEClic Pro — $19/month\n\nYour Pro subscription gives you continued access to ONCEClic's Pro functionality and AI receptionist features, subject to the applicable reasonable-use AI limits.\n\nUpgrade to Pro: ${upgradeUrl}\n\nYou can upgrade securely through Paddle.\n\nThanks,\nONCEClic`;
+    const text = `Hi ${name},\n\nYour ONCEClic 7-day free trial has ended.\n\nYour trial access has now expired.\n\nNo automatic payment was taken.\n\nIf you would like to continue using ONCEClic, choose a plan starting from $19/month:\n\nStarter — $19/month (50 voice minutes)\nPro — $49/month (150 voice minutes)\nBusiness — $99/month (400 voice minutes)\n\nUpgrade your plan: ${upgradeUrl}\n\nYou can upgrade securely through Paddle.\n\nThanks,\nONCEClic`;
 
     const result = await this.sendEmail({
       to: params.toEmail,

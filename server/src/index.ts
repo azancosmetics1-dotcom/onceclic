@@ -155,6 +155,8 @@ app.use('/api/public/chat', publicChatRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/webhooks/voice', voiceWebhookRoutes);
+app.use('/api/voice/webhooks', voiceWebhookRoutes);
+app.use('/api/voice/webhook', voiceWebhookRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/voice', voiceRoutes);
 

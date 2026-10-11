@@ -29,7 +29,10 @@ import {
   VoicePhoneNumber,
   VoiceCallRecord,
   VoiceAnalyticsSummary,
+  TelephonyCountryInfo,
+  AvailablePhoneNumber,
 } from '@onceclic/shared';
+
 
 const getApiBase = (): string => {
   const envUrl = (import.meta as any).env?.VITE_API_URL || (import.meta as any).env?.VITE_BACKEND_URL;
@@ -532,17 +535,71 @@ class ApiClient {
     return this.request('/voice/status');
   }
 
+  async getVoiceCountries(): Promise<TelephonyCountryInfo[]> {
+    return this.request('/voice/countries');
+  }
+
+  async getAvailableVoiceNumbers(params: {
+    country?: string;
+    type?: string;
+    areaCode?: string;
+    limit?: number;
+  }): Promise<AvailablePhoneNumber[]> {
+    const q = new URLSearchParams();
+    if (params.country) q.set('country', params.country);
+    if (params.type) q.set('type', params.type);
+    if (params.areaCode) q.set('areaCode', params.areaCode);
+    if (params.limit) q.set('limit', String(params.limit));
+    return this.request(`/voice/available-numbers?${q.toString()}`);
+  }
+
   async getVoiceNumbers(): Promise<VoicePhoneNumber[]> {
     return this.request('/voice/numbers');
   }
 
+  async validateExistingVoiceNumber(data: {
+    phoneNumber: string;
+    countryCode?: string;
+  }): Promise<any> {
+    return this.request('/voice/numbers/existing/validate', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async connectExistingVoiceNumber(data: {
     phoneNumber: string;
+    countryCode?: string;
     connectionMethod: string;
     forwardingTarget?: string;
     sipEndpoint?: string;
   }): Promise<VoicePhoneNumber> {
     return this.request('/voice/numbers/existing', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async verifyExistingVoiceNumber(data: {
+    id: string;
+    code?: string;
+  }): Promise<any> {
+    return this.request('/voice/numbers/existing/verify', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async orderNewVoiceNumber(data: {
+    phoneNumber: string;
+    countryCode?: string;
+    numberType?: string;
+    idempotencyKey?: string;
+    confirmPurchase: boolean;
+    expectedMonthlyCostUsd?: number;
+    expectedSetupCostUsd?: number;
+  }): Promise<VoicePhoneNumber> {
+    return this.request('/voice/numbers/new/order', {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -559,6 +616,19 @@ class ApiClient {
     return this.request(`/voice/numbers/${id}`, { method: 'DELETE' });
   }
 
+  async testVoiceCall(id: string): Promise<{
+    success: boolean;
+    data: {
+      success: boolean;
+      status: string;
+      message: string;
+      transcript?: string;
+      durationSeconds?: number;
+    };
+  }> {
+    return this.request(`/voice/numbers/${id}/test-call`, { method: 'POST' });
+  }
+
   async testVoiceNumberConnection(id: string): Promise<{ success: boolean; data: { success: boolean; status: string; message: string; testedAt: string } }> {
     return this.request(`/voice/numbers/${id}/test`, { method: 'POST' });
   }
@@ -573,5 +643,3 @@ class ApiClient {
 }
 
 export const api = new ApiClient();
-
-

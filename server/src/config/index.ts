@@ -47,10 +47,33 @@ export const config = {
     apiKey: process.env.PADDLE_API_KEY || '',
     clientToken: process.env.PADDLE_CLIENT_TOKEN || process.env.VITE_PADDLE_CLIENT_TOKEN || '',
     webhookSecret: process.env.PADDLE_WEBHOOK_SECRET || '',
-    priceId: process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || 'pri_01j7onceclic_pro_19m_sandbox',
-    proMonthlyPriceId: process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || 'pri_01j7onceclic_pro_19m_sandbox',
+    priceId: process.env.PADDLE_PRO_PRICE_ID || process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || 'pri_01j7onceclic_pro_19m_sandbox',
+    proMonthlyPriceId: process.env.PADDLE_PRO_PRICE_ID || process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || 'pri_01j7onceclic_pro_19m_sandbox',
     environment: (process.env.PADDLE_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
     isConfigured: !!process.env.PADDLE_WEBHOOK_SECRET && !process.env.PADDLE_WEBHOOK_SECRET.includes('placeholder'),
+    plans: {
+      STARTER: {
+        id: 'STARTER' as const,
+        name: 'Starter',
+        priceUsd: 19,
+        priceId: process.env.PADDLE_STARTER_PRICE_ID || process.env.VITE_PADDLE_STARTER_PRICE_ID || '',
+        voiceMinutes: 50,
+      },
+      PRO: {
+        id: 'PRO' as const,
+        name: 'ONCEClic Pro',
+        priceUsd: 49,
+        priceId: process.env.PADDLE_PRO_PRICE_ID || process.env.VITE_PADDLE_PRO_PRICE_ID || process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || 'pri_01j7onceclic_pro_19m_sandbox',
+        voiceMinutes: 150,
+      },
+      BUSINESS: {
+        id: 'BUSINESS' as const,
+        name: 'Business',
+        priceUsd: 99,
+        priceId: process.env.PADDLE_BUSINESS_PRICE_ID || process.env.VITE_PADDLE_BUSINESS_PRICE_ID || '',
+        voiceMinutes: 400,
+      },
+    },
   },
 
   composio: {
@@ -97,17 +120,41 @@ export const config = {
   },
 
   voice: {
-    provider: (process.env.VOICE_PROVIDER || 'retell').toLowerCase().trim(),
+    provider: (process.env.VOICE_PROVIDER || 'mock').toLowerCase().trim(),
     retellApiKey: process.env.RETELL_API_KEY || '',
     retellAgentId: process.env.RETELL_AGENT_ID || '',
     retellWebhookSecret: process.env.RETELL_WEBHOOK_SECRET || '',
     vapiApiKey: process.env.VAPI_API_KEY || '',
-    isConfigured: !!process.env.RETELL_API_KEY && !process.env.RETELL_API_KEY.includes('placeholder'),
+    vapiAssistantId: process.env.VAPI_ASSISTANT_ID || '',
+    vapiWebhookSecret: process.env.VAPI_WEBHOOK_SECRET || '',
+    isVapiConfigured: !!process.env.VAPI_API_KEY && !process.env.VAPI_API_KEY.includes('placeholder'),
+    telnyxApiKey: process.env.TELNYX_API_KEY || '',
+    telnyxPublicKey: process.env.TELNYX_PUBLIC_KEY || '',
+    telnyxConnectionId: process.env.TELNYX_CONNECTION_ID || '',
+    isTelnyxConfigured: !!process.env.TELNYX_API_KEY && !process.env.TELNYX_API_KEY.includes('placeholder'),
+    isConfigured: (!!process.env.VAPI_API_KEY && !process.env.VAPI_API_KEY.includes('placeholder')) || (!!process.env.RETELL_API_KEY && !process.env.RETELL_API_KEY.includes('placeholder')),
     planLimits: {
       TRIAL: parseInt(process.env.VOICE_TRIAL_LIMIT_MINUTES || '15', 10),
       STARTER: parseInt(process.env.VOICE_STARTER_LIMIT_MINUTES || '50', 10),
       PRO: parseInt(process.env.VOICE_PRO_LIMIT_MINUTES || '150', 10),
       BUSINESS: parseInt(process.env.VOICE_BUSINESS_LIMIT_MINUTES || '400', 10),
     },
+  },
+
+  telnyx: {
+    apiKey: process.env.TELNYX_API_KEY || '',
+    publicKey: process.env.TELNYX_PUBLIC_KEY || '',
+    connectionId: process.env.TELNYX_CONNECTION_ID || '',
+    isConfigured: !!process.env.TELNYX_API_KEY && !process.env.TELNYX_API_KEY.includes('placeholder'),
+  },
+
+  vapi: {
+    apiKey: process.env.VAPI_API_KEY || '',
+    assistantId: process.env.VAPI_ASSISTANT_ID || '',
+    webhookSecret: process.env.VAPI_WEBHOOK_SECRET || '',
+    isConfigured: !!process.env.VAPI_API_KEY && !process.env.VAPI_API_KEY.includes('placeholder'),
+    // Gemini model used by Vapi for voice LLM (provider: 'google')
+    // Vapi supports Google Gemini natively — see https://docs.vapi.ai/
+    voiceGeminiModel: process.env.VAPI_GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-3.5-flash',
   },
 };

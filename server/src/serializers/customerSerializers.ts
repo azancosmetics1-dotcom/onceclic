@@ -3,9 +3,12 @@ import {
   CustomerSubscription,
   CustomerBillingStatus,
   CustomerBillingConfig,
+  CustomerPlanConfig,
   CustomerAIStatus,
   TrialEligibilityResponse,
   AIUsageStatus,
+  PlanTier,
+  PaidPlanTier,
 } from '@onceclic/shared';
 import { BudgetStatus } from '../services/AIBudgetService';
 
@@ -24,23 +27,33 @@ import { BudgetStatus } from '../services/AIBudgetService';
  */
 export function toCustomerBillingStatus(params: {
   subscription: any | null;
-  isPro: boolean;
-  daysRemainingInTrial: number;
-  billingConfigured: boolean;
-  budgetStatus: BudgetStatus;
+  isPro?: boolean;
+  planTier?: PlanTier;
+  daysRemainingInTrial?: number;
+  billingConfigured?: boolean;
+  budgetStatus?: BudgetStatus;
+  aiUsageStatus?: AIUsageStatus;
 }): CustomerBillingStatus {
-  let aiUsageStatus: AIUsageStatus = 'AVAILABLE';
-  if (params.budgetStatus.isExceeded) {
+  let aiUsageStatus: AIUsageStatus = (params as any).aiUsageStatus || 'AVAILABLE';
+  if (params.budgetStatus?.isExceeded) {
     aiUsageStatus = 'LIMIT_REACHED';
-  } else if (params.budgetStatus.plan === 'TRIAL') {
+  } else if (params.budgetStatus?.plan === 'TRIAL') {
     aiUsageStatus = 'LIMITED';
   }
+
+  const rawPlanTier: PlanTier =
+    params.planTier ||
+    params.subscription?.planTier ||
+    params.subscription?.plan_tier ||
+    (params.isPro ? 'PRO' : 'TRIAL');
 
   const customerSub: CustomerSubscription | null = params.subscription
     ? {
         id: String(params.subscription.id),
         organizationId: String(params.subscription.organizationId || params.subscription.organization_id),
         status: params.subscription.status as SubscriptionStatus,
+        planTier: rawPlanTier,
+        priceId: params.subscription.priceId || params.subscription.price_id || null,
         trialStartedAt: params.subscription.trialStartedAt || params.subscription.trial_started_at || null,
         trialEndsAt: params.subscription.trialEndsAt || params.subscription.trial_ends_at || null,
         currentPeriodStart: params.subscription.currentPeriodStart || params.subscription.current_period_start || null,
@@ -52,6 +65,7 @@ export function toCustomerBillingStatus(params: {
   return {
     subscription: customerSub,
     isPro: Boolean(params.isPro),
+    planTier: rawPlanTier,
     daysRemainingInTrial: Number(params.daysRemainingInTrial) || 0,
     billingConfigured: Boolean(params.billingConfigured),
     aiUsageStatus,
@@ -60,7 +74,7 @@ export function toCustomerBillingStatus(params: {
 
 /**
  * Map server billing config to client-safe billing & pricing config.
- * Note: $19/mo is the subscription price. Internal AI budgets ($0.50/$10) are NEVER returned.
+ * Note: Internal AI budgets ($0.50/$10) are NEVER returned.
  */
 export function toCustomerBillingConfig(config: {
   paddle: {
@@ -68,6 +82,7 @@ export function toCustomerBillingConfig(config: {
     priceId: string;
     environment: 'sandbox' | 'production';
     isConfigured: boolean;
+    plans?: Record<string, { priceId?: string }>;
   };
   billing: {
     planName: string;
@@ -76,15 +91,72 @@ export function toCustomerBillingConfig(config: {
     trialPriceUsd: number;
   };
 }): CustomerBillingConfig {
+  const paddle = (config as any).paddle || (config as any);
+  const starterPriceId = paddle.plans?.STARTER?.priceId || (config as any).plans?.STARTER?.priceId || '';
+  const proPriceId = paddle.plans?.PRO?.priceId || paddle.priceId || (config as any).plans?.PRO?.priceId || '';
+  const businessPriceId = paddle.plans?.BUSINESS?.priceId || (config as any).plans?.BUSINESS?.priceId || '';
+
+  const plans: Record<PaidPlanTier, CustomerPlanConfig> = {
+    STARTER: {
+      id: 'STARTER',
+      name: 'Starter',
+      priceUsd: 19,
+      priceId: starterPriceId && !starterPriceId.includes('placeholder') ? starterPriceId : null,
+      isConfigured: Boolean(starterPriceId && !starterPriceId.includes('placeholder')),
+      voiceMinutes: 50,
+      features: [
+        '50 Included Voice Minutes / mo',
+        '24/7 AI Phone Receptionist',
+        'Existing Business Number Forwarding',
+        'Google Calendar Real-Time Booking',
+        '24/7 Website Live Chat Widget',
+      ],
+    },
+    PRO: {
+      id: 'PRO',
+      name: 'ONCEClic Pro',
+      priceUsd: 49,
+      priceId: proPriceId && !proPriceId.includes('placeholder') ? proPriceId : null,
+      isConfigured: Boolean(proPriceId && !proPriceId.includes('placeholder')),
+      voiceMinutes: 150,
+      highlight: true,
+      badge: 'Most Popular',
+      features: [
+        '150 Included Voice Minutes / mo',
+        'Everything in Starter',
+        'Call Transcripts & Recordings',
+        'SMS & Email Confirmation Alerts',
+        'Custom Industry Knowledge & FAQs',
+        'Priority Support',
+      ],
+    },
+    BUSINESS: {
+      id: 'BUSINESS',
+      name: 'Business',
+      priceUsd: 99,
+      priceId: businessPriceId && !businessPriceId.includes('placeholder') ? businessPriceId : null,
+      isConfigured: Boolean(businessPriceId && !businessPriceId.includes('placeholder')),
+      voiceMinutes: 400,
+      features: [
+        '400 Included Voice Minutes / mo',
+        'Everything in Pro',
+        'Multiple Phone Numbers Support',
+        'Dedicated Team Member Inboxes',
+        'Advanced Call Analytics & Reporting',
+      ],
+    },
+  };
+
   return {
-    clientToken: String(config.paddle.clientToken || ''),
-    priceId: String(config.paddle.priceId || ''),
-    environment: config.paddle.environment === 'production' ? 'production' : 'sandbox',
-    isConfigured: Boolean(config.paddle.isConfigured),
-    planName: String(config.billing.planName || 'ONCEClic Pro'),
-    monthlyPriceUsd: Number(config.billing.monthlyPriceUsd) || 19,
-    trialPeriodDays: Number(config.billing.trialPeriodDays) || 7,
-    trialPriceUsd: Number(config.billing.trialPriceUsd) || 0,
+    clientToken: String(paddle.clientToken || ''),
+    priceId: String(paddle.priceId || proPriceId || ''),
+    environment: paddle.environment === 'production' ? 'production' : 'sandbox',
+    isConfigured: Boolean(paddle.isConfigured),
+    planName: String(config.billing?.planName || 'ONCEClic Pro'),
+    monthlyPriceUsd: Number(config.billing?.monthlyPriceUsd) || 19,
+    trialPeriodDays: Number(config.billing?.trialPeriodDays) || 7,
+    trialPriceUsd: Number(config.billing?.trialPriceUsd) || 0,
+    plans,
   };
 }
 
@@ -211,16 +283,26 @@ export function toCustomerVoiceConfig(config: any) {
     activeNumber: config?.activeNumber ? String(config.activeNumber) : undefined,
     connectionMethod: config?.connectionMethod ? String(config.connectionMethod) : undefined,
     setupState: String(config?.setupState || 'NOT_CONFIGURED'),
+    provisioningStatus: String(config?.provisioningStatus || (config?.receptionistActive ? 'ACTIVE' : 'NOT_CONFIGURED')),
     connectionTestStatus: String(config?.connectionTestStatus || 'NOT_TESTED'),
     phoneNumbers: Array.isArray(config?.phoneNumbers)
       ? config.phoneNumbers.map((p: any) => ({
           id: String(p.id),
           phoneNumber: String(p.phoneNumber || p.phone_number),
+          countryCode: p.countryCode || p.country_code ? String(p.countryCode || p.country_code) : undefined,
           phoneNumberType: String(p.phoneNumberType || p.phone_number_type || 'EXISTING'),
           connectionMethod: String(p.connectionMethod || p.connection_method || 'EXISTING_FORWARDING'),
           forwardingTarget: p.forwardingTarget || p.forwarding_target ? String(p.forwardingTarget || p.forwarding_target) : undefined,
           sipEndpoint: p.sipEndpoint || p.sip_endpoint ? String(p.sipEndpoint || p.sip_endpoint) : undefined,
           status: String(p.status || 'ACTIVE'),
+          provisioningStatus: String(p.provisioningStatus || p.provisioning_status || p.status || 'ACTIVE'),
+          monthlyCostUsd: p.monthlyCostUsd !== undefined ? Number(p.monthlyCostUsd || p.monthly_cost_usd) : undefined,
+          setupCostUsd: p.setupCostUsd !== undefined ? Number(p.setupCostUsd || p.setup_cost_usd) : undefined,
+          regulatoryStatus: p.regulatoryStatus || p.regulatory_status ? String(p.regulatoryStatus || p.regulatory_status) : undefined,
+          requiredDocuments: Array.isArray(p.requiredDocuments || p.required_documents) ? (p.requiredDocuments || p.required_documents) : [],
+          actionRequiredReason: p.actionRequiredReason || p.action_required_reason ? String(p.actionRequiredReason || p.action_required_reason) : undefined,
+          lastError: p.lastError || p.last_error ? String(p.lastError || p.last_error) : undefined,
+          verificationStatus: p.verificationStatus || p.verification_status ? String(p.verificationStatus || p.verification_status) : undefined,
           createdAt: String(p.createdAt || p.created_at),
         }))
       : [],
@@ -236,6 +318,7 @@ export function toCustomerVoiceConfig(config: any) {
     },
   };
 }
+
 
 /**
  * Customer-safe Voice Analytics Serializer

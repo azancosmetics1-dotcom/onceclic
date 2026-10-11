@@ -154,12 +154,20 @@ async function runAllTests() {
     await runVoiceReceptionistTests();
     console.log('');
 
+    const { runVapiWebhookSecurityTests } = await import('./vapi-webhook-security.test');
+    await runVapiWebhookSecurityTests();
+    console.log('');
+
     const { runMigrationAndPricingSafetyTests } = await import('./migration-and-pricing-safety.test');
     await runMigrationAndPricingSafetyTests();
     console.log('');
 
     const { runLegacyAccountChatAndComingSoonTests } = await import('./legacy-account-chat-and-coming-soon.test');
     await runLegacyAccountChatAndComingSoonTests();
+    console.log('');
+
+    const { runThreeSubscriptionTiersTests } = await import('./three-subscription-tiers.test');
+    await runThreeSubscriptionTiersTests();
     console.log('');
 
     const duration = ((Date.now() - start) / 1000).toFixed(2);
