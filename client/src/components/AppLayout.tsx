@@ -88,7 +88,7 @@ export const AppLayout: React.FC = () => {
                   <>
                     <Clock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
                     <span>
-                      <strong>Your free trial ends tomorrow.</strong> Upgrade to Pro for $19/month to keep your AI receptionist running.
+                      <strong>Your free trial ends tomorrow.</strong> Upgrade to a paid plan starting from $19/month to keep your AI receptionist running.
                     </span>
                   </>
                 ) : (
@@ -103,7 +103,7 @@ export const AppLayout: React.FC = () => {
                 <>
                   <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5 sm:mt-0" />
                   <span className="text-rose-300">
-                    <strong>Your free trial has ended.</strong> Upgrade to ONCEClic Pro for $19/month to continue using your AI receptionist.
+                    <strong>Your free trial has ended.</strong> Upgrade to a paid plan starting from $19/month to continue using your AI receptionist.
                   </span>
                 </>
               )}

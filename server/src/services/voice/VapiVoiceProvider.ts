@@ -161,11 +161,12 @@ export class VapiVoiceProvider implements IVoiceProvider {
     const toNumber = call.phoneNumber?.number || call.toNumber || '';
 
     let durationSeconds = 0;
-    if (call.durationSeconds) {
+    if (typeof call.durationSeconds === 'number' && Number.isFinite(call.durationSeconds) && call.durationSeconds >= 0) {
       durationSeconds = call.durationSeconds;
     } else if (call.endedAt && call.startedAt) {
-      durationSeconds = Math.round((new Date(call.endedAt).getTime() - new Date(call.startedAt).getTime()) / 1000);
-    } else if (msg.durationSeconds) {
+      const diff = Math.round((new Date(call.endedAt).getTime() - new Date(call.startedAt).getTime()) / 1000);
+      durationSeconds = isNaN(diff) || diff < 0 ? 0 : diff;
+    } else if (typeof msg.durationSeconds === 'number' && Number.isFinite(msg.durationSeconds) && msg.durationSeconds >= 0) {
       durationSeconds = msg.durationSeconds;
     }
 
@@ -192,10 +193,17 @@ export class VapiVoiceProvider implements IVoiceProvider {
 
   formatInboundResponse(agentConfig: VoiceAgentConfig): any {
     const geminiModel = config.vapi.voiceGeminiModel;
+    const maxDurationSeconds =
+      agentConfig.maxDurationSeconds ??
+      config.vapi.maxCallDurationSeconds ??
+      config.voice.maxCallDurationSeconds ??
+      180;
+
     return {
       assistant: {
         name: agentConfig.agentName,
         firstMessage: agentConfig.greeting || 'Hello! Thank you for calling. How can I help you today?',
+        maxDurationSeconds,
         model: {
           provider: 'google',
           model: geminiModel,
@@ -247,9 +255,16 @@ export class VapiVoiceProvider implements IVoiceProvider {
 
   async createOrUpdateAssistant(agentConfig: VoiceAgentConfig): Promise<{ assistantId: string }> {
     const geminiModel = config.vapi.voiceGeminiModel;
-    const payload = {
+    const maxDurationSeconds =
+      agentConfig.maxDurationSeconds ??
+      config.vapi.maxCallDurationSeconds ??
+      config.voice.maxCallDurationSeconds ??
+      180;
+
+    const payload: any = {
       name: agentConfig.agentName,
       firstMessage: agentConfig.greeting || 'Hello! Thank you for calling. How can I assist you?',
+      maxDurationSeconds,
       model: {
         provider: 'google',
         model: geminiModel,
@@ -280,6 +295,80 @@ export class VapiVoiceProvider implements IVoiceProvider {
     return { assistantId: data.id };
   }
 
+  async importPhoneNumber(params: {
+    phoneNumber: string;
+    assistantId?: string;
+    name?: string;
+    telephonyProvider?: 'telnyx' | 'byo-phone-number' | string;
+    telnyxApiKey?: string;
+  }): Promise<{ vapiPhoneNumberId: string; phoneNumber: string; assistantId?: string }> {
+    const telnyxKey = params.telnyxApiKey || config.telnyx.apiKey || config.voice.telnyxApiKey;
+    if (!telnyxKey || telnyxKey.includes('placeholder')) {
+      throw new Error('Telnyx master API key is required to import phone number into Vapi.');
+    }
+
+    const payload: any = {
+      provider: params.telephonyProvider || 'telnyx',
+      number: params.phoneNumber,
+      telnyxApiKey: telnyxKey,
+      name: params.name || `Receptionist (${params.phoneNumber})`,
+    };
+    if (params.assistantId) {
+      payload.assistantId = params.assistantId;
+    }
+
+    const res = await fetch('https://api.vapi.ai/phone-number', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      if (res.status === 409 || err.message?.includes('already exists') || err.message?.includes('conflict')) {
+        let vapiPhoneNumberId = `vapi_pn_${params.phoneNumber.replace(/[^\d]/g, '')}`;
+        try {
+          const listRes = await fetch('https://api.vapi.ai/phone-number', {
+            headers: { Authorization: `Bearer ${this.apiKey}` },
+          });
+          if (listRes.ok) {
+            const listData: any = await listRes.json();
+            const numbers = Array.isArray(listData) ? listData : listData.data || [];
+            const found = numbers.find((n: any) => n.number === params.phoneNumber || n.phoneNumber === params.phoneNumber);
+            if (found?.id) {
+              vapiPhoneNumberId = found.id;
+            }
+          }
+        } catch (fetchErr: any) {
+          console.warn(`[VapiVoiceProvider] Could not resolve existing phone number ID from Vapi: ${fetchErr.message}`);
+        }
+
+        if (params.assistantId) {
+          await this.linkPhoneNumberToAssistant({
+            phoneNumberIdOrNumber: vapiPhoneNumberId,
+            assistantId: params.assistantId,
+          });
+        }
+        return {
+          vapiPhoneNumberId,
+          phoneNumber: params.phoneNumber,
+          assistantId: params.assistantId,
+        };
+      }
+      throw new Error(`Vapi phone number import failed: ${err.message || res.statusText}`);
+    }
+
+    const data: any = await res.json();
+    return {
+      vapiPhoneNumberId: data.id || `vapi_pn_${Date.now()}`,
+      phoneNumber: data.number || params.phoneNumber,
+      assistantId: data.assistantId || params.assistantId,
+    };
+  }
+
   async linkPhoneNumberToAssistant(params: { phoneNumberIdOrNumber: string; assistantId: string }): Promise<boolean> {
     const res = await fetch(`https://api.vapi.ai/phone-number/${params.phoneNumberIdOrNumber}`, {
       method: 'PATCH',
@@ -293,6 +382,36 @@ export class VapiVoiceProvider implements IVoiceProvider {
     });
 
     return res.ok;
+  }
+
+  /**
+   * Terminate active Vapi call on provider side (enforcing 180s duration limit)
+   */
+  async terminateCall(callId: string): Promise<boolean> {
+    if (!callId) return false;
+    try {
+      // Primary: POST https://api.vapi.ai/call/{id}/stop
+      const res = await fetch(`https://api.vapi.ai/call/${callId}/stop`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      if (res.ok) return true;
+
+      // Fallback: DELETE https://api.vapi.ai/call/{id}
+      const delRes = await fetch(`https://api.vapi.ai/call/${callId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+      });
+      return delRes.ok;
+    } catch (err: any) {
+      console.error(`[VapiVoiceProvider] Error terminating call ${callId}:`, err?.message || err);
+      return false;
+    }
   }
 
   async simulateTestCall(params: { organizationId: string; phoneNumber: string; assistantId?: string }): Promise<{

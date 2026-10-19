@@ -12,8 +12,10 @@
 | `GEMINI_API_KEY` | Google AI Studio Developer API Key (when using Gemini) | `AQ...` / `AIza...` | AI (Server-only) |
 | `PADDLE_ENVIRONMENT` | Paddle API mode (`sandbox` or `production`) | `production` / `sandbox` | Payments |
 | `PADDLE_API_KEY` | Server-side Paddle API key | `pdl_live_apikey_...` / `pdl_sdbx_...` | Payments (Server-only) |
-| `PADDLE_WEBHOOK_SECRET` | HMAC secret for Paddle webhook signature verification | `ntfset_...` | Payments (Server-only) |
-| `PADDLE_PRICE_ID` | Paddle Pro Monthly recurring Price ID ($19/mo) | `pri_...` | Payments |
+| `PADDLE_WEBHOOK_SECRET` | HMAC secret for Paddle webhook signature verification | `pdl_ntfset_...` / `ntfset_...` | Payments (Server-only) |
+| `PADDLE_STARTER_PRICE_ID` | Starter recurring Price ID ($19/mo USD, 50 voice mins) | `pri_...` | Payments (Server-only) |
+| `PADDLE_PRO_PRICE_ID` | Pro recurring Price ID ($49/mo USD, 150 voice mins) | `pri_...` | Payments (Server-only) |
+| `PADDLE_BUSINESS_PRICE_ID` | Business recurring Price ID ($99/mo USD, 400 voice mins) | `pri_...` | Payments (Server-only) |
 | `FRONTEND_URL` | Frontend origin for CORS and verification links | `https://onceclic.com` | App URL |
 | `API_URL` | Backend public endpoint | `https://api.onceclic.com` | App URL |
 | `APP_URL` | Web application base URL | `https://onceclic.com` | App URL |
@@ -43,5 +45,7 @@
 | `VITE_SUPABASE_URL` | Public Supabase project URL | `https://[ref].supabase.co` |
 | `VITE_PADDLE_ENVIRONMENT`| Client Paddle environment (`sandbox` / `production`) | `production` / `sandbox` |
 | `VITE_PADDLE_CLIENT_TOKEN`| Paddle public client token for overlay checkout | `live_...` / `test_...` |
-| `VITE_PADDLE_PRICE_ID` | Paddle Pro Monthly Price ID | `pri_...` |
+| `VITE_PADDLE_STARTER_PRICE_ID` | Paddle Starter recurring Price ID ($19/mo) | `pri_...` |
+| `VITE_PADDLE_PRO_PRICE_ID` | Paddle Pro recurring Price ID ($49/mo) | `pri_...` |
+| `VITE_PADDLE_BUSINESS_PRICE_ID` | Paddle Business recurring Price ID ($99/mo) | `pri_...` |
 

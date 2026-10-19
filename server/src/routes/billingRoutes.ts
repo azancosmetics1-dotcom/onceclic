@@ -29,8 +29,11 @@ router.post('/webhook', async (req: Request, res: Response, next) => {
         console.warn('[Paddle Webhook] Invalid signature rejected.');
         return res.status(401).json({ success: false, error: 'Invalid webhook signature.' });
       }
+    } else if (config.paddle.environment === 'production' || config.nodeEnv === 'production') {
+      console.error('[Paddle Webhook] PADDLE_WEBHOOK_SECRET is required in production. Webhook rejected.');
+      return res.status(401).json({ success: false, error: 'Webhook signature verification required in production.' });
     } else {
-      console.warn('[Paddle Webhook] PADDLE_WEBHOOK_SECRET is not configured. Webhook accepted in dev mode.');
+      console.warn('[Paddle Webhook] PADDLE_WEBHOOK_SECRET is not configured. Webhook accepted in dev/test mode.');
     }
 
     const payload = req.body;

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/client';
+import { SUBSCRIPTION_PLANS, PaidPlanTier } from '@onceclic/shared';
 import { CheckCircle2, Sparkles, ArrowRight, Bot, ShieldCheck, Zap } from 'lucide-react';
 
 export const Welcome: React.FC = () => {
@@ -35,6 +36,12 @@ export const Welcome: React.FC = () => {
     };
   }, [refreshProfile]);
 
+  const rawTier = billingInfo?.planTier;
+  const tier: PaidPlanTier = (rawTier && rawTier !== 'TRIAL')
+    ? (rawTier as PaidPlanTier)
+    : (((typeof window !== 'undefined' ? localStorage.getItem('onceclic_selected_plan') : null) as PaidPlanTier) || 'PRO');
+  const planMeta = SUBSCRIPTION_PLANS[tier] || SUBSCRIPTION_PLANS.PRO;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-xl w-full mx-auto text-center space-y-8">
@@ -51,7 +58,7 @@ export const Welcome: React.FC = () => {
             <span>Subscription Activated</span>
           </div>
           <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
-            Welcome to ONCEClic Pro!
+            Welcome to {planMeta.name}!
           </h1>
           <p className="text-sm text-slate-300 max-w-md mx-auto">
             Your 7-day free trial is now active. Your AI Receptionist is ready to capture leads, book appointments, and answer questions 24/7.
@@ -66,7 +73,7 @@ export const Welcome: React.FC = () => {
                 <Bot className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-white">ONCEClic Pro</h3>
+                <h3 className="text-sm font-bold text-white">{planMeta.name}</h3>
                 <p className="text-xs text-slate-400">Merchant of Record: Paddle</p>
               </div>
             </div>
@@ -84,7 +91,7 @@ export const Welcome: React.FC = () => {
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Recurring Billing:</span>
-              <span className="font-semibold text-white">$19.00 / month</span>
+              <span className="font-semibold text-white">${planMeta.priceUsd}.00 / month</span>
             </div>
             {user?.email && (
               <div className="flex justify-between">

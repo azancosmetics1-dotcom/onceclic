@@ -86,6 +86,8 @@ export const AIReceptionistPage: React.FC = () => {
     text: string;
   } | null>(null);
 
+  const [retryingNumberId, setRetryingNumberId] = useState<string | null>(null);
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -168,6 +170,7 @@ export const AIReceptionistPage: React.FC = () => {
         idempotencyKey,
         confirmPurchase: true,
         expectedMonthlyCostUsd: selectedNumberForOrder.monthlyCostUsd,
+        expectedSetupCostUsd: selectedNumberForOrder.setupCostUsd,
       });
 
       setOrderProgressState('CONNECTING');
@@ -275,6 +278,21 @@ export const AIReceptionistPage: React.FC = () => {
     } catch (err: any) {
       setError(err.message || 'Failed to disconnect phone number.');
       setLoading(false);
+    }
+  };
+
+  // Safe retry for failed phone number provisioning
+  const handleRetryProvisioning = async (id: string, phoneStr: string) => {
+    try {
+      setRetryingNumberId(id);
+      setError(null);
+      await api.retryVoiceNumber(id);
+      setSuccessMsg(`Provisioning for ${phoneStr} resumed! Click Run AI Test Call below once ready.`);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Retry failed.');
+    } finally {
+      setRetryingNumberId(null);
     }
   };
 
@@ -803,6 +821,27 @@ export const AIReceptionistPage: React.FC = () => {
                     </div>
 
                     <div className="flex items-center space-x-2">
+                      {/* Retry Button if FAILED */}
+                      {isFailed && (
+                        <button
+                          onClick={() => handleRetryProvisioning(num.id, num.phoneNumber)}
+                          disabled={retryingNumberId === num.id}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 flex items-center space-x-1.5 disabled:opacity-50"
+                        >
+                          {retryingNumberId === num.id ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                              <span>Retrying...</span>
+                            </>
+                          ) : (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5" />
+                              <span>Retry Setup</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+
                       {/* Prominent Run Test Call Button if TEST_REQUIRED or ACTIVE */}
                       {(isTestRequired || isActive) && (
                         <button
@@ -907,16 +946,34 @@ export const AIReceptionistPage: React.FC = () => {
                   <span className="font-mono text-emerald-400">{selectedNumberForOrder.phoneNumber}</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-300 pt-2 border-t border-slate-900">
-                  <span>Recurring Number Fee:</span>
-                  <span className="font-bold text-white">${selectedNumberForOrder.monthlyCostUsd.toFixed(2)} / month</span>
+                  <span>Actual Telnyx Provider Cost:</span>
+                  <span className="font-semibold text-slate-300">${(selectedNumberForOrder.providerCostUsd ?? (selectedNumberForOrder.monthlyCostUsd - 1)).toFixed(2)} / month</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-300">
+                  <span>ONCEClic Number Markup:</span>
+                  <span className="font-semibold text-emerald-400">+$1.00 / month (fixed)</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-200 font-bold bg-slate-900/60 p-2 rounded-lg">
+                  <span>Customer Phone Number Price:</span>
+                  <span className="text-emerald-400">${selectedNumberForOrder.monthlyCostUsd.toFixed(2)} / month</span>
+                </div>
+                {selectedNumberForOrder.setupCostUsd > 0 && (
+                  <div className="flex justify-between items-center text-slate-300">
+                    <span>One-Time Provider Setup Fee:</span>
+                    <span className="font-bold text-white">${selectedNumberForOrder.setupCostUsd.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-slate-400 text-[11px] pt-1 border-t border-slate-900">
+                  <span>ONCEClic Pro Plan (Separate):</span>
+                  <span>$19.00 / month</span>
+                </div>
+                <div className="flex justify-between items-center text-white font-bold text-xs">
+                  <span>Combined Recurring Total:</span>
+                  <span>${(19.00 + selectedNumberForOrder.monthlyCostUsd).toFixed(2)} / month</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-300">
                   <span>Included Monthly AI Minutes:</span>
                   <span className="font-semibold text-white">{usage?.includedMinutes || 150} min ({usage?.planTier || 'PRO'} Plan)</span>
-                </div>
-                <div className="flex justify-between items-center text-slate-300">
-                  <span>Telephony Provider:</span>
-                  <span className="font-semibold text-slate-400">Telnyx Global Telephony</span>
                 </div>
               </div>
 
@@ -932,8 +989,8 @@ export const AIReceptionistPage: React.FC = () => {
                 </div>
               )}
 
-              <p className="text-slate-400 text-[11px]">
-                By confirming, this number will be ordered via Telnyx and linked to your Vapi voice assistant. You will run a test call before the line is marked active.
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                Phone-number rental is billed separately from the $19.00/month ONCEClic Pro subscription. Applicable taxes and payment processing are calculated at checkout.
               </p>
             </div>
 

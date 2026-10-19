@@ -170,6 +170,14 @@ async function runAllTests() {
     await runThreeSubscriptionTiersTests();
     console.log('');
 
+    const { runPaddleLiveSwitchTests } = await import('./paddle-live-switch.test');
+    await runPaddleLiveSwitchTests();
+    console.log('');
+
+    const { runForgotPasswordTests } = await import('./forgot-password.test');
+    await runForgotPasswordTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

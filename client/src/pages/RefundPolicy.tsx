@@ -41,7 +41,7 @@ export const RefundPolicy: React.FC = () => {
               </li>
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span><strong>No Automatic Charges:</strong> You will never be charged automatically when your trial ends. Paid subscriptions begin only if you choose to manually upgrade to ONCEClic Pro ($19/month).</span>
+                <span><strong>No Automatic Charges:</strong> You will never be charged automatically when your trial ends. Paid subscriptions begin only if you choose to manually upgrade to a paid plan starting from $19/month (Starter $19/mo, Pro $49/mo, Business $99/mo).</span>
               </li>
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
@@ -62,7 +62,7 @@ export const RefundPolicy: React.FC = () => {
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-4">
             <h2 className="text-lg font-bold text-white">2. Upgrades & Paid Subscriptions</h2>
             <p>
-              Following or during your trial, you may choose to upgrade to the <strong>ONCEClic Pro</strong> plan ($19 USD/month). Upgrading requires completing checkout through our Merchant of Record, <strong>Paddle</strong>.
+              Following or during your trial, you may choose to upgrade to one of our subscription tiers — <strong>Starter ($19 USD/month)</strong>, <strong>ONCEClic Pro ($49 USD/month)</strong>, or <strong>Business ($99 USD/month)</strong>. Upgrading requires completing checkout through our Merchant of Record, <strong>Paddle</strong>.
             </p>
             <p>
               Once upgraded, recurring subscription fees are billed on a monthly cycle until canceled. You can cancel your subscription at any time directly through your dashboard billing portal.

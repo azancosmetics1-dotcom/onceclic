@@ -153,6 +153,7 @@ export async function runAIBudgetTests() {
   console.log(`  ✓ 7. Concurrent requests cannot materially bypass budget (allowed: ${allowedGenerations}, final spent: $${totalSpentRace})`);
 
   // 8. Pro uses separate budget
+  const proBudgetPriceId = config.paddle.plans.PRO.priceId || config.paddle.proMonthlyPriceId || config.paddle.priceId;
   await PaddleBillingService.handleWebhookEvent({
     event_id: `evt_pro_upgrade_${Date.now()}`,
     event_type: 'subscription.activated',
@@ -162,6 +163,7 @@ export async function runAIBudgetTests() {
       customer_id: `ctm_pro_${Date.now()}`,
       status: 'active',
       custom_data: { organization_id: orgId },
+      items: [{ price: { id: proBudgetPriceId } }],
       current_billing_period: {
         starts_at: new Date().toISOString(),
         ends_at: new Date(Date.now() + 30 * 86400000).toISOString(),

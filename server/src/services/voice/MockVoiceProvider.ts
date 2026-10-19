@@ -9,7 +9,10 @@ export class MockVoiceProvider implements IVoiceProvider {
 
   public simulateAssistantFailure: boolean = false;
   public simulateLinkFailure: boolean = false;
+  public simulateVapiImportFailure: boolean = false;
   public simulateTestCallFailure: boolean = false;
+  public simulateTerminationFailure: boolean = false;
+  public terminatedCalls: Set<string> = new Set();
 
   verifyWebhookSignature(_rawBody: string | Buffer, _signature: string | undefined, _secret?: string): boolean {
     // In mock mode for testing, permit test calls unless signature is explicitly 'invalid_signature_test'
@@ -59,6 +62,7 @@ export class MockVoiceProvider implements IVoiceProvider {
 
   formatInboundResponse(agentConfig: VoiceAgentConfig): any {
     this.lastInboundConfig = agentConfig;
+    const maxDurationSeconds = agentConfig.maxDurationSeconds ?? 180;
     return {
       success: true,
       provider: this.providerName,
@@ -66,6 +70,8 @@ export class MockVoiceProvider implements IVoiceProvider {
       prompt: agentConfig.systemPrompt,
       begin_message: agentConfig.greeting,
       tools: agentConfig.tools || [],
+      max_duration_seconds: maxDurationSeconds,
+      maxDurationSeconds: maxDurationSeconds,
     };
   }
 
@@ -113,6 +119,23 @@ export class MockVoiceProvider implements IVoiceProvider {
     return true;
   }
 
+  async importPhoneNumber(params: {
+    phoneNumber: string;
+    assistantId?: string;
+    name?: string;
+    telephonyProvider?: 'telnyx' | 'byo-phone-number' | string;
+    telnyxApiKey?: string;
+  }): Promise<{ vapiPhoneNumberId: string; phoneNumber: string; assistantId?: string }> {
+    if (this.simulateVapiImportFailure || this.simulateLinkFailure) {
+      throw new Error('Simulated Vapi phone number import failure: Invalid telephony credentials or Vapi API error.');
+    }
+    return {
+      vapiPhoneNumberId: `vapi_pn_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      phoneNumber: params.phoneNumber,
+      assistantId: params.assistantId,
+    };
+  }
+
   async simulateTestCall(params: { organizationId: string; phoneNumber: string; assistantId?: string }): Promise<{
     success: boolean;
     durationSeconds: number;
@@ -128,5 +151,13 @@ export class MockVoiceProvider implements IVoiceProvider {
       transcript: 'AI: Hello! Thank you for calling. How can I help you today?\nCustomer: Hello, this is a test call.\nAI: Everything is working perfectly! Your AI Receptionist is ready to answer customer calls.',
       summary: 'Test call answered by AI assistant. Audio and tool dispatch verified.',
     };
+  }
+
+  async terminateCall(callId: string): Promise<boolean> {
+    if (this.simulateTerminationFailure) {
+      throw new Error('Simulated Vapi call termination failure: Provider network timeout');
+    }
+    this.terminatedCalls.add(callId);
+    return true;
   }
 }

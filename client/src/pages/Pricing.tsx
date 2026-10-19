@@ -27,7 +27,7 @@ export const Pricing: React.FC = () => {
   const faqs = [
     {
       q: 'How does the 7-day free trial work?',
-      a: 'Start your 7-day free trial with no credit card required. Your trial is $0 for 7 days with limited AI usage during your free trial. When the trial ends, you can choose whether to upgrade to ONCEClic Pro.',
+      a: 'Start your 7-day free trial with no credit card required. Your trial is $0 for 7 days with limited AI usage during your free trial. When the trial ends, you can choose whether to upgrade to Starter ($19/mo), Pro ($49/mo), or Business ($99/mo).',
     },
     {
       q: 'Is a credit card required to start the trial?',
@@ -35,7 +35,7 @@ export const Pricing: React.FC = () => {
     },
     {
       q: 'What happens when my trial expires?',
-      a: 'When your trial ends, you are never automatically charged. You can choose whether to upgrade to ONCEClic Pro for $19/month to keep your AI receptionist and booking automation active.',
+      a: 'When your trial ends, you are never automatically charged. You can choose whether to upgrade to Starter ($19/month), Pro ($49/month), or Business ($99/month) to keep your AI receptionist and booking automation active.',
     },
     {
       q: 'What are the AI usage terms?',
@@ -70,7 +70,7 @@ export const Pricing: React.FC = () => {
             Simple, transparent pricing.
           </h1>
           <p className="mt-4 text-base sm:text-lg text-slate-300">
-            One comprehensive plan with everything your business needs to automate customer communication and bookings.
+            Choose the plan that fits your business needs to automate customer communication and bookings.
           </p>
         </div>
 

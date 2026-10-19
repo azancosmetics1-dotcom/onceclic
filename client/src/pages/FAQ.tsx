@@ -44,15 +44,15 @@ export const FAQ: React.FC = () => {
     },
     {
       category: 'Pricing & Trial',
-      question: 'How much does ONCEClic Pro cost?',
+      question: 'How much does ONCEClic cost?',
       answer:
-        'ONCEClic Pro costs $19 USD per month. It includes the complete AI receptionist suite, website embed, calendar booking engine, email answering, and team collaboration features.',
+        'We offer three transparent monthly tiers: Starter ($19/mo, 50 voice minutes), ONCEClic Pro ($49/mo, 150 voice minutes), and Business ($99/mo, 400 voice minutes). All paid plans include AI website reception, automated calendar bookings, and multi-channel customer intake.',
     },
     {
       category: 'Pricing & Trial',
       question: 'What happens when my free trial ends?',
       answer:
-        'When your 7-day trial ends, you are never automatically charged. You can choose whether to upgrade to ONCEClic Pro ($19/month) via our secure checkout. If you choose not to upgrade, your settings and knowledge base remain safely preserved in your account.',
+        'When your 7-day trial ends, you are never automatically charged. You can choose whether to upgrade to Starter ($19/mo), Pro ($49/mo), or Business ($99/mo) via our secure checkout. If you choose not to upgrade, your settings and knowledge base remain safely preserved in your account.',
     },
     {
       category: 'Billing & Merchant of Record',

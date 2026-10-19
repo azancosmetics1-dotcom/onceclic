@@ -18,9 +18,18 @@ export class MockTelephonyProvider implements ITelephonyProvider {
   // Verification codes for existing numbers
   private verificationCodes: Map<string, string> = new Map();
 
-  // Simulated failure flag for test purposes
+  // Simulated failure flags for test purposes
   public simulateProvisionFailure: boolean = false;
+  /** Simulates Telnyx SIP routing PATCH failure (non-throwing — returns success=false) */
   public simulateVapiRoutingFailure: boolean = false;
+  /** Simulates SIP routing throwing an unrecoverable error */
+  public simulateSipRoutingError: boolean = false;
+  /** Simulates the phone number resource ID not yet available (still provisioning) */
+  public simulateResourceIdPending: boolean = false;
+  public simulateMissingConnectionId: boolean = false;
+  public simulateOutOfBalance: boolean = false;
+  public simulateAuthFailure: boolean = false;
+  public simulateEmptyInventory: boolean = false;
 
   async searchAvailableNumbers(params: {
     countryCode: string;
@@ -28,6 +37,16 @@ export class MockTelephonyProvider implements ITelephonyProvider {
     areaCode?: string;
     limit?: number;
   }): Promise<AvailablePhoneNumber[]> {
+    if (this.simulateAuthFailure) {
+      throw new Error('Telnyx telephony provider authentication failed. Please verify the server-side API key.');
+    }
+    if (this.simulateOutOfBalance) {
+      throw new Error('Telnyx account balance is insufficient or exhausted. Please top up your telephony account balance.');
+    }
+    if (this.simulateEmptyInventory) {
+      return [];
+    }
+
     const country = (params.countryCode || 'US').toUpperCase().trim();
     const countryConfig = SUPPORTED_TELEPHONY_COUNTRIES[country];
 
@@ -44,6 +63,11 @@ export class MockTelephonyProvider implements ITelephonyProvider {
     const results: AvailablePhoneNumber[] = [];
     const monthlyCost = countryConfig.monthlyCostUsd[type] || 2.00;
     const setupCost = countryConfig.setupCostUsd[type] || 0.00;
+    const { PhoneNumberPricingService } = await import('./PhoneNumberPricingService');
+    const pricing = PhoneNumberPricingService.calculateCustomerPrice({
+      providerMonthlyCostUsd: monthlyCost,
+      providerSetupCostUsd: setupCost,
+    });
 
     const baseArea = params.areaCode || (country === 'US' ? '415' : country === 'CA' ? '416' : country === 'GB' ? '20' : country === 'DE' ? '30' : country === 'AU' ? '2' : '1');
 
@@ -83,8 +107,14 @@ export class MockTelephonyProvider implements ITelephonyProvider {
         countryCode: country,
         numberType: type,
         region: countryConfig.countryName,
-        monthlyCostUsd: monthlyCost,
-        setupCostUsd: setupCost,
+        monthlyCostUsd: pricing.customerMonthlyCostUsd,
+        setupCostUsd: pricing.setupCostUsd,
+        providerCostUsd: pricing.providerCostUsd,
+        markupUsd: pricing.markupUsd,
+        customerMonthlyCostUsd: pricing.customerMonthlyCostUsd,
+        proMonthlyCostUsd: pricing.proSubscriptionUsd,
+        combinedMonthlyTotalUsd: pricing.combinedMonthlyTotalUsd,
+        pricingPolicyVersion: pricing.policyVersion,
         regulatoryRequirement: countryConfig.regulatoryNotice,
         requiresDocuments: countryConfig.regulatoryLevel !== 'NONE',
         requiredDocuments: countryConfig.requiredDocuments,
@@ -101,13 +131,20 @@ export class MockTelephonyProvider implements ITelephonyProvider {
     numberType?: string;
     idempotencyKey?: string;
   }): Promise<{
-    telnyxPhoneNumberId: string;
+    telnyxOrderId: string;
     phoneNumber: string;
+    telnyxPhoneNumberResourceId: string | null;
     monthlyCostUsd: number;
     setupCostUsd: number;
     regulatoryStatus: 'NOT_REQUIRED' | 'PENDING_DOCUMENTATION' | 'APPROVED';
     requiredDocuments: string[];
   }> {
+    if (this.simulateAuthFailure) {
+      throw new Error('Telnyx telephony provider authentication failed during number order.');
+    }
+    if (this.simulateOutOfBalance) {
+      throw new Error('Telnyx account balance is insufficient to complete number purchase. Order rejected.');
+    }
     if (this.simulateProvisionFailure) {
       throw new Error('Simulated Telnyx telephony provisioning failure: Number unavailable or carrier timeout.');
     }
@@ -138,9 +175,22 @@ export class MockTelephonyProvider implements ITelephonyProvider {
       ? 'PENDING_DOCUMENTATION'
       : 'APPROVED';
 
+    // Mock produces two distinct identifiers:
+    //   telnyxOrderId              = the number order tracking ID (like data.id from Telnyx)
+    //   telnyxPhoneNumberResourceId = the phone-number resource ID (from GET /v2/phone_numbers)
+    // In the mock these are always distinct to validate callers don't confuse them.
+    const ts = Date.now();
+    const rand = Math.floor(Math.random() * 10000);
+    const telnyxOrderId = `mock_order_${ts}_${rand}`;
+    // If simulateResourceIdPending, resource ID is not yet available (number still provisioning)
+    const telnyxPhoneNumberResourceId = this.simulateResourceIdPending
+      ? null
+      : `mock_ptn_${ts}_${rand}`;
+
     const result = {
-      telnyxPhoneNumberId: `telnyx_order_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+      telnyxOrderId,
       phoneNumber: params.phoneNumber,
+      telnyxPhoneNumberResourceId,
       monthlyCostUsd: monthlyCost,
       setupCostUsd: setupCost,
       regulatoryStatus: regulatoryStatus as 'NOT_REQUIRED' | 'PENDING_DOCUMENTATION' | 'APPROVED',
@@ -191,14 +241,22 @@ export class MockTelephonyProvider implements ITelephonyProvider {
   }
 
   async configureRoutingToVapi(params: {
-    telnyxPhoneNumberId: string;
+    telnyxPhoneNumberId: string | null;
     phoneNumber: string;
     vapiSipUri?: string;
-  }): Promise<boolean> {
-    if (this.simulateVapiRoutingFailure) {
+  }): Promise<{ success: boolean; telnyxPhoneNumberResourceId: string | null }> {
+    if (this.simulateMissingConnectionId) {
+      return { success: false, telnyxPhoneNumberResourceId: params.telnyxPhoneNumberId };
+    }
+    if (this.simulateSipRoutingError) {
       throw new Error('Simulated failure: Telnyx SIP routing to Vapi assistant could not be established.');
     }
-    return true;
+    if (this.simulateVapiRoutingFailure || this.simulateResourceIdPending) {
+      return { success: false, telnyxPhoneNumberResourceId: null };
+    }
+    // Return the provided ID or generate a stable mock resource ID from the phone number
+    const resourceId = params.telnyxPhoneNumberId || `mock_ptn_${params.phoneNumber.replace(/[^\d]/g, '')}`;
+    return { success: true, telnyxPhoneNumberResourceId: resourceId };
   }
 
   verifyWebhookSignature(params: {

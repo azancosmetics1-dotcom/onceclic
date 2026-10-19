@@ -13,6 +13,10 @@ export class VoicePromptBuilder {
     systemPrompt: string;
     tools: any[];
   }> {
+    if (!organizationId || typeof organizationId !== 'string' || organizationId.trim() === '') {
+      throw new Error('Organization ID is strictly required to build voice prompt.');
+    }
+
     const org = await db.getOne(
       'SELECT id, name, slug, business_type, phone, email, website, address, timezone FROM organizations WHERE id = $1',
       [organizationId]

@@ -19,12 +19,20 @@ export async function authMiddleware(req: Request, res: Response, next: NextFunc
     const decoded = jwt.verify(token, config.jwtSecret) as JwtPayload;
 
     const user = await db.getOne(
-      'SELECT id, email, full_name as "fullName", is_email_verified as "isEmailVerified" FROM users WHERE id = $1',
+      'SELECT id, email, full_name as "fullName", is_email_verified as "isEmailVerified", token_version as "tokenVersion" FROM users WHERE id = $1',
       [decoded.userId]
     );
 
     if (!user) {
       return res.status(401).json({ success: false, error: 'User session invalid or user not found.' });
+    }
+
+    const currentTokenVersion = user.tokenVersion || (user as any).token_version || 0;
+    if (currentTokenVersion > 0) {
+      const decodedVersion = (decoded as any).tokenVersion || 0;
+      if (decodedVersion < currentTokenVersion) {
+        return res.status(401).json({ success: false, error: 'Session has been revoked. Please log in again.' });
+      }
     }
 
     req.user = {

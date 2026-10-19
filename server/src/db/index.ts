@@ -199,6 +199,7 @@ class EmbeddedDatabase implements IDatabase {
       'composio_trigger_instances',
       'voice_phone_numbers',
       'voice_call_records',
+      'voice_phone_number_checkouts',
     ];
     for (const t of tableNames) {
       if (!this.tables.has(t)) {
@@ -567,7 +568,12 @@ class EmbeddedDatabase implements IDatabase {
           const valPlaceholder = clause.substring(eqIdx + 1).trim();
 
           if (/^COALESCE\(/i.test(valPlaceholder)) {
-            const inner = valPlaceholder.replace(/^COALESCE\(/i, '').replace(/\)$/, '');
+            // Handle arithmetic suffix like COALESCE(col, 0) + 1
+            const arithmeticMatch = valPlaceholder.match(/^(COALESCE\([^)]+\))\s*([+\-]\s*\d+)?$/i);
+            const coalesceExpr = arithmeticMatch ? arithmeticMatch[1] : valPlaceholder;
+            const arithmeticSuffix = arithmeticMatch && arithmeticMatch[2] ? arithmeticMatch[2].trim() : null;
+
+            const inner = coalesceExpr.replace(/^COALESCE\(/i, '').replace(/\)$/, '');
             const innerParts = inner.split(',').map(s => s.trim());
             let resolvedVal: any = null;
             for (const part of innerParts) {
@@ -578,11 +584,22 @@ class EmbeddedDatabase implements IDatabase {
                   break;
                 }
               } else if (part.toLowerCase() === col) {
-                resolvedVal = row[col];
+                resolvedVal = row[col] !== undefined && row[col] !== null ? row[col] : null;
+                if (resolvedVal !== null) break;
+              } else if (/^\d+$/.test(part.trim())) {
+                resolvedVal = Number(part.trim());
                 break;
               } else {
                 resolvedVal = part.replace(/'/g, '');
                 break;
+              }
+            }
+            // Apply arithmetic suffix (e.g. + 1 or - 1)
+            if (arithmeticSuffix && resolvedVal !== null) {
+              const num = parseFloat(String(resolvedVal));
+              if (!isNaN(num)) {
+                const delta = parseFloat(arithmeticSuffix.replace(/\s+/g, ''));
+                resolvedVal = num + delta;
               }
             }
             row[col] = resolvedVal;
@@ -597,6 +614,8 @@ class EmbeddedDatabase implements IDatabase {
             row[col] = false;
           } else if (valPlaceholder.toUpperCase() === 'NULL') {
             row[col] = null;
+          } else if (row[valPlaceholder.toLowerCase()] !== undefined) {
+            row[col] = row[valPlaceholder.toLowerCase()];
           } else {
             row[col] = valPlaceholder.replace(/'/g, '');
           }

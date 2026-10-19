@@ -2,6 +2,7 @@ import { AuthService } from '../server/src/services/AuthService';
 import { TrialService } from '../server/src/services/TrialService';
 import { PaddleBillingService } from '../server/src/services/PaddleBillingService';
 import { AIBudgetService } from '../server/src/services/AIBudgetService';
+import { config } from '../server/src/config';
 import { db } from '../server/src/db';
 import { SubscriptionStatus } from '@onceclic/shared';
 
@@ -163,6 +164,8 @@ export async function runTrialSecurityTests() {
 
   // 7. Same email can still purchase Pro after using a trial
   const paddleSubId = `sub_test_${Date.now()}`;
+  // Use the configured PRO price ID so resolvePlanTierFromPriceId can map the event
+  const proPriceId = config.paddle.plans.PRO.priceId || config.paddle.proMonthlyPriceId || config.paddle.priceId;
   await PaddleBillingService.handleWebhookEvent({
     event_id: `evt_pro_${Date.now()}`,
     event_type: 'subscription.activated',
@@ -172,6 +175,7 @@ export async function runTrialSecurityTests() {
       customer_id: `ctm_${Date.now()}`,
       status: 'active',
       custom_data: { organization_id: orgId2 },
+      items: [{ price: { id: proPriceId } }],
       current_billing_period: {
         starts_at: new Date().toISOString(),
         ends_at: new Date(Date.now() + 30 * 86400000).toISOString(),

@@ -17,21 +17,83 @@ export class PaddleBillingService {
   static resolvePlanTierFromPriceId(priceId: string | null | undefined): PaidPlanTier | null {
     if (!priceId) return null;
     const p = priceId.trim();
+    if (!p || p.includes('placeholder')) return null;
 
-    const starterId = config.paddle.plans?.STARTER?.priceId;
+    // Safety guard: Never resolve a sandbox price ID in production mode
+    if (config.paddle.environment === 'production' && p.toLowerCase().includes('sandbox')) {
+      return null;
+    }
+
+    const starterId = config.paddle.plans?.STARTER?.priceId?.trim();
+    const proId = config.paddle.plans?.PRO?.priceId?.trim();
+    const businessId = config.paddle.plans?.BUSINESS?.priceId?.trim();
+
+    // Check plan price IDs
     if (starterId && p === starterId) return 'STARTER';
-
-    const proId = config.paddle.plans?.PRO?.priceId;
     if (proId && p === proId) return 'PRO';
-
-    const businessId = config.paddle.plans?.BUSINESS?.priceId;
     if (businessId && p === businessId) return 'BUSINESS';
 
-    // Legacy fallback configured price ID (maps to PRO)
-    if (config.paddle.proMonthlyPriceId && p === config.paddle.proMonthlyPriceId) return 'PRO';
-    if (config.paddle.priceId && p === config.paddle.priceId) return 'PRO';
+    // Legacy fallback configured price ID (maps to PRO only if not colliding with STARTER or BUSINESS)
+    const legacyPro = (config.paddle.proMonthlyPriceId || config.paddle.priceId)?.trim();
+    if (legacyPro && p === legacyPro && p !== starterId && p !== businessId) {
+      if (config.paddle.environment === 'production' && legacyPro.toLowerCase().includes('sandbox')) {
+        return null;
+      }
+      return 'PRO';
+    }
 
     return null;
+  }
+
+  /**
+   * Validate that a plan has a configured price ID that maps to the expected plan without collisions.
+   */
+  static validatePlanPriceMapping(tier: PaidPlanTier): {
+    valid: boolean;
+    priceId: string;
+    priceUsd: number;
+    error?: string;
+  } {
+    const plan = config.paddle.plans?.[tier];
+    if (!plan || !plan.priceId || plan.priceId.includes('placeholder')) {
+      return {
+        valid: false,
+        priceId: '',
+        priceUsd: (plan?.priceUsd || (tier === 'STARTER' ? 19 : tier === 'PRO' ? 49 : 99)),
+        error: `Missing configured Paddle price ID for ${tier}`,
+      };
+    }
+
+    const currentId = plan.priceId.trim();
+
+    // Safety guard: Sandbox price IDs cannot be used in production environment
+    if (config.paddle.environment === 'production' && currentId.toLowerCase().includes('sandbox')) {
+      return {
+        valid: false,
+        priceId: currentId,
+        priceUsd: plan.priceUsd,
+        error: `Sandbox price ID "${currentId}" cannot be used in production environment for ${tier}`,
+      };
+    }
+
+    const otherTiers = (['STARTER', 'PRO', 'BUSINESS'] as PaidPlanTier[]).filter((t) => t !== tier);
+    for (const other of otherTiers) {
+      const otherId = config.paddle.plans?.[other]?.priceId?.trim();
+      if (otherId && otherId === currentId) {
+        return {
+          valid: false,
+          priceId: currentId,
+          priceUsd: plan.priceUsd,
+          error: `Price ID collision: ${tier} shares price ID "${currentId}" with ${other}`,
+        };
+      }
+    }
+
+    return {
+      valid: true,
+      priceId: currentId,
+      priceUsd: plan.priceUsd,
+    };
   }
 
   private static getPaddleSdk(): Paddle | null {
@@ -208,6 +270,20 @@ export class PaddleBillingService {
     const customData = data?.custom_data || data?.customData || {};
     let organizationId = customData?.organization_id || customData?.organizationId;
 
+    // Detect if webhook event belongs to separate phone-number rental
+    const isPhoneNumberRental =
+      customData?.type === 'phone_number_rental' ||
+      customData?.target === 'voice_phone_number' ||
+      Boolean(
+        paddleSubId &&
+        (await db.getOne('SELECT id FROM voice_phone_numbers WHERE paddle_subscription_id = $1', [paddleSubId]))
+      );
+
+    if (isPhoneNumberRental) {
+      const { PhoneNumberBillingService } = await import('./voice/PhoneNumberBillingService');
+      return PhoneNumberBillingService.handleWebhookEvent(event);
+    }
+
     // 2. Organization mapping fallback
     if (!organizationId && paddleSubId) {
       const subRecord = await db.getOne<{ organization_id: string }>(
@@ -271,7 +347,7 @@ export class PaddleBillingService {
         const currentPeriodStart = data.current_billing_period?.starts_at || data.currentBillingPeriod?.startsAt;
         const currentPeriodEnd = data.current_billing_period?.ends_at || data.currentBillingPeriod?.endsAt;
         const rawPriceId = data.items?.[0]?.price?.id || data.items?.[0]?.price_id || data.price_id;
-        const priceId = rawPriceId !== undefined ? rawPriceId : (config.paddle.plans?.PRO?.priceId || config.paddle.priceId);
+        const priceId = rawPriceId ? String(rawPriceId).trim() : null;
 
         // Authoritatively map price ID to plan tier
         const matchedTier = this.resolvePlanTierFromPriceId(priceId);

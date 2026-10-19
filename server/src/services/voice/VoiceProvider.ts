@@ -36,6 +36,7 @@ export interface VoiceAgentConfig {
   voiceId?: string;
   temperature?: number;
   tools?: any[];
+  maxDurationSeconds?: number;
 }
 
 export interface IVoiceProvider {
@@ -55,9 +56,19 @@ export interface IVoiceProvider {
   
   formatErrorResponse(toolCallId: string | undefined, errorMessage: string): any;
 
+  terminateCall?(callId: string): Promise<boolean>;
+
   provisionNumber?(params: { areaCode?: string; country?: string }): Promise<{ phoneNumber: string; providerPhoneNumberId: string }>;
 
   createOrUpdateAssistant?(config: VoiceAgentConfig): Promise<{ assistantId: string }>;
+
+  importPhoneNumber?(params: {
+    phoneNumber: string;
+    assistantId?: string;
+    name?: string;
+    telephonyProvider?: 'telnyx' | 'byo-phone-number' | string;
+    telnyxApiKey?: string;
+  }): Promise<{ vapiPhoneNumberId: string; phoneNumber: string; assistantId?: string }>;
 
   linkPhoneNumberToAssistant?(params: { phoneNumberIdOrNumber: string; assistantId: string }): Promise<boolean>;
 
@@ -86,8 +97,24 @@ export interface ITelephonyProvider {
     numberType?: string;
     idempotencyKey?: string;
   }): Promise<{
-    telnyxPhoneNumberId: string;
+    /**
+     * The Telnyx number ORDER ID (data.id from POST /v2/number_orders).
+     * Used for order tracking and status polling only.
+     * NOT valid as a path parameter for PATCH /v2/phone_numbers/{id}.
+     */
+    telnyxOrderId: string;
+    /**
+     * The confirmed E.164 phone number string from the order response
+     * (data.phone_numbers[0].phone_number). Used for all downstream routing.
+     */
     phoneNumber: string;
+    /**
+     * The Telnyx phone-number RESOURCE ID, required for PATCH /v2/phone_numbers/{id}.
+     * This is resolved by calling GET /v2/phone_numbers after the order completes.
+     * May be null if the number is still being provisioned; in that case,
+     * configureRoutingToVapi will attempt to resolve it via API lookup.
+     */
+    telnyxPhoneNumberResourceId: string | null;
     monthlyCostUsd: number;
     setupCostUsd: number;
     regulatoryStatus: 'NOT_REQUIRED' | 'PENDING_DOCUMENTATION' | 'APPROVED';
@@ -104,10 +131,15 @@ export interface ITelephonyProvider {
   }>;
 
   configureRoutingToVapi(params: {
-    telnyxPhoneNumberId: string;
+    /**
+     * The Telnyx phone-number RESOURCE ID (from GET /v2/phone_numbers lookup).
+     * If not yet known, pass null and provide phoneNumber for lookup.
+     */
+    telnyxPhoneNumberId: string | null;
+    /** The E.164 phone number string (used for resource ID lookup if telnyxPhoneNumberId is null). */
     phoneNumber: string;
     vapiSipUri?: string;
-  }): Promise<boolean>;
+  }): Promise<{ success: boolean; telnyxPhoneNumberResourceId: string | null }>;
 
   verifyWebhookSignature?(params: {
     rawBody: string | Buffer;

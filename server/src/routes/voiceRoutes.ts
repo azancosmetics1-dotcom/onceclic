@@ -3,6 +3,8 @@ import { authMiddleware } from '../middleware/authMiddleware';
 import { tenantIsolationMiddleware } from '../middleware/tenantIsolationMiddleware';
 import { requirePermission } from '../middleware/rbacMiddleware';
 import { VoiceService } from '../services/voice/VoiceService';
+import { PhoneNumberPricingService } from '../services/voice/PhoneNumberPricingService';
+import { PhoneNumberBillingService } from '../services/voice/PhoneNumberBillingService';
 import { VoiceConnectionMethod } from '@onceclic/shared';
 import {
   toCustomerVoiceConfig,
@@ -58,6 +60,82 @@ router.get('/available-numbers', requirePermission('voice:read'), async (req: Re
     });
 
     res.json({ success: true, data: numbers });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Authoritative Server-Side Pricing Quote
+ * customer_monthly_number_price = verified_telnyx_monthly_cost + 1.00 USD
+ */
+router.post('/numbers/quote', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
+  try {
+    const { countryCode, numberType, phoneNumber, providerMonthlyCost, providerSetupCost } = req.body;
+    const quote = PhoneNumberPricingService.getAuthoritativePricing({
+      countryCode: (countryCode as string) || 'US',
+      numberType: (numberType as string) || 'local',
+      phoneNumber: phoneNumber as string | undefined,
+      overrideProviderMonthlyCost: providerMonthlyCost !== undefined ? Number(providerMonthlyCost) : undefined,
+      overrideProviderSetupCost: providerSetupCost !== undefined ? Number(providerSetupCost) : undefined,
+    });
+    res.json({ success: true, data: quote });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Create Pre-Order Phone Number Checkout Session
+ */
+router.post('/numbers/checkout-session', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const { phoneNumber, countryCode, numberType, expectedMonthlyCostUsd, expectedSetupCostUsd, idempotencyKey } = req.body;
+    if (!phoneNumber) {
+      return res.status(400).json({ success: false, error: 'Phone number is required.' });
+    }
+
+    const session = await PhoneNumberBillingService.createCheckoutSession({
+      organizationId: req.organizationId!,
+      phoneNumber,
+      countryCode: countryCode || 'US',
+      numberType: numberType || 'local',
+      expectedMonthlyCostUsd: expectedMonthlyCostUsd !== undefined ? Number(expectedMonthlyCostUsd) : undefined,
+      expectedSetupCostUsd: expectedSetupCostUsd !== undefined ? Number(expectedSetupCostUsd) : undefined,
+      idempotencyKey: idempotencyKey || (req.headers['idempotency-key'] as string | undefined),
+    });
+
+    res.status(201).json({ success: true, data: session });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Cancel In-Flight Checkout Session
+ */
+router.post('/numbers/checkout-session/:id/cancel', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const cancelled = await PhoneNumberBillingService.cancelCheckoutSession(req.organizationId!, req.params.id);
+    res.json({ success: cancelled, data: { cancelled } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Authorize Checkout Session (for sandbox / verified callback)
+ */
+router.post('/numbers/checkout-session/:id/authorize', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const { paddleTransactionId, paddleSubscriptionId } = req.body;
+    const session = await PhoneNumberBillingService.authorizeCheckoutSession({
+      organizationId: req.organizationId!,
+      checkoutId: req.params.id,
+      paddleTransactionId,
+      paddleSubscriptionId,
+    });
+    res.json({ success: true, data: session });
   } catch (err) {
     next(err);
   }
@@ -153,7 +231,7 @@ router.post('/numbers/existing/verify', requirePermission('voice:manage'), async
  */
 router.post('/numbers/new/order', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
   try {
-    const { phoneNumber, countryCode, numberType, idempotencyKey, confirmPurchase, expectedMonthlyCostUsd, expectedSetupCostUsd } = req.body;
+    const { phoneNumber, countryCode, numberType, idempotencyKey, confirmPurchase, expectedMonthlyCostUsd, expectedSetupCostUsd, checkoutId } = req.body;
 
     if (!phoneNumber) {
       return res.status(400).json({ success: false, error: 'Phone number is required.' });
@@ -176,6 +254,7 @@ router.post('/numbers/new/order', requirePermission('voice:manage'), async (req:
       confirmPurchase: Boolean(confirmPurchase),
       expectedMonthlyCostUsd: expectedMonthlyCostUsd !== undefined ? Number(expectedMonthlyCostUsd) : undefined,
       expectedSetupCostUsd: expectedSetupCostUsd !== undefined ? Number(expectedSetupCostUsd) : undefined,
+      checkoutId: checkoutId || undefined,
     });
 
     res.status(201).json({ success: true, data: phoneRecord });
@@ -220,6 +299,53 @@ router.delete('/numbers/:id', requirePermission('voice:manage'), async (req: Req
     }
 
     res.json({ success: true, message: 'Phone number disconnected successfully.' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Cancel recurring phone number rental (without touching Pro subscription)
+ */
+router.post('/numbers/:id/cancel-rental', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const result = await PhoneNumberBillingService.cancelPhoneNumberRental(req.organizationId!, req.params.id);
+    res.json({ success: result.success, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Process idempotent refund for a phone number
+ */
+router.post('/numbers/:id/refund', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const { amountUsd, reason } = req.body;
+    const result = await PhoneNumberBillingService.processRefund({
+      organizationId: req.organizationId!,
+      phoneNumberId: req.params.id,
+      amountUsd: amountUsd !== undefined ? Number(amountUsd) : undefined,
+      reason,
+    });
+    res.json({ success: result.success, data: result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Safe Retry for partially configured or failed phone number provisioning
+ */
+router.post('/numbers/:id/retry', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const phoneRecord = await VoiceService.retryNumberProvisioning({
+      organizationId: req.organizationId!,
+      phoneNumberId: req.params.id,
+      userId: req.user?.id,
+    });
+
+    res.json({ success: true, data: phoneRecord });
   } catch (err) {
     next(err);
   }

@@ -6,6 +6,30 @@ import {
 } from '@onceclic/shared';
 import { config } from '../../config';
 
+/**
+ * Telnyx Telephony Provider
+ *
+ * KEY DESIGN DECISION — Order ID vs Phone Number Resource ID:
+ *
+ * The Telnyx POST /v2/number_orders response returns:
+ *   data.id                          → number_order ID (e.g. "12ade33a-…")
+ *   data.phone_numbers[0].id         → number_order_phone_number tracking ID
+ *   data.phone_numbers[0].phone_number → confirmed E.164 string (e.g. "+19705555098")
+ *
+ * None of these is the phone-number RESOURCE ID used for PATCH /v2/phone_numbers/{id}.
+ * The resource ID is a long numeric string (e.g. "1293384261075731499") that only
+ * becomes available after the number is fully provisioned and appears in the account's
+ * inventory (GET /v2/phone_numbers).
+ *
+ * ORDERING FLOW:
+ *   1. POST /v2/number_orders                  → get telnyxOrderId + confirmed phone number
+ *   2. GET  /v2/phone_numbers?filter[phone_number]={e164} → resolve resource ID
+ *   3. PATCH /v2/phone_numbers/{resourceId}    → assign SIP connection
+ *
+ * If the GET lookup fails (number not yet in inventory — it can take seconds to minutes),
+ * configureRoutingToVapi returns success=false with a null resource ID. VoiceService
+ * records this as a FAILED/pending state and the retry flow picks it up.
+ */
 export class TelnyxTelephonyProvider implements ITelephonyProvider {
   readonly providerName = 'TELNYX';
 
@@ -117,7 +141,20 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(`Telnyx search failed: ${err.errors?.[0]?.detail || response.statusText}`);
+      const detail = err.errors?.[0]?.detail || err.errors?.[0]?.title || response.statusText;
+      if (response.status === 401) {
+        throw new Error('Telnyx telephony provider authentication failed. Please verify the server-side API key.');
+      }
+      if (response.status === 402 || detail?.toLowerCase().includes('balance') || detail?.toLowerCase().includes('credit') || detail?.toLowerCase().includes('fund')) {
+        throw new Error('Telnyx account balance is insufficient or exhausted. Please top up your telephony account balance.');
+      }
+      if (response.status === 403) {
+        throw new Error('Telnyx account is not authorized or restricted from accessing number inventory.');
+      }
+      if (response.status === 429) {
+        throw new Error('Telnyx rate limit exceeded. Please wait a moment before searching again.');
+      }
+      throw new Error(`Telnyx search failed: ${detail}`);
     }
 
     const data: any = await response.json();
@@ -125,6 +162,11 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
 
     const monthlyCost = countryConfig.monthlyCostUsd[type] || 2.00;
     const setupCost = countryConfig.setupCostUsd[type] || 0.00;
+    const { PhoneNumberPricingService } = await import('./PhoneNumberPricingService');
+    const pricing = PhoneNumberPricingService.calculateCustomerPrice({
+      providerMonthlyCostUsd: monthlyCost,
+      providerSetupCostUsd: setupCost,
+    });
 
     return numbers.map((n: any) => ({
       phoneNumber: n.phone_number,
@@ -132,8 +174,14 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
       countryCode: country,
       numberType: type,
       region: n.region_information?.region_name || countryConfig.countryName,
-      monthlyCostUsd: monthlyCost,
-      setupCostUsd: setupCost,
+      monthlyCostUsd: pricing.customerMonthlyCostUsd,
+      setupCostUsd: pricing.setupCostUsd,
+      providerCostUsd: pricing.providerCostUsd,
+      markupUsd: pricing.markupUsd,
+      customerMonthlyCostUsd: pricing.customerMonthlyCostUsd,
+      proMonthlyCostUsd: pricing.proSubscriptionUsd,
+      combinedMonthlyTotalUsd: pricing.combinedMonthlyTotalUsd,
+      pricingPolicyVersion: pricing.policyVersion,
       regulatoryRequirement: countryConfig.regulatoryNotice,
       requiresDocuments: countryConfig.regulatoryLevel !== 'NONE',
       requiredDocuments: countryConfig.requiredDocuments,
@@ -147,8 +195,9 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
     numberType?: string;
     idempotencyKey?: string;
   }): Promise<{
-    telnyxPhoneNumberId: string;
+    telnyxOrderId: string;
     phoneNumber: string;
+    telnyxPhoneNumberResourceId: string | null;
     monthlyCostUsd: number;
     setupCostUsd: number;
     regulatoryStatus: 'NOT_REQUIRED' | 'PENDING_DOCUMENTATION' | 'APPROVED';
@@ -180,11 +229,46 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
-      throw new Error(`Telnyx number order failed: ${err.errors?.[0]?.detail || response.statusText}`);
+      const detail = err.errors?.[0]?.detail || err.errors?.[0]?.title || response.statusText;
+      if (response.status === 401) {
+        throw new Error('Telnyx telephony provider authentication failed during number order.');
+      }
+      if (response.status === 402 || detail?.toLowerCase().includes('balance') || detail?.toLowerCase().includes('credit') || detail?.toLowerCase().includes('fund')) {
+        throw new Error('Telnyx account balance is insufficient to complete number purchase. Order rejected.');
+      }
+      if (response.status === 409 || detail?.toLowerCase().includes('unavailable') || detail?.toLowerCase().includes('already')) {
+        throw new Error(`The requested phone number ${params.phoneNumber} is no longer available or was already ordered.`);
+      }
+      throw new Error(`Telnyx number order failed: ${detail}`);
     }
 
     const data: any = await response.json();
     const order = data.data || {};
+
+    // order.id = the number ORDER ID — used for order tracking only, NOT for PATCH /v2/phone_numbers/{id}
+    const telnyxOrderId = order.id;
+    if (!telnyxOrderId) {
+      throw new Error('Telnyx number order response did not include an order ID. Cannot proceed with provisioning.');
+    }
+
+    // Confirm the phone number from the order response
+    // order.phone_numbers[0].phone_number is the E.164 string placed in the order
+    const orderedPhoneEntry = (order.phone_numbers || [])[0];
+    const confirmedPhoneNumber = orderedPhoneEntry?.phone_number || params.phoneNumber;
+
+    // The phone-number RESOURCE ID (needed for PATCH /v2/phone_numbers/{resourceId})
+    // is NOT available in the order response. It can only be retrieved after the number
+    // is provisioned into inventory via GET /v2/phone_numbers.
+    // We attempt the lookup immediately; if unavailable (order still processing),
+    // we return null and the caller must retry via configureRoutingToVapi.
+    let telnyxPhoneNumberResourceId: string | null = null;
+    try {
+      telnyxPhoneNumberResourceId = await this.resolvePhoneNumberResourceId(confirmedPhoneNumber);
+    } catch {
+      // Lookup failed — number may not be in inventory yet.
+      // Caller (VoiceService) will retry via configureRoutingToVapi.
+      telnyxPhoneNumberResourceId = null;
+    }
 
     const type = (params.numberType || 'local').toLowerCase();
     const monthlyCost = countryConfig.monthlyCostUsd[type] || 2.00;
@@ -197,13 +281,49 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
       : 'APPROVED';
 
     return {
-      telnyxPhoneNumberId: order.id || `ord_${Date.now()}`,
-      phoneNumber: params.phoneNumber,
+      telnyxOrderId,
+      phoneNumber: confirmedPhoneNumber,
+      telnyxPhoneNumberResourceId,
       monthlyCostUsd: monthlyCost,
       setupCostUsd: setupCost,
       regulatoryStatus: regulatoryStatus as any,
       requiredDocuments: countryConfig.requiredDocuments,
     };
+  }
+
+  /**
+   * Resolve the Telnyx phone-number RESOURCE ID from the E.164 phone number string.
+   *
+   * The resource ID is required for PATCH /v2/phone_numbers/{id} (SIP routing).
+   * It is NOT the number order ID — it is the permanent identifier assigned to the
+   * phone number once it is provisioned in the Telnyx account inventory.
+   *
+   * Returns null if the number is not yet in inventory (still being provisioned).
+   */
+  async resolvePhoneNumberResourceId(phoneNumber: string): Promise<string | null> {
+    const query = new URLSearchParams();
+    query.set('filter[phone_number]', phoneNumber);
+    query.set('page[size]', '1');
+
+    const res = await fetch(`https://api.telnyx.com/v2/phone_numbers?${query.toString()}`, {
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!res.ok) {
+      throw new Error(`Telnyx phone number resource lookup failed: HTTP ${res.status}`);
+    }
+
+    const data: any = await res.json();
+    const record = (data.data || [])[0];
+
+    if (!record || !record.id) {
+      return null; // Not yet in inventory
+    }
+
+    return String(record.id);
   }
 
   async verifyExistingNumberOwnership(params: {
@@ -228,18 +348,53 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
     };
   }
 
+  /**
+   * Configure SIP routing from the provisioned Telnyx number to Vapi.
+   *
+   * Uses the phone-number RESOURCE ID (not the order ID) for the PATCH call.
+   * If telnyxPhoneNumberId is null, attempts to resolve it via GET /v2/phone_numbers.
+   *
+   * Returns { success: true, telnyxPhoneNumberResourceId } on success.
+   * Returns { success: false, telnyxPhoneNumberResourceId: null } if the resource ID
+   * cannot be resolved (number still provisioning). VoiceService should record this
+   * as a FAILED state and surface it for retry.
+   *
+   * Throws only on unrecoverable errors (auth failure, etc.).
+   */
   async configureRoutingToVapi(params: {
-    telnyxPhoneNumberId: string;
+    telnyxPhoneNumberId: string | null;
     phoneNumber: string;
     vapiSipUri?: string;
-  }): Promise<boolean> {
+  }): Promise<{ success: boolean; telnyxPhoneNumberResourceId: string | null }> {
     const connectionId = config.telnyx.connectionId;
     if (!connectionId) {
-      return true;
+      // Missing connection configuration cannot silently report successful routing.
+      console.error(
+        `[TelnyxTelephonyProvider] TELNYX_CONNECTION_ID is not configured. Cannot configure SIP routing for ${params.phoneNumber}. Missing connection configuration cannot report successful routing.`
+      );
+      return { success: false, telnyxPhoneNumberResourceId: params.telnyxPhoneNumberId };
     }
 
-    // Assign connection to number in Telnyx
-    const res = await fetch(`https://api.telnyx.com/v2/phone_numbers/${params.telnyxPhoneNumberId}`, {
+    // Resolve phone number resource ID if not already known
+    let resourceId = params.telnyxPhoneNumberId;
+    if (!resourceId) {
+      try {
+        resourceId = await this.resolvePhoneNumberResourceId(params.phoneNumber);
+      } catch (err: any) {
+        // Resource ID lookup failed — cannot configure routing. Caller must retry.
+        console.error(`[TelnyxTelephonyProvider] Cannot resolve phone number resource ID for ${params.phoneNumber}: ${err.message}`);
+        return { success: false, telnyxPhoneNumberResourceId: null };
+      }
+    }
+
+    if (!resourceId) {
+      // Number not yet in Telnyx inventory — still being provisioned. Retry later.
+      console.warn(`[TelnyxTelephonyProvider] Phone number ${params.phoneNumber} not yet in Telnyx inventory. SIP routing deferred.`);
+      return { success: false, telnyxPhoneNumberResourceId: null };
+    }
+
+    // PATCH /v2/phone_numbers/{resourceId} — assigns the SIP connection
+    const res = await fetch(`https://api.telnyx.com/v2/phone_numbers/${resourceId}`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -250,6 +405,21 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
       }),
     });
 
-    return res.ok;
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      const detail = errBody.errors?.[0]?.detail || errBody.errors?.[0]?.title || res.statusText;
+      if (res.status === 401) {
+        throw new Error('Telnyx authentication failed while configuring SIP routing. Check API key.');
+      }
+      if (res.status === 404) {
+        // Resource ID no longer valid or number was released
+        throw new Error(`Telnyx phone number resource ${resourceId} not found (HTTP 404). Number may have been released or resource ID is invalid.`);
+      }
+      // Non-fatal failure: log and return false so caller can decide to retry
+      console.error(`[TelnyxTelephonyProvider] SIP routing PATCH failed for ${params.phoneNumber} (resource ${resourceId}): ${detail}`);
+      return { success: false, telnyxPhoneNumberResourceId: resourceId };
+    }
+
+    return { success: true, telnyxPhoneNumberResourceId: resourceId };
   }
 }

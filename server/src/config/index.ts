@@ -10,6 +10,15 @@ const isProduction =
   !!process.env.RENDER ||
   !!process.env.RENDER_SERVICE_ID;
 
+const rawPaddleEnv = process.env.PADDLE_ENVIRONMENT?.toLowerCase().trim();
+const paddleEnvironment: 'sandbox' | 'production' = rawPaddleEnv === 'production'
+  ? 'production'
+  : rawPaddleEnv === 'sandbox'
+    ? 'sandbox'
+    : (isProduction ? 'production' : 'sandbox');
+
+const defaultSandboxProPrice = paddleEnvironment === 'sandbox' ? 'pri_01j7onceclic_pro_19m_sandbox' : '';
+
 export const config = {
   port: parseInt(process.env.PORT || '5000', 10),
   nodeEnv: process.env.NODE_ENV || (isProduction ? 'production' : 'development'),
@@ -47,9 +56,9 @@ export const config = {
     apiKey: process.env.PADDLE_API_KEY || '',
     clientToken: process.env.PADDLE_CLIENT_TOKEN || process.env.VITE_PADDLE_CLIENT_TOKEN || '',
     webhookSecret: process.env.PADDLE_WEBHOOK_SECRET || '',
-    priceId: process.env.PADDLE_PRO_PRICE_ID || process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || 'pri_01j7onceclic_pro_19m_sandbox',
-    proMonthlyPriceId: process.env.PADDLE_PRO_PRICE_ID || process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || 'pri_01j7onceclic_pro_19m_sandbox',
-    environment: (process.env.PADDLE_ENVIRONMENT || 'sandbox') as 'sandbox' | 'production',
+    priceId: process.env.PADDLE_PRO_PRICE_ID || process.env.VITE_PADDLE_PRO_PRICE_ID || process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || defaultSandboxProPrice,
+    proMonthlyPriceId: process.env.PADDLE_PRO_PRICE_ID || process.env.VITE_PADDLE_PRO_PRICE_ID || process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || defaultSandboxProPrice,
+    environment: paddleEnvironment,
     isConfigured: !!process.env.PADDLE_WEBHOOK_SECRET && !process.env.PADDLE_WEBHOOK_SECRET.includes('placeholder'),
     plans: {
       STARTER: {
@@ -63,7 +72,7 @@ export const config = {
         id: 'PRO' as const,
         name: 'ONCEClic Pro',
         priceUsd: 49,
-        priceId: process.env.PADDLE_PRO_PRICE_ID || process.env.VITE_PADDLE_PRO_PRICE_ID || process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || 'pri_01j7onceclic_pro_19m_sandbox',
+        priceId: process.env.PADDLE_PRO_PRICE_ID || process.env.VITE_PADDLE_PRO_PRICE_ID || process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || defaultSandboxProPrice,
         voiceMinutes: 150,
       },
       BUSINESS: {
@@ -133,6 +142,10 @@ export const config = {
     telnyxConnectionId: process.env.TELNYX_CONNECTION_ID || '',
     isTelnyxConfigured: !!process.env.TELNYX_API_KEY && !process.env.TELNYX_API_KEY.includes('placeholder'),
     isConfigured: (!!process.env.VAPI_API_KEY && !process.env.VAPI_API_KEY.includes('placeholder')) || (!!process.env.RETELL_API_KEY && !process.env.RETELL_API_KEY.includes('placeholder')),
+    maxCallDurationSeconds: (() => {
+      const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '180', 10);
+      return isNaN(parsed) || !isFinite(parsed) || parsed <= 0 ? 180 : Math.min(parsed, 180);
+    })(),
     planLimits: {
       TRIAL: parseInt(process.env.VOICE_TRIAL_LIMIT_MINUTES || '15', 10),
       STARTER: parseInt(process.env.VOICE_STARTER_LIMIT_MINUTES || '50', 10),
@@ -156,5 +169,9 @@ export const config = {
     // Gemini model used by Vapi for voice LLM (provider: 'google')
     // Vapi supports Google Gemini natively — see https://docs.vapi.ai/
     voiceGeminiModel: process.env.VAPI_GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+    maxCallDurationSeconds: (() => {
+      const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '180', 10);
+      return isNaN(parsed) || !isFinite(parsed) || parsed <= 0 ? 180 : Math.min(parsed, 180);
+    })(),
   },
 };

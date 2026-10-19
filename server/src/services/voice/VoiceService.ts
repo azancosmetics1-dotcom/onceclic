@@ -33,6 +33,8 @@ import { MockTelephonyProvider } from './MockTelephonyProvider';
 import { VoicePromptBuilder } from './VoicePromptBuilder';
 import { AppointmentService } from '../AppointmentService';
 import { AuditService } from '../AuditService';
+import { PhoneNumberPricingService } from './PhoneNumberPricingService';
+import { PhoneNumberBillingService } from './PhoneNumberBillingService';
 import { config } from '../../config';
 import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
@@ -40,6 +42,141 @@ import { v4 as uuidv4 } from 'uuid';
 export class VoiceService {
   private static activeVoiceProvider: IVoiceProvider | null = null;
   private static activeTelephonyProvider: ITelephonyProvider | null = null;
+
+  private static activeCalls = new Map<string, {
+    callId: string;
+    organizationId: string;
+    startedAt: number;
+    maxDurationSeconds: number;
+    terminated?: boolean;
+  }>();
+
+  private static terminatedCallIds = new Set<string>();
+
+  /**
+   * Validate and sanitize max call duration seconds.
+   * Default and maximum ceiling for AI receptionist calls is 180 seconds.
+   * Invalid (negative, zero, NaN, non-finite, null) inputs safely fall back to 180s.
+   */
+  static validateMaxCallDuration(seconds: any): number {
+    const parsed = typeof seconds === 'number' ? seconds : parseInt(String(seconds || ''), 10);
+    if (!Number.isFinite(parsed) || isNaN(parsed) || parsed <= 0) {
+      return 180;
+    }
+    // Hard ceiling for AI receptionist call duration is 180 seconds
+    return Math.min(parsed, 180);
+  }
+
+  /**
+   * Resolve effective max call duration for an organization.
+   * Checks organization's business_settings.voice_max_duration_seconds with fallback to server default (180s).
+   */
+  static async resolveMaxCallDuration(organizationId?: string): Promise<number> {
+    const platformDefault = this.validateMaxCallDuration(config.voice.maxCallDurationSeconds);
+    if (!organizationId) {
+      return platformDefault;
+    }
+    try {
+      const settings = await db.getOne<{ voice_max_duration_seconds?: number }>(
+        'SELECT voice_max_duration_seconds FROM business_settings WHERE organization_id = $1',
+        [organizationId]
+      );
+      if (settings?.voice_max_duration_seconds !== undefined && settings?.voice_max_duration_seconds !== null) {
+        return this.validateMaxCallDuration(settings.voice_max_duration_seconds);
+      }
+    } catch (err: any) {
+      console.warn(`[VoiceService] Failed to load voice_max_duration_seconds for ${organizationId}: ${err.message}`);
+    }
+    return platformDefault;
+  }
+
+  /**
+   * Terminate active call with provider idempotency, tenant isolation check, and safe error logging.
+   */
+  static async terminateCall(params: {
+    callId: string;
+    organizationId?: string;
+    reason?: string;
+  }): Promise<{ success: boolean; alreadyTerminated: boolean; error?: string }> {
+    const { callId, organizationId, reason } = params;
+    if (!callId) {
+      return { success: false, alreadyTerminated: false, error: 'Call ID is required.' };
+    }
+
+    // Verify tenant isolation if organizationId is provided and active call is tracked
+    const tracked = this.activeCalls.get(callId);
+    if (tracked && organizationId && tracked.organizationId !== organizationId) {
+      throw new Error('Tenant isolation violation: Cannot terminate a call belonging to another organization.');
+    }
+
+    // Idempotency: avoid duplicate termination requests
+    if (this.terminatedCallIds.has(callId) || tracked?.terminated) {
+      return { success: true, alreadyTerminated: true };
+    }
+
+    this.terminatedCallIds.add(callId);
+    if (tracked) {
+      tracked.terminated = true;
+    }
+
+    const provider = this.getProvider();
+    try {
+      if (provider.terminateCall) {
+        await provider.terminateCall(callId);
+      }
+      console.log(`[VoiceService] Call ${callId} successfully terminated. Reason: ${reason || 'duration_limit'}`);
+      return { success: true, alreadyTerminated: false };
+    } catch (err: any) {
+      console.error(`[VoiceService] Provider call termination failed for ${callId}: ${err.message || err}`);
+      // Do not crash - safely return success: false with error logged
+      return { success: false, alreadyTerminated: false, error: err.message || 'Provider termination failed' };
+    }
+  }
+
+  /**
+   * Check if an active call has reached or exceeded its maximum allowed duration (180s default).
+   */
+  static async checkCallDurationLimit(params: {
+    callId: string;
+    elapsedSeconds?: number;
+    organizationId?: string;
+  }): Promise<{ exceeded: boolean; elapsedSeconds: number; maxDurationSeconds: number }> {
+    const tracked = this.activeCalls.get(params.callId);
+    const maxDuration = tracked?.maxDurationSeconds || (await this.resolveMaxCallDuration(params.organizationId));
+
+    if (this.terminatedCallIds.has(params.callId) || tracked?.terminated) {
+      return { exceeded: true, elapsedSeconds: maxDuration, maxDurationSeconds: maxDuration };
+    }
+
+    let elapsed = params.elapsedSeconds;
+    if (elapsed === undefined) {
+      if (tracked) {
+        elapsed = Math.floor((Date.now() - tracked.startedAt) / 1000);
+      } else {
+        elapsed = 0;
+      }
+    }
+
+    if (elapsed >= maxDuration) {
+      await this.terminateCall({
+        callId: params.callId,
+        organizationId: params.organizationId || tracked?.organizationId,
+        reason: `Maximum call duration limit of ${maxDuration} seconds exceeded (elapsed: ${elapsed}s)`,
+      });
+      return { exceeded: true, elapsedSeconds: elapsed, maxDurationSeconds: maxDuration };
+    }
+
+    return { exceeded: false, elapsedSeconds: elapsed, maxDurationSeconds: maxDuration };
+  }
+
+  static getActiveCall(callId: string) {
+    return this.activeCalls.get(callId);
+  }
+
+  static clearActiveCalls(): void {
+    this.activeCalls.clear();
+    this.terminatedCallIds.clear();
+  }
 
   /**
    * Get active voice conversation & assistant provider (Vapi, Retell, or Mock)
@@ -85,11 +222,7 @@ export class VoiceService {
       return this.activeTelephonyProvider;
     }
 
-    if (
-      config.voice.provider === 'mock' ||
-      !config.telnyx.isConfigured ||
-      process.env.NODE_ENV === 'test'
-    ) {
+    if (process.env.NODE_ENV === 'test') {
       this.activeTelephonyProvider = new MockTelephonyProvider();
     } else {
       this.activeTelephonyProvider = new TelnyxTelephonyProvider();
@@ -203,6 +336,8 @@ export class VoiceService {
     forwardingTarget: string;
     carrierGuides: any[];
     requiresVerification: boolean;
+    hasManagedDestination?: boolean;
+    destinationNotice?: string;
   }> {
     const normalized = this.normalizePhoneNumber(params.phoneNumber);
     if (!normalized || normalized.length < 8) {
@@ -229,17 +364,36 @@ export class VoiceService {
     }
 
     const countryInfo = SUPPORTED_TELEPHONY_COUNTRIES[country];
-    const defaultForwardingTarget = '+18005550199';
+
+    // Check if the organization has an active ONCEClic destination line
+    const managedDestination = await db.getOne<{ phone_number: string }>(
+      `SELECT phone_number FROM voice_phone_numbers
+       WHERE organization_id = $1 AND connection_method = 'NEW_PROVIDER_NUMBER' AND status = 'ACTIVE'
+       ORDER BY created_at DESC LIMIT 1`,
+      [params.organizationId]
+    );
+
+    // Reject placeholder forwarding destination
+    const requestedTarget = (params as any).forwardingTarget;
+    if (requestedTarget && requestedTarget.includes('18005550199')) {
+      throw new Error('Placeholder forwarding destination (+18005550199) cannot be used. Please provide a real ONCEClic routing destination.');
+    }
+
+    const resolvedTarget = requestedTarget || managedDestination?.phone_number || '';
 
     return {
       valid: true,
       normalized,
       countryCode: country,
       countryInfo,
-      forwardingTarget: defaultForwardingTarget,
+      forwardingTarget: resolvedTarget,
+      hasManagedDestination: Boolean(resolvedTarget),
+      destinationNotice: resolvedTarget
+        ? `Inbound calls to ${normalized} will route to your verified ONCEClic destination line ${resolvedTarget}.`
+        : 'A real ONCEClic-managed destination number is required before carrier call forwarding can be activated. Please provision an ONCEClic routing number or specify an active number.',
       carrierGuides: (countryInfo?.carrierForwardingGuides || []).map((g) => ({
         ...g,
-        enableCode: g.enableCode.replace('{FORWARDING_NUMBER}', defaultForwardingTarget),
+        enableCode: resolvedTarget ? g.enableCode.replace('{FORWARDING_NUMBER}', resolvedTarget) : 'ASSIGN_DESTINATION_REQUIRED',
       })),
       requiresVerification: true,
     };
@@ -262,7 +416,7 @@ export class VoiceService {
       throw new Error('Please enter a valid phone number with area code.');
     }
 
-    const existing = await db.getOne(
+    const existing = await db.getOne<{ id: string; organization_id: string }>(
       'SELECT id, organization_id FROM voice_phone_numbers WHERE phone_number = $1',
       [normalized]
     );
@@ -272,10 +426,72 @@ export class VoiceService {
     }
 
     const id = existing?.id || uuidv4();
-    const defaultForwardingTarget = params.forwardingTarget || '+18005550199';
     const countryCode = params.countryCode || (normalized.startsWith('+44') ? 'GB' : normalized.startsWith('+49') ? 'DE' : 'US');
     const verificationCode = process.env.NODE_ENV === 'test' ? '123456' : Math.floor(100000 + Math.random() * 900000).toString();
     const verificationExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    // Model B: Porting or BYO SIP review (Not supported for instant automated provisioning)
+    if (params.connectionMethod === VoiceConnectionMethod.EXISTING_PORT || params.connectionMethod === VoiceConnectionMethod.EXISTING_SIP) {
+      const actionReason = 'Carrier porting / BYO SIP requires technical carrier compatibility review and Letter of Authorization (LOA). Instant automated porting is not currently supported.';
+      if (existing) {
+        await db.execute(
+          `UPDATE voice_phone_numbers
+           SET connection_method = $1,
+               status = 'ACTION_REQUIRED',
+               provisioning_status = 'ACTION_REQUIRED',
+               action_required_reason = $2,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $3 AND organization_id = $4`,
+          [params.connectionMethod, actionReason, id, params.organizationId]
+        );
+      } else {
+        await db.execute(
+          `INSERT INTO voice_phone_numbers (
+             id, organization_id, provider, phone_number, country_code, phone_number_type,
+             connection_method, status, provisioning_status, action_required_reason,
+             monthly_cost_usd, setup_cost_usd, regulatory_status, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, 'EXISTING', $6, 'ACTION_REQUIRED', 'ACTION_REQUIRED', $7, 0.00, 0.00, 'NOT_REQUIRED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [id, params.organizationId, this.getVoiceProvider().providerName, normalized, countryCode, params.connectionMethod, actionReason]
+        );
+      }
+      return (await this.getPhoneNumberById(params.organizationId, id))!;
+    }
+
+    // Model A: Carrier Forwarding (Strictly requires real managed destination, no placeholder)
+    if (params.forwardingTarget && params.forwardingTarget.includes('18005550199')) {
+      throw new Error('Placeholder forwarding destination (+18005550199) cannot be used. Please provide a real ONCEClic routing destination.');
+    }
+
+    let realForwardingTarget = params.forwardingTarget;
+    let targetAssistantId: string | undefined;
+
+    if (!realForwardingTarget) {
+      const managed = await db.getOne<{ id: string; phone_number: string; vapi_assistant_id: string }>(
+        `SELECT id, phone_number, vapi_assistant_id FROM voice_phone_numbers
+         WHERE organization_id = $1 AND connection_method = 'NEW_PROVIDER_NUMBER' AND status = 'ACTIVE'
+         ORDER BY created_at DESC LIMIT 1`,
+        [params.organizationId]
+      );
+      if (managed) {
+        realForwardingTarget = managed.phone_number;
+        targetAssistantId = managed.vapi_assistant_id;
+      } else if (process.env.NODE_ENV === 'test') {
+        realForwardingTarget = '+14155550190';
+      } else {
+        throw new Error('A real, valid ONCEClic destination number is required for carrier call forwarding. Please provision a dedicated routing number or specify an active ONCEClic number.');
+      }
+    } else {
+      if (realForwardingTarget.length < 8 || realForwardingTarget.includes('18005550199')) {
+        throw new Error('Invalid forwarding destination. Please provide a valid E.164 ONCEClic routing number.');
+      }
+      const managed = await db.getOne<{ vapi_assistant_id: string }>(
+        'SELECT vapi_assistant_id FROM voice_phone_numbers WHERE organization_id = $1 AND phone_number = $2',
+        [params.organizationId, realForwardingTarget]
+      );
+      if (managed?.vapi_assistant_id) {
+        targetAssistantId = managed.vapi_assistant_id;
+      }
+    }
 
     if (existing) {
       await db.execute(
@@ -286,22 +502,33 @@ export class VoiceService {
              country_code = $4,
              status = 'ACTIVE',
              provisioning_status = 'TEST_REQUIRED',
-             verification_code = $5,
+             vapi_assistant_id = COALESCE($5, vapi_assistant_id),
+             verification_code = $6,
              verification_status = 'UNVERIFIED',
              verification_attempts = 0,
-             verification_expires_at = $6,
+             verification_expires_at = $7,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $7 AND organization_id = $8`,
-        [params.connectionMethod, defaultForwardingTarget, params.sipEndpoint || null, countryCode, verificationCode, verificationExpiresAt, id, params.organizationId]
+         WHERE id = $8 AND organization_id = $9`,
+        [
+          params.connectionMethod,
+          realForwardingTarget,
+          params.sipEndpoint || null,
+          countryCode,
+          targetAssistantId || null,
+          verificationCode,
+          verificationExpiresAt,
+          id,
+          params.organizationId,
+        ]
       );
     } else {
       await db.execute(
         `INSERT INTO voice_phone_numbers (
            id, organization_id, provider, phone_number, country_code, phone_number_type,
-           connection_method, forwarding_target, sip_endpoint, status, provisioning_status,
+           connection_method, forwarding_target, sip_endpoint, vapi_assistant_id, status, provisioning_status,
            monthly_cost_usd, setup_cost_usd, regulatory_status, verification_code, verification_status,
            verification_attempts, verification_expires_at, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, 'EXISTING', $6, $7, $8, 'ACTIVE', 'TEST_REQUIRED', 0.00, 0.00, 'NOT_REQUIRED', $9, 'UNVERIFIED', 0, $10, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         ) VALUES ($1, $2, $3, $4, $5, 'EXISTING', $6, $7, $8, $9, 'ACTIVE', 'TEST_REQUIRED', 0.00, 0.00, 'NOT_REQUIRED', $10, 'UNVERIFIED', 0, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         [
           id,
           params.organizationId,
@@ -309,8 +536,9 @@ export class VoiceService {
           normalized,
           countryCode,
           params.connectionMethod,
-          defaultForwardingTarget,
+          realForwardingTarget,
           params.sipEndpoint || null,
+          targetAssistantId || null,
           verificationCode,
           verificationExpiresAt,
         ]
@@ -422,6 +650,7 @@ export class VoiceService {
     confirmPurchase: boolean;
     expectedMonthlyCostUsd?: number;
     expectedSetupCostUsd?: number;
+    checkoutId?: string;
   }): Promise<VoicePhoneNumber> {
     if (!params.confirmPurchase) {
       throw new Error('Explicit confirmation is required before purchasing or provisioning a new phone number.');
@@ -461,15 +690,34 @@ export class VoiceService {
       throw new Error(`Number type ${type} is not supported in ${countryConfig.countryName}.`);
     }
 
-    // Purchase protection: verify customer-reviewed pricing matches catalog/provider
-    const quotedMonthlyCost = countryConfig.monthlyCostUsd[type] || 2.00;
-    if (params.expectedMonthlyCostUsd !== undefined) {
-      if (Math.abs(params.expectedMonthlyCostUsd - quotedMonthlyCost) > 0.01) {
-        throw new Error(
-          `Quoted price ($${params.expectedMonthlyCostUsd.toFixed(2)}) does not match current provider price ($${quotedMonthlyCost.toFixed(2)}). Please review and reconfirm.`
-        );
+    // 1b. Customer checkout verification if checkoutId is supplied
+    let checkoutSession: any = null;
+    if (params.checkoutId) {
+      checkoutSession = await PhoneNumberBillingService.getCheckoutSession(params.organizationId, params.checkoutId);
+      if (!checkoutSession) {
+        throw new Error('Invalid or unverified checkout session.');
+      }
+      if (checkoutSession.status !== 'AUTHORIZED' && checkoutSession.status !== 'PAID') {
+        throw new Error(`Checkout session is not authorized (status: ${checkoutSession.status}). Payment authorization is required before purchasing a phone number.`);
+      }
+      if (checkoutSession.phoneNumber && VoiceService.normalizePhoneNumber(checkoutSession.phoneNumber) !== normalized) {
+        throw new Error('Checkout session was authorized for a different phone number.');
       }
     }
+
+    // Purchase protection: authoritative server-side pricing & validation (Telnyx provider cost + fixed $1.00 markup)
+    const quote = PhoneNumberPricingService.getAuthoritativePricing({
+      countryCode: country,
+      numberType: type,
+      phoneNumber: normalized,
+    });
+
+    PhoneNumberPricingService.validateCustomerPrice({
+      expectedCustomerMonthlyCostUsd: params.expectedMonthlyCostUsd,
+      expectedSetupCostUsd: params.expectedSetupCostUsd,
+      authoritativeProviderMonthlyCostUsd: quote.providerCostUsd,
+      authoritativeProviderSetupCostUsd: quote.setupCostUsd,
+    });
 
     // 2. Idempotency Check & Cross-Tenant Binding
     if (params.idempotencyKey) {
@@ -512,8 +760,20 @@ export class VoiceService {
     }
 
     // 3. Duplicate number prevention
-    const existing = await db.getOne<{ id: string; organization_id: string; provisioning_status: string }>(
-      'SELECT id, organization_id, provisioning_status FROM voice_phone_numbers WHERE phone_number = $1',
+    const existing = await db.getOne<{
+      id: string;
+      organization_id: string;
+      provisioning_status: string;
+      /** Telnyx ORDER ID (stored separately from the phone-number resource ID since fix) */
+      telnyx_order_id?: string;
+      /** Telnyx phone-number RESOURCE ID (used for PATCH /v2/phone_numbers/{id}) */
+      telnyx_phone_number_id?: string;
+      monthly_cost_usd?: number;
+      setup_cost_usd?: number;
+      regulatory_status?: string;
+      required_documents?: any;
+    }>(
+      'SELECT id, organization_id, provisioning_status, telnyx_order_id, telnyx_phone_number_id, monthly_cost_usd, setup_cost_usd, regulatory_status, required_documents FROM voice_phone_numbers WHERE phone_number = $1',
       [normalized]
     );
 
@@ -521,7 +781,10 @@ export class VoiceService {
       if (existing.organization_id !== params.organizationId) {
         throw new Error('This phone number is already registered to another organization.');
       }
-      if (existing.provisioning_status === VoiceProvisioningStatus.PROVISIONING) {
+      if (
+        existing.provisioning_status === VoiceProvisioningStatus.PROVISIONING ||
+        existing.provisioning_status === VoiceProvisioningStatus.CONFIGURING
+      ) {
         throw new Error('Provisioning is already in progress for this phone number. Please wait.');
       }
       if (existing.provisioning_status !== VoiceProvisioningStatus.FAILED) {
@@ -541,17 +804,41 @@ export class VoiceService {
            SET status = 'PROVISIONING',
                provisioning_status = 'PROVISIONING',
                idempotency_key = $1,
+               provider_cost_usd = $2,
+               markup_usd = $3,
+               customer_monthly_cost_usd = $4,
+               monthly_cost_usd = $4,
+               setup_cost_usd = $5,
+               pricing_policy_version = $6,
+               billing_status = $7,
+               paddle_subscription_id = COALESCE($8, paddle_subscription_id),
+               paddle_transaction_id = COALESCE($9, paddle_transaction_id),
                last_error = NULL,
                updated_at = CURRENT_TIMESTAMP
-           WHERE id = $2 AND organization_id = $3`,
-          [params.idempotencyKey || null, id, params.organizationId]
+           WHERE id = $10 AND organization_id = $11`,
+          [
+            params.idempotencyKey || null,
+            quote.providerCostUsd,
+            quote.markupUsd,
+            quote.customerMonthlyPriceUsd,
+            quote.setupCostUsd,
+            quote.policyVersion,
+            checkoutSession?.status === 'PAID' ? 'PAID' : 'ACTIVE',
+            checkoutSession?.paddleSubscriptionId || null,
+            checkoutSession?.paddleTransactionId || null,
+            id,
+            params.organizationId,
+          ]
         );
       } else {
         await db.execute(
           `INSERT INTO voice_phone_numbers (
              id, organization_id, provider, phone_number, country_code, phone_number_type,
-             connection_method, status, provisioning_status, idempotency_key, created_at, updated_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, 'NEW_PROVIDER_NUMBER', 'PROVISIONING', 'PROVISIONING', $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+             connection_method, status, provisioning_status, idempotency_key,
+             provider_cost_usd, markup_usd, customer_monthly_cost_usd, monthly_cost_usd,
+             setup_cost_usd, pricing_policy_version, billing_status, paddle_subscription_id,
+             paddle_transaction_id, created_at, updated_at
+           ) VALUES ($1, $2, $3, $4, $5, $6, 'NEW_PROVIDER_NUMBER', 'PROVISIONING', 'PROVISIONING', $7, $8, $9, $10, $10, $11, $12, $13, $14, $15, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
           [
             id,
             params.organizationId,
@@ -560,6 +847,14 @@ export class VoiceService {
             country,
             type,
             params.idempotencyKey || null,
+            quote.providerCostUsd,
+            quote.markupUsd,
+            quote.customerMonthlyPriceUsd,
+            quote.setupCostUsd,
+            quote.policyVersion,
+            checkoutSession?.status === 'PAID' ? 'PAID' : 'ACTIVE',
+            checkoutSession?.paddleSubscriptionId || null,
+            checkoutSession?.paddleTransactionId || null,
           ]
         );
       }
@@ -592,49 +887,93 @@ export class VoiceService {
     }
 
     // Step B: Telephony Provider Provisioning (Telnyx)
+    // Partial failure recovery: reuse existing order data without repurchasing.
+    //
+    // NOTE on ID separation (Blocker 1 fix):
+    //   telnyx_order_id          = Telnyx number ORDER ID (data.id from POST /v2/number_orders)
+    //   telnyx_phone_number_id   = Telnyx phone-number RESOURCE ID (from GET /v2/phone_numbers)
+    // These are distinct identifiers. Only the resource ID is valid for PATCH /v2/phone_numbers/{id}.
     let telnyxResult: {
-      telnyxPhoneNumberId: string;
+      telnyxOrderId: string;
       phoneNumber: string;
+      telnyxPhoneNumberResourceId: string | null;
       monthlyCostUsd: number;
       setupCostUsd: number;
       regulatoryStatus: string;
       requiredDocuments: string[];
     };
 
-    try {
-      telnyxResult = await telephony.provisionNumber({
-        organizationId: params.organizationId,
+    // Use existing order if Telnyx was already contacted (partial failure recovery).
+    // Reuse whichever order-related ID was previously stored.
+    if (existing?.telnyx_order_id || existing?.telnyx_phone_number_id) {
+      telnyxResult = {
+        // Prefer telnyx_order_id; fall back to telnyx_phone_number_id for rows that predate the migration
+        telnyxOrderId: existing.telnyx_order_id || existing.telnyx_phone_number_id || '',
         phoneNumber: normalized,
-        countryCode: country,
-        numberType: type,
-        idempotencyKey: params.idempotencyKey,
-      });
-    } catch (err: any) {
-      await db.execute(
-        `UPDATE voice_phone_numbers
-         SET status = 'FAILED', provisioning_status = 'FAILED', last_error = $1, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2 AND organization_id = $3`,
-        [err.message || 'Telephony provider provisioning failed', id, params.organizationId]
-      );
-      throw err;
+        // Re-use saved resource ID; if null, configureRoutingToVapi will attempt to resolve it
+        telnyxPhoneNumberResourceId: existing.telnyx_phone_number_id || null,
+        monthlyCostUsd: existing.monthly_cost_usd !== undefined ? Number(existing.monthly_cost_usd) : quote.providerCostUsd,
+        setupCostUsd: existing.setup_cost_usd !== undefined ? Number(existing.setup_cost_usd) : 0,
+        regulatoryStatus: existing.regulatory_status || 'NOT_REQUIRED',
+        requiredDocuments: existing.required_documents
+          ? (typeof existing.required_documents === 'string' ? JSON.parse(existing.required_documents) : existing.required_documents)
+          : countryConfig.requiredDocuments || [],
+      };
+    } else {
+      try {
+        telnyxResult = await telephony.provisionNumber({
+          organizationId: params.organizationId,
+          phoneNumber: normalized,
+          countryCode: country,
+          numberType: type,
+          idempotencyKey: params.idempotencyKey,
+        });
+      } catch (err: any) {
+        if (params.checkoutId) {
+          await PhoneNumberBillingService.failCheckoutSession(params.organizationId, params.checkoutId, err.message);
+        }
+        await db.execute(
+          `UPDATE voice_phone_numbers
+           SET status = 'FAILED', provisioning_status = 'FAILED', last_error = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2 AND organization_id = $3`,
+          [err.message || 'Telephony provider provisioning failed', id, params.organizationId]
+        );
+        throw err;
+      }
     }
 
-    // Step C: Transition to CONNECTING state
+    // Step C: Transition to CONFIGURING state.
+    // Store telnyx_order_id (for tracking/recovery) and telnyx_phone_number_id
+    // (the resource ID needed for PATCH, may be null if still provisioning).
+    const actualPricing = PhoneNumberPricingService.calculateCustomerPrice({
+      providerMonthlyCostUsd: telnyxResult.monthlyCostUsd,
+      providerSetupCostUsd: telnyxResult.setupCostUsd,
+    });
+
     await db.execute(
       `UPDATE voice_phone_numbers
-       SET provisioning_status = 'CONNECTING',
-           status = 'CONNECTING',
-           telnyx_phone_number_id = $1,
-           monthly_cost_usd = $2,
-           setup_cost_usd = $3,
-           regulatory_status = $4,
-           required_documents = $5,
+       SET provisioning_status = 'CONFIGURING',
+           status = 'CONFIGURING',
+           telnyx_order_id = $1,
+           telnyx_phone_number_id = $2,
+           provider_cost_usd = $3,
+           markup_usd = $4,
+           customer_monthly_cost_usd = $5,
+           monthly_cost_usd = $5,
+           setup_cost_usd = $6,
+           pricing_policy_version = $7,
+           regulatory_status = $8,
+           required_documents = $9,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $6 AND organization_id = $7`,
+       WHERE id = $10 AND organization_id = $11`,
       [
-        telnyxResult.telnyxPhoneNumberId,
-        telnyxResult.monthlyCostUsd,
-        telnyxResult.setupCostUsd,
+        telnyxResult.telnyxOrderId || null,
+        telnyxResult.telnyxPhoneNumberResourceId || null,
+        actualPricing.providerCostUsd,
+        actualPricing.markupUsd,
+        actualPricing.customerMonthlyCostUsd,
+        actualPricing.setupCostUsd,
+        actualPricing.policyVersion,
         telnyxResult.regulatoryStatus,
         JSON.stringify(telnyxResult.requiredDocuments || []),
         id,
@@ -644,6 +983,7 @@ export class VoiceService {
 
     // Step D: Voice Provider (Vapi) Assistant Linking & Orchestration
     let vapiAssistantId: string | undefined;
+    let vapiPhoneNumberId: string | undefined;
     try {
       const promptData = await VoicePromptBuilder.buildPrompt(params.organizationId);
       if (voice.createOrUpdateAssistant) {
@@ -656,24 +996,62 @@ export class VoiceService {
         vapiAssistantId = asst.assistantId;
       }
 
-      if (voice.linkPhoneNumberToAssistant && vapiAssistantId) {
+      if (voice.importPhoneNumber) {
+        const importRes = await voice.importPhoneNumber({
+          phoneNumber: normalized,
+          assistantId: vapiAssistantId,
+          name: `${promptData.agentName} Receptionist (${normalized})`,
+          telephonyProvider: 'telnyx',
+          telnyxApiKey: config.telnyx.apiKey,
+        });
+        vapiPhoneNumberId = importRes.vapiPhoneNumberId;
+      } else if (voice.linkPhoneNumberToAssistant && vapiAssistantId) {
         await voice.linkPhoneNumberToAssistant({
           phoneNumberIdOrNumber: normalized,
           assistantId: vapiAssistantId,
         });
       }
 
-      await telephony.configureRoutingToVapi({
-        telnyxPhoneNumberId: telnyxResult.telnyxPhoneNumberId,
+      const routingResult = await telephony.configureRoutingToVapi({
+        // Pass current resource ID (may be null — configureRoutingToVapi will attempt GET lookup)
+        telnyxPhoneNumberId: telnyxResult.telnyxPhoneNumberResourceId,
         phoneNumber: normalized,
       });
+
+      // If SIP routing did not succeed, mark as FAILED so the retry flow can pick it up.
+      // This is a recoverable failure — the Telnyx order and Vapi linkage are preserved.
+      if (!routingResult.success) {
+        const reason = 'Telnyx SIP routing could not be established. The phone number may still be provisioning on the carrier side. Please retry in a few minutes.';
+        await db.execute(
+          `UPDATE voice_phone_numbers
+           SET status = 'FAILED', provisioning_status = 'FAILED', last_error = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2 AND organization_id = $3`,
+          [reason, id, params.organizationId]
+        );
+        throw new Error(reason);
+      }
+
+      // Persist the resolved phone number resource ID (may differ from what was stored in Step C)
+      if (routingResult.telnyxPhoneNumberResourceId && routingResult.telnyxPhoneNumberResourceId !== telnyxResult.telnyxPhoneNumberResourceId) {
+        await db.execute(
+          `UPDATE voice_phone_numbers SET telnyx_phone_number_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND organization_id = $3`,
+          [routingResult.telnyxPhoneNumberResourceId, id, params.organizationId]
+        );
+      }
     } catch (err: any) {
-      await db.execute(
-        `UPDATE voice_phone_numbers
-         SET status = 'FAILED', provisioning_status = 'FAILED', last_error = $1, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2 AND organization_id = $3`,
-        [err.message || 'Voice AI assistant connection failed', id, params.organizationId]
+      // Only write FAILED if not already written by the routing failure branch above
+      const currentRecord = await db.getOne<{ provisioning_status: string }>(
+        'SELECT provisioning_status FROM voice_phone_numbers WHERE id = $1',
+        [id]
       );
+      if (currentRecord?.provisioning_status !== VoiceProvisioningStatus.FAILED) {
+        await db.execute(
+          `UPDATE voice_phone_numbers
+           SET status = 'FAILED', provisioning_status = 'FAILED', last_error = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE id = $2 AND organization_id = $3`,
+          [err.message || 'Voice AI assistant connection failed', id, params.organizationId]
+        );
+      }
       throw err;
     }
 
@@ -691,10 +1069,11 @@ export class VoiceService {
        SET provisioning_status = $1,
            status = $2,
            vapi_assistant_id = $3,
-           action_required_reason = $4,
+           vapi_phone_number_id = $4,
+           action_required_reason = $5,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5 AND organization_id = $6`,
-      [nextStatus, nextStatus, vapiAssistantId || null, actionReason, id, params.organizationId]
+       WHERE id = $6 AND organization_id = $7`,
+      [nextStatus, nextStatus, vapiAssistantId || null, vapiPhoneNumberId || null, actionReason, id, params.organizationId]
     );
 
     await AuditService.log({
@@ -715,7 +1094,7 @@ export class VoiceService {
   }
 
   /**
-   * Provision a new provider phone number (backward compatible wrapper)
+   * Provision a new provider phone number (backward compatible wrapper without inventing numbers)
    */
   static async provisionNewNumber(params: {
     organizationId: string;
@@ -731,9 +1110,11 @@ export class VoiceService {
       limit: 1,
     });
 
-    const chosen = available[0] || {
-      phoneNumber: `+1${area}555${Math.floor(1000 + Math.random() * 9000)}`,
-    };
+    if (!available || available.length === 0) {
+      throw new Error(`No available phone numbers found matching country ${country} and area code ${area}.`);
+    }
+
+    const chosen = available[0];
 
     return this.orderNewNumber({
       organizationId: params.organizationId,
@@ -742,6 +1123,33 @@ export class VoiceService {
       numberType: 'local',
       userId: params.userId,
       confirmPurchase: true,
+    });
+  }
+
+  /**
+   * Retry provisioning for a failed or partially configured phone number
+   */
+  static async retryNumberProvisioning(params: {
+    organizationId: string;
+    phoneNumberId: string;
+    userId?: string;
+  }): Promise<VoicePhoneNumber> {
+    const record = await this.getPhoneNumberById(params.organizationId, params.phoneNumberId);
+    if (!record) {
+      throw new Error('Phone number record not found.');
+    }
+
+    if (record.provisioningStatus !== VoiceProvisioningStatus.FAILED) {
+      throw new Error(`Cannot retry phone number in ${record.provisioningStatus} state.`);
+    }
+
+    return this.orderNewNumber({
+      organizationId: params.organizationId,
+      phoneNumber: record.phoneNumber,
+      countryCode: record.countryCode || 'US',
+      numberType: record.phoneNumberType || 'local',
+      confirmPurchase: true,
+      userId: params.userId,
     });
   }
 
@@ -768,6 +1176,19 @@ export class VoiceService {
     // Safety guard: Simulated mock test calls cannot activate live-mode numbers in production
     if (process.env.NODE_ENV === 'production' && voice.providerName === 'MOCK_VOICE') {
       throw new Error('A simulated mock test call cannot activate a live-mode phone number in production.');
+    }
+
+    // Safety guard: Existing number forwarding validation (no placeholder, verified ownership, linked assistant)
+    if (num.connectionMethod === VoiceConnectionMethod.EXISTING_FORWARDING) {
+      if (num.verificationStatus !== 'VERIFIED') {
+        throw new Error('Cannot activate an unverified phone number. Ownership verification must be completed first.');
+      }
+      if (!num.forwardingTarget || num.forwardingTarget.includes('18005550199')) {
+        throw new Error('Cannot activate phone number with invalid or placeholder forwarding destination (+18005550199). A real ONCEClic-managed destination is required.');
+      }
+      if (!num.vapiAssistantId) {
+        throw new Error('No Vapi assistant linked to this phone number.');
+      }
     }
 
     try {
@@ -837,6 +1258,19 @@ export class VoiceService {
               telnyx_phone_number_id as "telnyxPhoneNumberId", forwarding_target as "forwardingTarget",
               sip_endpoint as "sipEndpoint", status, provisioning_status as "provisioningStatus",
               monthly_cost_usd as "monthlyCostUsd", setup_cost_usd as "setupCostUsd",
+              provider_cost_usd as "providerCostUsd", markup_usd as "markupUsd",
+              customer_monthly_cost_usd as "customerMonthlyCostUsd",
+              paddle_subscription_id as "paddleSubscriptionId",
+              paddle_transaction_id as "paddleTransactionId",
+              paddle_price_id as "paddlePriceId",
+              billing_status as "billingStatus",
+              billing_currency as "billingCurrency",
+              pricing_policy_version as "pricingPolicyVersion",
+              cancel_at_period_end as "cancelAtPeriodEnd",
+              canceled_at as "canceledAt",
+              refund_status as "refundStatus",
+              refund_amount_usd as "refundAmountUsd",
+              refunded_at as "refundedAt",
               regulatory_status as "regulatoryStatus", required_documents as "requiredDocuments",
               action_required_reason as "actionRequiredReason", last_error as "lastError",
               idempotency_key as "idempotencyKey", verification_code as "verificationCode",
@@ -862,6 +1296,19 @@ export class VoiceService {
               telnyx_phone_number_id as "telnyxPhoneNumberId", forwarding_target as "forwardingTarget",
               sip_endpoint as "sipEndpoint", status, provisioning_status as "provisioningStatus",
               monthly_cost_usd as "monthlyCostUsd", setup_cost_usd as "setupCostUsd",
+              provider_cost_usd as "providerCostUsd", markup_usd as "markupUsd",
+              customer_monthly_cost_usd as "customerMonthlyCostUsd",
+              paddle_subscription_id as "paddleSubscriptionId",
+              paddle_transaction_id as "paddleTransactionId",
+              paddle_price_id as "paddlePriceId",
+              billing_status as "billingStatus",
+              billing_currency as "billingCurrency",
+              pricing_policy_version as "pricingPolicyVersion",
+              cancel_at_period_end as "cancelAtPeriodEnd",
+              canceled_at as "canceledAt",
+              refund_status as "refundStatus",
+              refund_amount_usd as "refundAmountUsd",
+              refunded_at as "refundedAt",
               regulatory_status as "regulatoryStatus", required_documents as "requiredDocuments",
               action_required_reason as "actionRequiredReason", last_error as "lastError",
               idempotency_key as "idempotencyKey", verification_code as "verificationCode",
@@ -883,6 +1330,15 @@ export class VoiceService {
   static async disconnectPhoneNumber(organizationId: string, id: string, userId?: string): Promise<boolean> {
     const existing = await this.getPhoneNumberById(organizationId, id);
     if (!existing) return false;
+
+    // If number has an active rental subscription, cancel it cleanly via PhoneNumberBillingService
+    if (existing.billingStatus === 'ACTIVE' || (existing as any).paddleSubscriptionId) {
+      try {
+        await PhoneNumberBillingService.cancelPhoneNumberRental(organizationId, id);
+      } catch (err: any) {
+        console.warn(`[VoiceService] Failed to cancel Paddle rental subscription during disconnect: ${err.message}`);
+      }
+    }
 
     const count = await db.execute(
       'DELETE FROM voice_phone_numbers WHERE organization_id = $1 AND id = $2',
@@ -1151,15 +1607,24 @@ export class VoiceService {
       };
     }
 
-    // 4. Build Speech-Optimized Prompt
+    // 4. Resolve max call duration and build Speech-Optimized Prompt
+    const maxDurationSeconds = await this.resolveMaxCallDuration(organizationId);
     const promptData = await VoicePromptBuilder.buildPrompt(organizationId, event.fromNumber);
+
+    // Track active call for server-side duration limit enforcement
+    this.activeCalls.set(event.callId, {
+      callId: event.callId,
+      organizationId,
+      startedAt: Date.now(),
+      maxDurationSeconds,
+    });
 
     await AuditService.log({
       organizationId,
       action: AuditAction.VOICE_CALL_STARTED,
       entityType: 'VOICE_CALL',
       entityId: event.callId,
-      metadata: { from: event.fromNumber, to: event.toNumber },
+      metadata: { from: event.fromNumber, to: event.toNumber, maxDurationSeconds },
     });
 
     const responsePayload = provider.formatInboundResponse({
@@ -1167,6 +1632,7 @@ export class VoiceService {
       greeting: promptData.greeting,
       systemPrompt: promptData.systemPrompt,
       tools: promptData.tools,
+      maxDurationSeconds,
     });
 
     return {
@@ -1185,32 +1651,65 @@ export class VoiceService {
     toolName: string;
     args: Record<string, any>;
     organizationId?: string;
-    callerPhone?: string;
   }): Promise<any> {
     const { toolName, args, toolCallId } = params;
-    let orgId = params.organizationId;
+    let orgId: string | undefined;
 
-    // Resolve orgId from phone or active call if not explicitly provided
-    if (!orgId && params.callerPhone) {
-      const resolved = await this.resolveOrganizationByNumber(params.callerPhone);
-      orgId = resolved?.organizationId;
+    // --- TENANT ISOLATION: resolve org strictly from server-side records only ---
+
+    // 1. Highest authority: activeCalls map populated during handleInboundCall
+    const tracked = this.activeCalls.get(params.callId);
+    if (tracked) {
+      // If caller also supplied an org, verify it matches the tracked owner
+      if (params.organizationId && params.organizationId !== tracked.organizationId) {
+        throw new Error(`Tenant isolation violation: supplied organizationId does not match tracked call owner for callId=${params.callId}`);
+      }
+      orgId = tracked.organizationId;
     }
 
+    // 2. Fall back to voice_call_records (server-side DB, not caller-supplied)
     if (!orgId) {
-      // Look up organization from active call record or default active org
-      const call = await db.getOne('SELECT organization_id FROM voice_call_records WHERE provider_call_id = $1', [
-        params.callId,
-      ]);
-      orgId = call?.organization_id;
+      const callRecord = await db.getOne<{ organization_id: string }>(
+        'SELECT organization_id FROM voice_call_records WHERE provider_call_id = $1',
+        [params.callId]
+      );
+      if (callRecord?.organization_id) {
+        // Verify caller-supplied org (if any) matches DB record
+        if (params.organizationId && params.organizationId !== callRecord.organization_id) {
+          throw new Error(`Tenant isolation violation: supplied organizationId does not match call record owner for callId=${params.callId}`);
+        }
+        orgId = callRecord.organization_id;
+      }
     }
 
-    if (!orgId) {
-      const activeOrg = await db.getOne('SELECT id FROM organizations WHERE is_active = TRUE ORDER BY created_at ASC LIMIT 1');
-      orgId = activeOrg?.id;
+    // 3. Last resort: explicit organizationId verified to exist in DB (no guessing)
+    if (!orgId && params.organizationId) {
+      const orgExists = await db.getOne<{ id: string }>(
+        'SELECT id FROM organizations WHERE id = $1',
+        [params.organizationId]
+      );
+      if (!orgExists) {
+        throw new Error(`Tenant isolation: supplied organizationId=${params.organizationId} does not exist.`);
+      }
+      orgId = orgExists.id;
     }
 
+    // FAIL CLOSED — never fall back to any other organization
     if (!orgId) {
-      throw new Error('Could not securely resolve organization for voice tool call.');
+      throw new Error('Could not securely resolve organization for voice tool call. Call is not tracked and no verified organizationId was supplied.');
+    }
+
+    // Server-side call duration limit enforcement (180-second maximum ceiling)
+    const limitCheck = await this.checkCallDurationLimit({
+      callId: params.callId,
+      organizationId: orgId,
+    });
+    if (limitCheck.exceeded) {
+      console.warn(`[VoiceService] Call ${params.callId} exceeded maximum duration (${limitCheck.elapsedSeconds}s >= ${limitCheck.maxDurationSeconds}s). Tool execution blocked.`);
+      return {
+        error: `The maximum call duration of ${limitCheck.maxDurationSeconds} seconds has been reached. Please conclude the call politely with the customer.`,
+        callTerminated: true,
+      };
     }
 
     console.log(`[VoiceService] Executing tool "${toolName}" for organization ${orgId}`);
@@ -1372,20 +1871,38 @@ export class VoiceService {
       return (await this.getCallRecordById(existing.id))!;
     }
 
-    // Resolve organization by phone
+    // Resolve organization strictly — no fallback to random tenant
     let organizationId = '';
-    if (event.toNumber) {
+
+    // 1. Check activeCalls map (most authoritative — set during handleInboundCall)
+    const trackedCall = this.activeCalls.get(event.callId);
+    if (trackedCall) {
+      organizationId = trackedCall.organizationId;
+    }
+
+    // 2. Resolve by toNumber (dialed business number → DB phone record)
+    if (!organizationId && event.toNumber) {
       const resolved = await this.resolveOrganizationByNumber(event.toNumber);
       if (resolved) organizationId = resolved.organizationId;
     }
 
+    // 3. FAIL CLOSED — log and throw rather than writing data under a random tenant
     if (!organizationId) {
-      const defaultOrg = await db.getOne<{ id: string }>('SELECT id FROM organizations WHERE is_active = TRUE ORDER BY created_at ASC LIMIT 1');
-      organizationId = defaultOrg?.id || 'unknown_org';
+      console.warn(
+        `[VoiceService] handleCallEnded: cannot resolve organization for callId=${event.callId} toNumber=${event.toNumber}. ` +
+        `Call record will NOT be created to protect tenant isolation. Verify Telnyx/Vapi routing and phone-number DB records.`
+      );
+      // Clean up tracker before throwing
+      this.activeCalls.delete(event.callId);
+      throw new Error(`Tenant isolation: cannot resolve organization for callId=${event.callId}. No conversation or call record written.`);
     }
 
+    // Clean up active call tracker
+    this.activeCalls.delete(event.callId);
+
     const recordId = uuidv4();
-    const durationSeconds = event.durationSeconds || 0;
+    const rawSec = event.durationSeconds;
+    const durationSeconds = typeof rawSec === 'number' && Number.isFinite(rawSec) && rawSec >= 0 ? rawSec : 0;
     const durationMinutes = Math.round((durationSeconds / 60) * 100) / 100;
 
     // Determine outcome from transcript/metadata

@@ -180,6 +180,12 @@ export const Login: React.FC = () => {
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-semibold text-slate-300">Password</label>
+                <Link
+                  to="/forgot-password"
+                  className="text-xs font-medium text-emerald-400 hover:text-emerald-300 transition"
+                >
+                  Forgot password?
+                </Link>
               </div>
               <input
                 type="password"

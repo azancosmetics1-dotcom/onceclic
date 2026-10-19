@@ -136,6 +136,8 @@ export enum AuditAction {
   VOICE_NUMBER_CONNECTED = 'VOICE_NUMBER_CONNECTED',
   VOICE_NUMBER_DISCONNECTED = 'VOICE_NUMBER_DISCONNECTED',
   VOICE_LIMIT_REACHED = 'VOICE_LIMIT_REACHED',
+  PASSWORD_RESET_REQUESTED = 'PASSWORD_RESET_REQUESTED',
+  PASSWORD_RESET_COMPLETED = 'PASSWORD_RESET_COMPLETED',
 }
 
 // ------------------------------------------
@@ -534,6 +536,15 @@ export interface RegisterRequest {
 
 export interface LoginRequest {
   email: string;
+  password: string;
+}
+
+export interface ForgotPasswordRequest {
+  email: string;
+}
+
+export interface ResetPasswordRequest {
+  token: string;
   password: string;
 }
 
@@ -997,6 +1008,9 @@ export enum VoiceCallOutcome {
 
 export enum VoiceProvisioningStatus {
   NOT_CONFIGURED = 'NOT_CONFIGURED',
+  PENDING = 'PENDING',
+  ORDERED = 'ORDERED',
+  CONFIGURING = 'CONFIGURING',
   CHECKING_AVAILABILITY = 'CHECKING_AVAILABILITY',
   ACTION_REQUIRED = 'ACTION_REQUIRED',
   PROVISIONING = 'PROVISIONING',
@@ -1285,9 +1299,51 @@ export interface AvailablePhoneNumber {
   region?: string;
   monthlyCostUsd: number;
   setupCostUsd: number;
+  providerCostUsd?: number;
+  markupUsd?: number;
+  customerMonthlyCostUsd?: number;
+  proMonthlyCostUsd?: number;
+  combinedMonthlyTotalUsd?: number;
+  pricingPolicyVersion?: string;
   regulatoryRequirement: string;
   requiresDocuments: boolean;
   requiredDocuments: string[];
+}
+
+export interface PhoneNumberQuote {
+  phoneNumber: string;
+  countryCode: string;
+  numberType: string;
+  providerCostUsd: number;
+  markupUsd: number;
+  customerMonthlyPriceUsd: number;
+  setupCostUsd: number;
+  currency: string;
+  billingPeriod: string;
+  proSubscriptionUsd: number;
+  combinedMonthlyTotalUsd: number;
+  policyVersion: string;
+  separateFromProNotice: string;
+  taxNotice: string;
+}
+
+export interface PhoneNumberCheckoutSession {
+  id: string;
+  organizationId: string;
+  phoneNumber: string;
+  countryCode: string;
+  numberType: string;
+  providerCostUsd: number;
+  markupUsd: number;
+  customerMonthlyCostUsd: number;
+  setupCostUsd: number;
+  currency: string;
+  pricingPolicyVersion: string;
+  status: 'PENDING' | 'AUTHORIZED' | 'PAID' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
+  paddleTransactionId?: string;
+  paddleSubscriptionId?: string;
+  expiresAt: string;
+  createdAt: string;
 }
 
 export interface VoicePhoneNumber {
@@ -1302,12 +1358,27 @@ export interface VoicePhoneNumber {
   vapiAssistantId?: string;
   vapiPhoneNumberId?: string;
   telnyxPhoneNumberId?: string;
+  telnyxOrderId?: string;
   forwardingTarget?: string;
   sipEndpoint?: string;
   status: 'ACTIVE' | 'PENDING_VERIFICATION' | 'INACTIVE' | VoiceProvisioningStatus | string;
   provisioningStatus: VoiceProvisioningStatus;
   monthlyCostUsd?: number;
   setupCostUsd?: number;
+  providerCostUsd?: number;
+  markupUsd?: number;
+  customerMonthlyCostUsd?: number;
+  paddleSubscriptionId?: string;
+  paddleTransactionId?: string;
+  paddlePriceId?: string;
+  billingStatus?: 'UNPAID' | 'AUTHORIZED' | 'PAID' | 'PAYMENT_FAILED' | 'CANCELED' | 'ACTIVE' | string;
+  billingCurrency?: string;
+  pricingPolicyVersion?: string;
+  cancelAtPeriodEnd?: boolean;
+  canceledAt?: string;
+  refundStatus?: string;
+  refundAmountUsd?: number;
+  refundedAt?: string;
   regulatoryStatus?: 'NOT_REQUIRED' | 'PENDING_DOCUMENTATION' | 'APPROVED' | 'REJECTED';
   requiredDocuments?: string[];
   actionRequiredReason?: string;
@@ -1315,6 +1386,8 @@ export interface VoicePhoneNumber {
   idempotencyKey?: string;
   verificationCode?: string;
   verificationStatus?: 'UNVERIFIED' | 'VERIFIED' | 'FAILED';
+  verificationAttempts?: number;
+  verificationExpiresAt?: string;
   createdAt: string;
   updatedAt: string;
 }

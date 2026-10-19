@@ -123,7 +123,7 @@ export class AuthService {
     });
 
     // Generate JWT Token
-    const token = jwt.sign({ userId, email }, config.jwtSecret, { expiresIn: '7d' });
+    const token = jwt.sign({ userId, email, tokenVersion: 0 }, config.jwtSecret, { expiresIn: '7d' });
 
     const user: User = {
       id: userId,
@@ -468,7 +468,7 @@ export class AuthService {
     }
 
     const userRecord = await db.getOne(
-      'SELECT id, email, password_hash, full_name, is_email_verified, created_at, updated_at FROM users WHERE email = $1',
+      'SELECT id, email, password_hash, full_name, is_email_verified, token_version, created_at, updated_at FROM users WHERE email = $1',
       [email]
     );
 
@@ -502,7 +502,8 @@ export class AuthService {
       [userRecord.id]
     );
 
-    const token = jwt.sign({ userId: userRecord.id, email: userRecord.email }, config.jwtSecret, {
+    const tokenVersion = userRecord.token_version || 0;
+    const token = jwt.sign({ userId: userRecord.id, email: userRecord.email, tokenVersion }, config.jwtSecret, {
       expiresIn: '7d',
     });
 
@@ -791,6 +792,258 @@ export class AuthService {
       success: true,
       message: 'A new verification link has been sent to your email address.',
       verificationToken: rawVerificationToken,
+    };
+  }
+
+  // ----------------------------------------------------
+  // Password Recovery & Secure Token Implementation
+  // ----------------------------------------------------
+
+  private static resetRateLimitMap = new Map<string, { count: number; resetAt: number }>();
+
+  /**
+   * Helper to clear rate limits in test environments.
+   */
+  static resetPasswordResetRateLimitsForTesting(): void {
+    this.resetRateLimitMap.clear();
+  }
+
+  /**
+   * Enforce rate limits by IP and normalized email.
+   */
+  private static checkPasswordResetRateLimit(ip: string, email: string): void {
+    const now = Date.now();
+    const windowMs = 15 * 60 * 1000; // 15 minutes
+    const maxPerIp = 5;
+    const maxPerEmail = 3;
+
+    // 1. IP Rate Limiting
+    const ipKey = `ip:${ip}`;
+    const ipRecord = this.resetRateLimitMap.get(ipKey);
+    if (ipRecord && now < ipRecord.resetAt) {
+      if (ipRecord.count >= maxPerIp) {
+        const err: any = new Error('Too many password reset requests from this network. Please try again later.');
+        err.status = 429;
+        throw err;
+      }
+      ipRecord.count++;
+    } else {
+      this.resetRateLimitMap.set(ipKey, { count: 1, resetAt: now + windowMs });
+    }
+
+    // 2. Email Rate Limiting
+    const emailKey = `email:${email}`;
+    const emailRecord = this.resetRateLimitMap.get(emailKey);
+    if (emailRecord && now < emailRecord.resetAt) {
+      if (emailRecord.count >= maxPerEmail) {
+        const err: any = new Error('Too many password reset requests for this email address. Please try again later.');
+        err.status = 429;
+        throw err;
+      }
+      emailRecord.count++;
+    } else {
+      this.resetRateLimitMap.set(emailKey, { count: 1, resetAt: now + windowMs });
+    }
+  }
+
+  /**
+   * Request a single-use password reset link.
+   * Always returns the identical generic success message to prevent account enumeration.
+   */
+  static async requestPasswordReset(
+    emailParam: string,
+    ipAddress?: string
+  ): Promise<{ success: boolean; message: string }> {
+    const GENERIC_SUCCESS_MESSAGE =
+      "If an account exists for that email, we've sent a password reset link. Please check your inbox.";
+
+    if (!emailParam || typeof emailParam !== 'string') {
+      throw new Error('Please enter a valid email address.');
+    }
+
+    const rawTrimmed = emailParam.trim();
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(rawTrimmed)) {
+      throw new Error('Please enter a valid email address.');
+    }
+
+    const email = normalizeEmail(rawTrimmed);
+    const ip = ipAddress || 'unknown-ip';
+
+    // Rate-limit check by IP and normalized email
+    this.checkPasswordResetRateLimit(ip, email);
+
+    // Look up user
+    const user = await db.getOne<{ id: string; email: string; full_name: string }>(
+      'SELECT id, email, full_name FROM users WHERE email = $1',
+      [email]
+    );
+
+    if (!user) {
+      // Prevent account enumeration: return identical generic message
+      return { success: true, message: GENERIC_SUCCESS_MESSAGE };
+    }
+
+    // Invalidate prior outstanding reset tokens for this user
+    await db.execute(
+      'UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND used_at IS NULL',
+      [user.id]
+    );
+
+    // Generate cryptographically secure random token (32 bytes / 64 hex characters)
+    const rawResetToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawResetToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+
+    const resetId = uuidv4();
+    await db.execute(
+      `INSERT INTO password_resets (id, user_id, token_hash, expires_at, created_at)
+       VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)`,
+      [resetId, user.id, tokenHash, expiresAt.toISOString()]
+    );
+
+    const membership = await db.getOne<{ organization_id: string }>(
+      'SELECT organization_id FROM organization_memberships WHERE user_id = $1 LIMIT 1',
+      [user.id]
+    );
+
+    if (membership?.organization_id) {
+      await AuditService.log({
+        organizationId: membership.organization_id,
+        userId: user.id,
+        action: AuditAction.PASSWORD_RESET_REQUESTED,
+        entityType: 'USER',
+        entityId: user.id,
+        metadata: { email },
+        ipAddress,
+      });
+    }
+
+    // Dispatch transactional password reset email via Resend
+    try {
+      await ResendEmailService.sendPasswordResetEmail({
+        toEmail: user.email,
+        token: rawResetToken,
+        fullName: user.full_name,
+      });
+    } catch (err: any) {
+      // Sanitize server-side error: NEVER log the reset token
+      console.error('[AuthService] Failed to dispatch password reset email via Resend:', err?.message || err);
+    }
+
+    return {
+      success: true,
+      message: GENERIC_SUCCESS_MESSAGE,
+    };
+  }
+
+  /**
+   * Reset user password using single-use cryptographic token.
+   */
+  static async resetPassword(params: {
+    token: string;
+    password: string;
+    ipAddress?: string;
+  }): Promise<{ success: boolean; message: string }> {
+    const { token, password, ipAddress } = params;
+
+    if (!token || typeof token !== 'string' || !token.trim()) {
+      const err: any = new Error('This password reset link is invalid or has already been used.');
+      err.status = 400;
+      throw err;
+    }
+
+    if (!password || typeof password !== 'string' || password.length < 6) {
+      const err: any = new Error('Password must be at least 6 characters long.');
+      err.status = 400;
+      throw err;
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token.trim()).digest('hex');
+
+    const resetRecord = await db.getOne<{
+      id: string;
+      user_id: string;
+      token_hash: string;
+      expires_at: string;
+      used_at: string | null;
+    }>(
+      'SELECT id, user_id, token_hash, expires_at, used_at FROM password_resets WHERE token_hash = $1',
+      [tokenHash]
+    );
+
+    if (!resetRecord) {
+      const err: any = new Error('This password reset link is invalid or has already been used.');
+      err.status = 400;
+      throw err;
+    }
+
+    if (resetRecord.used_at) {
+      const err: any = new Error('This password reset link is invalid or has already been used.');
+      err.status = 400;
+      throw err;
+    }
+
+    const expiresAt = new Date(resetRecord.expires_at).getTime();
+    if (Date.now() > expiresAt) {
+      const err: any = new Error('This password reset link has expired.');
+      err.status = 400;
+      throw err;
+    }
+
+    // Atomic consumption: update used_at WHERE id = $1 AND used_at IS NULL to prevent race condition
+    const updated = await db.execute(
+      'UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE id = $1 AND used_at IS NULL',
+      [resetRecord.id]
+    );
+
+    if (updated === 0) {
+      const err: any = new Error('This password reset link is invalid or has already been used.');
+      err.status = 400;
+      throw err;
+    }
+
+    // Hash new password using bcrypt
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    // Atomically update password and increment token_version to invalidate prior JWT sessions
+    await db.execute(
+      `UPDATE users
+       SET password_hash = $1,
+           token_version = COALESCE(token_version, 0) + 1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [passwordHash, resetRecord.user_id]
+    );
+
+    // Invalidate any other outstanding reset tokens for this user
+    await db.execute(
+      'UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND used_at IS NULL',
+      [resetRecord.user_id]
+    );
+
+    // Invalidate active session rows if sessions table is present
+    await db.execute('DELETE FROM sessions WHERE user_id = $1', [resetRecord.user_id]);
+
+    const membership = await db.getOne<{ organization_id: string }>(
+      'SELECT organization_id FROM organization_memberships WHERE user_id = $1 LIMIT 1',
+      [resetRecord.user_id]
+    );
+
+    if (membership?.organization_id) {
+      await AuditService.log({
+        organizationId: membership.organization_id,
+        userId: resetRecord.user_id,
+        action: AuditAction.PASSWORD_RESET_COMPLETED,
+        entityType: 'USER',
+        entityId: resetRecord.user_id,
+        ipAddress,
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Your password has been reset successfully. Please sign in with your new password.',
     };
   }
 

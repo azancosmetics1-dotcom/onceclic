@@ -324,7 +324,7 @@ export async function runLegacyAccountChatAndComingSoonTests() {
     console.log('  ✓ 9. Available integrations (Google Calendar, Website Chat) remain connectable & functional');
 
     // ----------------------------------------------------------------
-    // 7. Test About Page CEO Image & SEO Integrity
+    // 7. Test Owner Update (Nabila Aslam — Owner of ONCEClic, no photo)
     // ----------------------------------------------------------------
     const aboutPageContent = fs.readFileSync(
       path.join(__dirname, '../client/src/pages/About.tsx'),
@@ -335,24 +335,28 @@ export async function runLegacyAccountChatAndComingSoonTests() {
       'utf-8'
     );
 
-    if (!aboutPageContent.includes('/founder.jpg') || !aboutPageContent.includes('Kamran Ali, Founder & CEO of ONCEClic')) {
-      throw new Error('About.tsx missing exact founder.jpg image or accessible alt text.');
+    if (aboutPageContent.includes('/founder.jpg') || homePageContent.includes('/founder.jpg')) {
+      throw new Error('Obsolescent founder photograph still referenced in public pages.');
     }
 
-    if (!aboutPageContent.includes('Kamran Ali') || (!aboutPageContent.includes('Founder &amp; CEO') && !aboutPageContent.includes('Founder & CEO'))) {
-      throw new Error('About.tsx missing CEO leadership section content.');
+    if (aboutPageContent.includes('Kamran Ali') || homePageContent.includes('Kamran Ali')) {
+      throw new Error('Previous owner name still present in public pages.');
     }
 
-    if (!homePageContent.includes('/founder.jpg')) {
-      throw new Error('Home.tsx founder image section was altered.');
+    if (!aboutPageContent.includes('Nabila Aslam') || !aboutPageContent.includes('Nabila Aslam — Owner of ONCEClic')) {
+      throw new Error('About.tsx missing updated owner information: Nabila Aslam — Owner of ONCEClic.');
+    }
+
+    if (!homePageContent.includes('Nabila Aslam') || !homePageContent.includes('Nabila Aslam — Owner of ONCEClic')) {
+      throw new Error('Home.tsx missing updated owner information: Nabila Aslam — Owner of ONCEClic.');
     }
 
     const founderImagePath = path.join(__dirname, '../client/public/founder.jpg');
-    if (!fs.existsSync(founderImagePath)) {
-      throw new Error('public/founder.jpg image file is missing.');
+    if (fs.existsSync(founderImagePath)) {
+      throw new Error('public/founder.jpg should be removed to ensure no obsolete photograph is deployed.');
     }
-    console.log('  ✓ 10. About page displays exact supplied image with CEO leadership section & SEO content');
-    console.log('  ✓ 11. Homepage CEO section and SEO assets verified intact');
+    console.log('  ✓ 10. About page displays Nabila Aslam — Owner of ONCEClic without photograph');
+    console.log('  ✓ 11. Homepage owner section verified with Nabila Aslam by name only');
   } finally {
     aiProvider.generateResponse = originalGenerateResponse;
     aiProvider.generateEmbedding = originalGenerateEmbedding;

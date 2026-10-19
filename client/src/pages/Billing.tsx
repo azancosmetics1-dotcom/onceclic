@@ -61,10 +61,14 @@ export const BillingPage: React.FC = () => {
   useEffect(() => {
     loadBilling().then((res) => {
       const token = res?.config?.clientToken || (import.meta as any).env?.VITE_PADDLE_CLIENT_TOKEN;
-      const env = res?.config?.environment || (import.meta as any).env?.VITE_PADDLE_ENVIRONMENT || (import.meta as any).env?.VITE_PADDLE_ENV || 'sandbox';
+      const env = res?.config?.environment || (import.meta as any).env?.VITE_PADDLE_ENVIRONMENT || (import.meta as any).env?.VITE_PADDLE_ENV || ((import.meta as any).env?.PROD ? 'production' : 'sandbox');
       if (token && window.Paddle && !window.__paddle_initialized) {
         try {
-          window.Paddle.Environment.set(env);
+          // Paddle.Environment.set('sandbox') is ONLY called in sandbox mode.
+          // In production, Paddle.js v2 natively uses the Live environment.
+          if (env === 'sandbox') {
+            window.Paddle.Environment.set('sandbox');
+          }
           window.Paddle.Initialize({
             token,
             eventCallback: (event: any) => {
@@ -104,8 +108,18 @@ export const BillingPage: React.FC = () => {
     const planMeta = SUBSCRIPTION_PLANS[targetTier];
     const planConfig = billingConfig?.plans?.[targetTier];
     const clientToken = billingConfig?.clientToken || (import.meta as any).env?.VITE_PADDLE_CLIENT_TOKEN;
-    const environment = billingConfig?.environment || (import.meta as any).env?.VITE_PADDLE_ENVIRONMENT || (import.meta as any).env?.VITE_PADDLE_ENV || 'sandbox';
-    const priceId = planConfig?.priceId || (targetTier === 'PRO' ? (billingConfig?.priceId || (import.meta as any).env?.VITE_PADDLE_PRICE_ID) : null);
+    const environment = billingConfig?.environment || (import.meta as any).env?.VITE_PADDLE_ENVIRONMENT || (import.meta as any).env?.VITE_PADDLE_ENV || ((import.meta as any).env?.PROD ? 'production' : 'sandbox');
+
+    let frontendPriceId: string | null = null;
+    if (targetTier === 'STARTER') {
+      frontendPriceId = (import.meta as any).env?.VITE_PADDLE_STARTER_PRICE_ID || null;
+    } else if (targetTier === 'PRO') {
+      frontendPriceId = (import.meta as any).env?.VITE_PADDLE_PRO_PRICE_ID || (import.meta as any).env?.VITE_PADDLE_PRICE_ID || null;
+    } else if (targetTier === 'BUSINESS') {
+      frontendPriceId = (import.meta as any).env?.VITE_PADDLE_BUSINESS_PRICE_ID || null;
+    }
+
+    const priceId = planConfig?.priceId || frontendPriceId || (targetTier === 'PRO' ? billingConfig?.priceId : null);
 
     if (!clientToken || clientToken.includes('placeholder')) {
       setActionMessage({
@@ -115,10 +129,26 @@ export const BillingPage: React.FC = () => {
       return;
     }
 
+    if (environment === 'production' && clientToken.startsWith('test_')) {
+      setActionMessage({
+        type: 'error',
+        text: 'Configuration guard: Sandbox Paddle client token cannot be used in production environment.',
+      });
+      return;
+    }
+
     if (!priceId || priceId.includes('placeholder')) {
       setActionMessage({
         type: 'error',
         text: `Checkout for the ${planMeta?.name || targetTier} plan ($${planMeta?.priceUsd || ''}/mo) is not currently available because its Paddle Price ID (PADDLE_${targetTier}_PRICE_ID) is not configured on the server. Please contact support.`,
+      });
+      return;
+    }
+
+    if (environment === 'production' && priceId.toLowerCase().includes('sandbox')) {
+      setActionMessage({
+        type: 'error',
+        text: 'Configuration guard: Sandbox price ID cannot be used in production environment.',
       });
       return;
     }
@@ -137,7 +167,9 @@ export const BillingPage: React.FC = () => {
     try {
       // Ensure Paddle is initialized once
       if (!window.__paddle_initialized) {
-        window.Paddle.Environment.set(environment);
+        if (environment === 'sandbox') {
+          window.Paddle.Environment.set('sandbox');
+        }
         window.Paddle.Initialize({
           token: clientToken,
           eventCallback: (event: any) => {

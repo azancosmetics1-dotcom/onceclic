@@ -164,13 +164,22 @@ router.post(['/', '/vapi', '/webhook'], async (req: Request, res: Response) => {
     // 3. End of Call Report
     if (messageType === 'end-of-call-report' || messageType === 'call-ended') {
       const event = provider.parseCallEnded(body);
-      const callRecord = await VoiceService.handleCallEnded(event);
-      return res.json({
-        success: true,
-        callId: callRecord.providerCallId,
-        durationMinutes: callRecord.durationMinutes,
-        status: callRecord.status,
-      });
+      try {
+        const callRecord = await VoiceService.handleCallEnded(event);
+        return res.json({
+          success: true,
+          callId: callRecord.providerCallId,
+          durationMinutes: callRecord.durationMinutes,
+          status: callRecord.status,
+        });
+      } catch (endErr: any) {
+        if (endErr?.message?.startsWith('Tenant isolation')) {
+          // Acknowledge the event so the provider does not retry, but record the skip
+          console.warn('[voiceWebhookRoutes] Tenant isolation skip for call-ended event:', endErr.message);
+          return res.json({ success: false, skipped: true, reason: 'unresolvable_org' });
+        }
+        throw endErr; // let the outer catch return 500
+      }
     }
 
     res.json({ success: true, messageType });
@@ -266,14 +275,21 @@ router.post('/call-ended', async (req: Request, res: Response) => {
     }
 
     const event = provider.parseCallEnded(req.body);
-    const callRecord = await VoiceService.handleCallEnded(event);
-
-    res.json({
-      success: true,
-      callId: callRecord.providerCallId,
-      durationMinutes: callRecord.durationMinutes,
-      status: callRecord.status,
-    });
+    try {
+      const callRecord = await VoiceService.handleCallEnded(event);
+      res.json({
+        success: true,
+        callId: callRecord.providerCallId,
+        durationMinutes: callRecord.durationMinutes,
+        status: callRecord.status,
+      });
+    } catch (endErr: any) {
+      if (endErr?.message?.startsWith('Tenant isolation')) {
+        console.warn('[voiceWebhookRoutes] Tenant isolation skip for call-ended event:', endErr.message);
+        return res.json({ success: false, skipped: true, reason: 'unresolvable_org' });
+      }
+      throw endErr;
+    }
   } catch (err: any) {
     res.status(500).json({ success: false, error: 'Call ended processing error' });
   }

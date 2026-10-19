@@ -243,7 +243,7 @@ export const Home: React.FC = () => {
             Ready to give your business a 24/7 AI Receptionist?
           </h2>
           <p className="mt-4 text-base text-slate-300 max-w-xl mx-auto">
-            Start your 7-day free trial with no credit card required. Experience ONCEClic Pro and upgrade for $19/month when you're ready.
+            Start your 7-day free trial with no credit card required. Experience ONCEClic and upgrade from $19/month when you're ready.
           </p>
 
           <div className="mt-8 flex justify-center">
@@ -258,44 +258,26 @@ export const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* CEO / Founder Section */}
+      {/* Owner Section */}
       <section className="pb-16 px-4 sm:px-6 lg:px-8 max-w-5xl mx-auto w-full">
         <div className="bg-slate-900/80 border border-slate-800 rounded-3xl p-8 sm:p-10 shadow-xl relative overflow-hidden backdrop-blur-sm">
-          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-8">
-            {/* CEO Photo */}
-            <div className="relative shrink-0">
-              <div className="w-32 h-32 sm:w-36 sm:h-36 rounded-2xl overflow-hidden border-2 border-emerald-500/40 shadow-lg shadow-emerald-500/10 bg-slate-950">
-                <img
-                  src="/founder.jpg"
-                  alt="Kamran Ali, Founder & CEO of ONCEClic"
-                  className="w-full h-full object-cover object-center"
-                  loading="lazy"
-                />
-              </div>
-              <div className="absolute -bottom-2 -right-2 px-2.5 py-0.5 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-bold uppercase tracking-wider shadow-sm">
-                Founder
-              </div>
+          <div className="space-y-4 text-center sm:text-left">
+            <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Business Ownership</span>
             </div>
 
-            {/* CEO Message & Details */}
-            <div className="flex-1 text-center sm:text-left space-y-3">
-              <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>Meet the Founder</span>
-              </div>
+            <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight leading-snug">
+              Built with a clear mission: make business communication simpler with AI.
+            </h2>
 
-              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight leading-snug">
-                Built with a clear mission: make business communication simpler with AI.
-              </h2>
+            <p className="text-sm text-slate-300 leading-relaxed max-w-2xl">
+              ONCEClic was founded with a single focus: empower small businesses and service professionals to handle customer inquiries, voice phone reception, and real-time appointment bookings 24/7 without technical complexity or lost opportunities.
+            </p>
 
-              <p className="text-sm text-slate-300 leading-relaxed max-w-2xl">
-                ONCEClic was founded with a single focus: empower small businesses and service professionals to handle customer inquiries, voice phone reception, and real-time appointment bookings 24/7 without technical complexity or lost opportunities.
-              </p>
-
-              <div className="pt-2">
-                <div className="font-bold text-white text-base">Kamran Ali</div>
-                <div className="text-xs text-emerald-400 font-medium">Founder &amp; CEO, ONCEClic</div>
-              </div>
+            <div className="pt-2">
+              <div className="font-bold text-white text-base">Nabila Aslam</div>
+              <div className="text-xs text-emerald-400 font-medium">Nabila Aslam — Owner of ONCEClic</div>
             </div>
           </div>
         </div>

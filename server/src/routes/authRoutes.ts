@@ -75,6 +75,34 @@ router.post('/resend-verification', async (req: Request, res: Response, next) =>
   }
 });
 
+router.post('/forgot-password', async (req: Request, res: Response, next) => {
+  try {
+    const ip = req.ip || req.socket.remoteAddress;
+    const { email } = req.body;
+    const result = await AuthService.requestPasswordReset(email, ip);
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(err.status || 400).json({
+      success: false,
+      error: err.message || 'Failed to process password reset request.',
+    });
+  }
+});
+
+router.post('/reset-password', async (req: Request, res: Response, next) => {
+  try {
+    const ip = req.ip || req.socket.remoteAddress;
+    const { token, password } = req.body;
+    const result = await AuthService.resetPassword({ token, password, ipAddress: ip });
+    res.json({ success: true, data: result });
+  } catch (err: any) {
+    res.status(err.status || 400).json({
+      success: false,
+      error: err.message || 'Failed to reset password.',
+    });
+  }
+});
+
 router.get('/me', authMiddleware, async (req: Request, res: Response, next) => {
   try {
     const result = await AuthService.getProfile(req.user!.id);

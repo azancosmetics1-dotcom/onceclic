@@ -170,6 +170,20 @@ class ApiClient {
     });
   }
 
+  async forgotPassword(email: string): Promise<{ success: boolean; message: string }> {
+    return this.request('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async resetPassword(token: string, password: string): Promise<{ success: boolean; message: string }> {
+    return this.request('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token, password }),
+    });
+  }
+
   async getGoogleAuthUrl(returnUrl?: string): Promise<{ url: string; state: string }> {
     return this.request(`/auth/google/url${returnUrl ? `?returnUrl=${encodeURIComponent(returnUrl)}` : ''}`);
   }
@@ -590,6 +604,31 @@ class ApiClient {
     });
   }
 
+  async getVoiceNumberQuote(data: {
+    countryCode?: string;
+    numberType?: string;
+    phoneNumber?: string;
+  }): Promise<any> {
+    return this.request('/voice/numbers/quote', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async createVoiceNumberCheckoutSession(data: {
+    phoneNumber: string;
+    countryCode?: string;
+    numberType?: string;
+    expectedMonthlyCostUsd?: number;
+    expectedSetupCostUsd?: number;
+    idempotencyKey?: string;
+  }): Promise<any> {
+    return this.request('/voice/numbers/checkout-session', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
   async orderNewVoiceNumber(data: {
     phoneNumber: string;
     countryCode?: string;
@@ -598,10 +637,17 @@ class ApiClient {
     confirmPurchase: boolean;
     expectedMonthlyCostUsd?: number;
     expectedSetupCostUsd?: number;
+    checkoutId?: string;
   }): Promise<VoicePhoneNumber> {
     return this.request('/voice/numbers/new/order', {
       method: 'POST',
       body: JSON.stringify(data),
+    });
+  }
+
+  async cancelVoiceNumberRental(id: string): Promise<any> {
+    return this.request(`/voice/numbers/${id}/cancel-rental`, {
+      method: 'POST',
     });
   }
 
@@ -614,6 +660,10 @@ class ApiClient {
 
   async disconnectVoiceNumber(id: string): Promise<{ success: boolean; message?: string }> {
     return this.request(`/voice/numbers/${id}`, { method: 'DELETE' });
+  }
+
+  async retryVoiceNumber(id: string): Promise<any> {
+    return this.request(`/voice/numbers/${id}/retry`, { method: 'POST' });
   }
 
   async testVoiceCall(id: string): Promise<{
