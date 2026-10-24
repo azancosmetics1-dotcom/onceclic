@@ -141,8 +141,8 @@ router.post('/message', async (req: Request, res: Response, next) => {
       const org = await db.getOne('SELECT id FROM organizations WHERE id = $1 AND is_active = TRUE', [organizationId]);
       if (org) {
         try {
-          const { PaddleBillingService } = await import('../services/PaddleBillingService');
-          const createdSub = await PaddleBillingService.createTrialSubscription(organizationId);
+          const { CreemBillingService } = await import('../services/CreemBillingService');
+          const createdSub = await CreemBillingService.createTrialSubscription(organizationId);
           sub = {
             status: createdSub.status,
             trial_ends_at: createdSub.trialEndsAt,

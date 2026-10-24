@@ -10,7 +10,7 @@ import {
 } from '../server/src/serializers/customerSerializers';
 import { AIBudgetService } from '../server/src/services/AIBudgetService';
 import { AuthService } from '../server/src/services/AuthService';
-import { PaddleBillingService } from '../server/src/services/PaddleBillingService';
+import { CreemBillingService } from '../server/src/services/CreemBillingService';
 import { config } from '../server/src/config';
 import { db } from '../server/src/db';
 import { SubscriptionStatus } from '@onceclic/shared';
@@ -98,6 +98,7 @@ export async function runCustomerApiFieldAllowlistTests() {
   assertNoForbiddenFields(safeConfig, 'billingConfig');
 
   const allowedConfigKeys = [
+    'provider',
     'clientToken',
     'priceId',
     'environment',
@@ -302,7 +303,7 @@ export async function runCustomerApiFieldAllowlistTests() {
     businessKnowledge: 'Organization B Allowlist Test is open daily 10 AM to 8 PM. Located at 2 Test Avenue.',
   });
 
-  const rawOrgASub = await PaddleBillingService.getSubscription(orgAId);
+  const rawOrgASub = await CreemBillingService.getSubscription(orgAId);
   const orgABudgetStatus = await AIBudgetService.checkBudget(orgAId);
   const safeOrgABilling = toCustomerBillingStatus({
     subscription: rawOrgASub.subscription,
@@ -317,7 +318,7 @@ export async function runCustomerApiFieldAllowlistTests() {
     throw new Error(`Org A received incorrect organizationId`);
   }
 
-  const rawOrgBSub = await PaddleBillingService.getSubscription(orgBId);
+  const rawOrgBSub = await CreemBillingService.getSubscription(orgBId);
   const orgBBudgetStatus = await AIBudgetService.checkBudget(orgBId);
   const safeOrgBBilling = toCustomerBillingStatus({
     subscription: rawOrgBSub.subscription,

@@ -54,6 +54,9 @@ export function toCustomerBillingStatus(params: {
         status: params.subscription.status as SubscriptionStatus,
         planTier: rawPlanTier,
         priceId: params.subscription.priceId || params.subscription.price_id || null,
+        creemProductId: params.subscription.creemProductId || params.subscription.creem_product_id || null,
+        creemCustomerId: params.subscription.creemCustomerId || params.subscription.creem_customer_id || null,
+        creemSubscriptionId: params.subscription.creemSubscriptionId || params.subscription.creem_subscription_id || null,
         trialStartedAt: params.subscription.trialStartedAt || params.subscription.trial_started_at || null,
         trialEndsAt: params.subscription.trialEndsAt || params.subscription.trial_ends_at || null,
         currentPeriodStart: params.subscription.currentPeriodStart || params.subscription.current_period_start || null,
@@ -76,22 +79,15 @@ export function toCustomerBillingStatus(params: {
  * Map server billing config to client-safe billing & pricing config.
  * Note: Internal AI budgets ($0.50/$10) are NEVER returned.
  */
-export function toCustomerBillingConfig(config: {
-  paddle: {
-    clientToken: string;
-    priceId: string;
-    environment: 'sandbox' | 'production';
-    isConfigured: boolean;
-    plans?: Record<string, { priceId?: string }>;
-  };
-  billing: {
-    planName: string;
-    monthlyPriceUsd: number;
-    trialPeriodDays: number;
-    trialPriceUsd: number;
-  };
-}): CustomerBillingConfig {
-  const paddle = (config as any).paddle || (config as any);
+export function toCustomerBillingConfig(config: any): CustomerBillingConfig {
+  const creem = (config as any).creem || {};
+  const paddle = (config as any).paddle || {};
+  const isCreemActive = Boolean(creem.isConfigured || creem.plans?.PRO?.productId);
+
+  const starterProductId = creem.plans?.STARTER?.productId || '';
+  const proProductId = creem.plans?.PRO?.productId || '';
+  const businessProductId = creem.plans?.BUSINESS?.productId || '';
+
   const starterPriceId = paddle.plans?.STARTER?.priceId || (config as any).plans?.STARTER?.priceId || '';
   const proPriceId = paddle.plans?.PRO?.priceId || paddle.priceId || (config as any).plans?.PRO?.priceId || '';
   const businessPriceId = paddle.plans?.BUSINESS?.priceId || (config as any).plans?.BUSINESS?.priceId || '';
@@ -101,8 +97,12 @@ export function toCustomerBillingConfig(config: {
       id: 'STARTER',
       name: 'Starter',
       priceUsd: 19,
+      productId: starterProductId && !starterProductId.includes('placeholder') ? starterProductId : null,
       priceId: starterPriceId && !starterPriceId.includes('placeholder') ? starterPriceId : null,
-      isConfigured: Boolean(starterPriceId && !starterPriceId.includes('placeholder')),
+      isConfigured: Boolean(
+        (starterProductId && !starterProductId.includes('placeholder')) ||
+        (starterPriceId && !starterPriceId.includes('placeholder'))
+      ),
       voiceMinutes: 50,
       features: [
         '50 Included Voice Minutes / mo',
@@ -116,8 +116,12 @@ export function toCustomerBillingConfig(config: {
       id: 'PRO',
       name: 'ONCEClic Pro',
       priceUsd: 49,
+      productId: proProductId && !proProductId.includes('placeholder') ? proProductId : null,
       priceId: proPriceId && !proPriceId.includes('placeholder') ? proPriceId : null,
-      isConfigured: Boolean(proPriceId && !proPriceId.includes('placeholder')),
+      isConfigured: Boolean(
+        (proProductId && !proProductId.includes('placeholder')) ||
+        (proPriceId && !proPriceId.includes('placeholder'))
+      ),
       voiceMinutes: 150,
       highlight: true,
       badge: 'Most Popular',
@@ -134,8 +138,12 @@ export function toCustomerBillingConfig(config: {
       id: 'BUSINESS',
       name: 'Business',
       priceUsd: 99,
+      productId: businessProductId && !businessProductId.includes('placeholder') ? businessProductId : null,
       priceId: businessPriceId && !businessPriceId.includes('placeholder') ? businessPriceId : null,
-      isConfigured: Boolean(businessPriceId && !businessPriceId.includes('placeholder')),
+      isConfigured: Boolean(
+        (businessProductId && !businessProductId.includes('placeholder')) ||
+        (businessPriceId && !businessPriceId.includes('placeholder'))
+      ),
       voiceMinutes: 400,
       features: [
         '400 Included Voice Minutes / mo',
@@ -148,10 +156,11 @@ export function toCustomerBillingConfig(config: {
   };
 
   return {
+    provider: isCreemActive ? 'creem' : 'paddle',
     clientToken: String(paddle.clientToken || ''),
     priceId: String(paddle.priceId || proPriceId || ''),
-    environment: paddle.environment === 'production' ? 'production' : 'sandbox',
-    isConfigured: Boolean(paddle.isConfigured),
+    environment: isCreemActive ? (creem.environment === 'prod' ? 'production' : 'test') : (paddle.environment === 'production' ? 'production' : 'sandbox'),
+    isConfigured: Boolean(creem.isConfigured || paddle.isConfigured),
     planName: String(config.billing?.planName || 'ONCEClic Pro'),
     monthlyPriceUsd: Number(config.billing?.monthlyPriceUsd) || 19,
     trialPeriodDays: Number(config.billing?.trialPeriodDays) || 7,

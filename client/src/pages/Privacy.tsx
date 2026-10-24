@@ -118,8 +118,8 @@ export const Privacy: React.FC = () => {
                 <span className="text-slate-300">Processes user queries and business knowledge context to generate conversational receptionist responses.</span>
               </div>
               <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
-                <span className="font-bold text-white">Paddle: </span>
-                <span className="text-slate-300">Acts as our Merchant of Record, processing payments, invoices, taxes, and subscription management for paid accounts.</span>
+                <span className="font-bold text-white">Creem: </span>
+                <span className="text-slate-300">Acts as our Merchant of Record, processing payments, invoices, taxes, and subscription management for paid accounts (with legacy support for historical Paddle subscribers).</span>
               </div>
               <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
                 <span className="font-bold text-white">Resend: </span>

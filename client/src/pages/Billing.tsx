@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { Subscription, SubscriptionStatus, PlanTier, PaidPlanTier, SUBSCRIPTION_PLANS } from '@onceclic/shared';
 import { Badge } from '../components/Badge';
@@ -18,13 +18,6 @@ import {
   HelpCircle,
   Check,
 } from 'lucide-react';
-
-declare global {
-  interface Window {
-    Paddle?: any;
-    __paddle_initialized?: boolean;
-  }
-}
 
 export const BillingPage: React.FC = () => {
   const { organization, user } = useAuth();
@@ -57,36 +50,9 @@ export const BillingPage: React.FC = () => {
     }
   }, []);
 
-  // Initialize Paddle.js ONCE on mount or when config loads
+  // Load billing data on mount
   useEffect(() => {
-    loadBilling().then((res) => {
-      const token = res?.config?.clientToken || (import.meta as any).env?.VITE_PADDLE_CLIENT_TOKEN;
-      const env = res?.config?.environment || (import.meta as any).env?.VITE_PADDLE_ENVIRONMENT || (import.meta as any).env?.VITE_PADDLE_ENV || ((import.meta as any).env?.PROD ? 'production' : 'sandbox');
-      if (token && window.Paddle && !window.__paddle_initialized) {
-        try {
-          // Paddle.Environment.set('sandbox') is ONLY called in sandbox mode.
-          // In production, Paddle.js v2 natively uses the Live environment.
-          if (env === 'sandbox') {
-            window.Paddle.Environment.set('sandbox');
-          }
-          window.Paddle.Initialize({
-            token,
-            eventCallback: (event: any) => {
-              if (event.name === 'checkout.completed') {
-                console.log('[Paddle.js] Checkout completed event received');
-                loadBilling();
-              } else if (event.name === 'checkout.error' || event.name === 'checkout.payment-error') {
-                console.warn('[Paddle.js] Checkout event notice:', event.name, event.data?.error || event.data?.code || '');
-              }
-            },
-          });
-          window.__paddle_initialized = true;
-          console.log('[Paddle.js] Successfully initialized in', env, 'mode');
-        } catch (initErr) {
-          console.warn('[Paddle.js] Initialization notice:', initErr);
-        }
-      }
-    });
+    loadBilling();
   }, [loadBilling]);
 
   // Handle checkout=success redirect acknowledgment
@@ -94,7 +60,7 @@ export const BillingPage: React.FC = () => {
     if (checkoutSuccess) {
       setActionMessage({
         type: 'success',
-        text: 'Payment received! Your ONCEClic subscription is being synchronized with Paddle.',
+        text: 'Payment received! Your ONCEClic subscription is being synchronized with Creem.',
       });
       loadBilling();
       // Remove query parameter without reloading
@@ -104,59 +70,19 @@ export const BillingPage: React.FC = () => {
     }
   }, [checkoutSuccess, loadBilling, searchParams, setSearchParams]);
 
-  const handlePaddleCheckout = (targetTier: PaidPlanTier = 'PRO') => {
+  /**
+   * Creem Server-Side Checkout: Call the server to create a Creem checkout session URL
+   * then redirect the browser to it. No client-side JavaScript SDK is required.
+   */
+  const handleCreemCheckout = async (targetTier: PaidPlanTier = 'PRO') => {
     const planMeta = SUBSCRIPTION_PLANS[targetTier];
     const planConfig = billingConfig?.plans?.[targetTier];
-    const clientToken = billingConfig?.clientToken || (import.meta as any).env?.VITE_PADDLE_CLIENT_TOKEN;
-    const environment = billingConfig?.environment || (import.meta as any).env?.VITE_PADDLE_ENVIRONMENT || (import.meta as any).env?.VITE_PADDLE_ENV || ((import.meta as any).env?.PROD ? 'production' : 'sandbox');
 
-    let frontendPriceId: string | null = null;
-    if (targetTier === 'STARTER') {
-      frontendPriceId = (import.meta as any).env?.VITE_PADDLE_STARTER_PRICE_ID || null;
-    } else if (targetTier === 'PRO') {
-      frontendPriceId = (import.meta as any).env?.VITE_PADDLE_PRO_PRICE_ID || (import.meta as any).env?.VITE_PADDLE_PRICE_ID || null;
-    } else if (targetTier === 'BUSINESS') {
-      frontendPriceId = (import.meta as any).env?.VITE_PADDLE_BUSINESS_PRICE_ID || null;
-    }
-
-    const priceId = planConfig?.priceId || frontendPriceId || (targetTier === 'PRO' ? billingConfig?.priceId : null);
-
-    if (!clientToken || clientToken.includes('placeholder')) {
+    // Guard: ensure this plan is configured (has a product ID)
+    if (!planConfig?.isConfigured && !planConfig?.productId) {
       setActionMessage({
         type: 'error',
-        text: 'Paddle Client Token is missing or invalid. Please configure VITE_PADDLE_CLIENT_TOKEN or check Paddle settings.',
-      });
-      return;
-    }
-
-    if (environment === 'production' && clientToken.startsWith('test_')) {
-      setActionMessage({
-        type: 'error',
-        text: 'Configuration guard: Sandbox Paddle client token cannot be used in production environment.',
-      });
-      return;
-    }
-
-    if (!priceId || priceId.includes('placeholder')) {
-      setActionMessage({
-        type: 'error',
-        text: `Checkout for the ${planMeta?.name || targetTier} plan ($${planMeta?.priceUsd || ''}/mo) is not currently available because its Paddle Price ID (PADDLE_${targetTier}_PRICE_ID) is not configured on the server. Please contact support.`,
-      });
-      return;
-    }
-
-    if (environment === 'production' && priceId.toLowerCase().includes('sandbox')) {
-      setActionMessage({
-        type: 'error',
-        text: 'Configuration guard: Sandbox price ID cannot be used in production environment.',
-      });
-      return;
-    }
-
-    if (!window.Paddle) {
-      setActionMessage({
-        type: 'error',
-        text: 'Paddle.js is loading or blocked by your browser. Please refresh the page and try again.',
+        text: `Checkout for the ${planMeta?.name || targetTier} plan ($${planMeta?.priceUsd || ''}/mo) is not currently available because its Creem Product ID (CREEM_${targetTier}_PRODUCT_ID) is not configured on the server. Please contact support.`,
       });
       return;
     }
@@ -165,56 +91,21 @@ export const BillingPage: React.FC = () => {
     setActionMessage(null);
 
     try {
-      // Ensure Paddle is initialized once
-      if (!window.__paddle_initialized) {
-        if (environment === 'sandbox') {
-          window.Paddle.Environment.set('sandbox');
-        }
-        window.Paddle.Initialize({
-          token: clientToken,
-          eventCallback: (event: any) => {
-            if (event.name === 'checkout.completed') {
-              loadBilling();
-            } else if (event.name === 'checkout.error' || event.name === 'checkout.payment-error') {
-              console.warn('[Paddle.js] Checkout event notice:', event.name, event.data?.error || event.data?.code || '');
-              setActionMessage({
-                type: 'error',
-                text: `Paddle Checkout notice: ${event.data?.message || event.data?.error || event.name}. Please check domain approval & payment link in Paddle dashboard.`,
-              });
-            }
-          },
-        });
-        window.__paddle_initialized = true;
+      // The server creates a Creem checkout session and returns its URL
+      const session = await api.createCheckoutSession(targetTier);
+
+      if (!session?.checkoutUrl) {
+        throw new Error('No checkout URL returned from server.');
       }
 
-      const successUrl = `${window.location.origin}/welcome?checkout=success`;
-
-      window.Paddle.Checkout.open({
-        items: [
-          {
-            priceId: priceId,
-            quantity: 1,
-          },
-        ],
-        customer: user?.email ? { email: user.email } : undefined,
-        customData: organization?.id
-          ? { organization_id: organization.id, plan_tier: targetTier }
-          : { plan_tier: targetTier },
-        settings: {
-          displayMode: 'overlay',
-          theme: 'dark',
-          variant: 'one-page',
-          allowLogout: !user?.email,
-          successUrl: successUrl,
-        },
-      });
+      // Redirect to Creem-hosted checkout page
+      window.location.href = session.checkoutUrl;
     } catch (err: any) {
-      console.error('[Paddle Checkout] Error opening modal:', err);
+      console.error('[Creem Checkout] Error initiating checkout:', err);
       setActionMessage({
         type: 'error',
-        text: err?.message || 'Failed to open Paddle Checkout modal. Please check your connection.',
+        text: err?.message || 'Failed to initiate Creem Checkout. Please check your connection and try again.',
       });
-    } finally {
       setCheckoutOpening(false);
     }
   };
@@ -233,7 +124,7 @@ export const BillingPage: React.FC = () => {
       console.error('[Billing] Customer portal error:', err);
       setActionMessage({
         type: 'error',
-        text: err?.message || 'Unable to open Paddle Customer Portal. Please try again later.',
+        text: err?.message || 'Unable to open Creem Customer Portal. Please try again later.',
       });
     } finally {
       setPortalLoading(false);
@@ -274,13 +165,18 @@ export const BillingPage: React.FC = () => {
   const isTrial = sub?.status === SubscriptionStatus.TRIALING;
   const isActive = sub?.status === SubscriptionStatus.ACTIVE;
   const isPastDue = sub?.status === SubscriptionStatus.PAST_DUE;
-  const isExpired = sub?.status === SubscriptionStatus.EXPIRED || (isTrial && !sub?.paddleSubscriptionId && (billingStatus?.daysRemainingInTrial || 0) <= 0);
+  // Creem uses creemSubscriptionId; support legacy paddleSubscriptionId during coexistence period
+  const hasPaidSubscriptionId = !!(sub as any)?.creemSubscriptionId || !!(sub as any)?.paddleSubscriptionId;
+  const isExpired = sub?.status === SubscriptionStatus.EXPIRED || (isTrial && !hasPaidSubscriptionId && (billingStatus?.daysRemainingInTrial || 0) <= 0);
   const isCanceled = sub?.status === SubscriptionStatus.CANCELED;
   const isCancelScheduled = sub?.cancelAtPeriodEnd && (isActive || isTrial);
-  const isTrialEndingSoon = isTrial && !sub?.paddleSubscriptionId && billingStatus?.daysRemainingInTrial === 1;
-  const isPaidActive = isActive && !!sub?.paddleSubscriptionId;
+  const isTrialEndingSoon = isTrial && !hasPaidSubscriptionId && billingStatus?.daysRemainingInTrial === 1;
+  const isPaidActive = isActive && hasPaidSubscriptionId;
   const currentTier: PlanTier = (billingStatus?.planTier as PlanTier) || (sub?.planTier as PlanTier) || (isPaidActive ? 'PRO' : 'TRIAL');
   const activePlanMeta = SUBSCRIPTION_PLANS[currentTier] || SUBSCRIPTION_PLANS.STARTER;
+
+  // Creem customer ID for portal access — fallback to legacy paddleCustomerId
+  const hasCreemCustomer = !!(sub as any)?.creemCustomerId || !!(sub as any)?.paddleCustomerId;
 
   return (
     <div className="space-y-8 max-w-5xl w-full min-w-0">
@@ -288,10 +184,10 @@ export const BillingPage: React.FC = () => {
       <div className="min-w-0">
         <h1 className="text-xl sm:text-2xl font-black text-white flex items-center gap-2.5 flex-wrap">
           <CreditCard className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-400 flex-shrink-0" />
-          <span>Billing & Subscription</span>
+          <span>Billing &amp; Subscription</span>
         </h1>
         <p className="text-xs text-slate-400 mt-1">
-          Manage your ONCEClic subscription tier, voice minutes, and Paddle merchant-of-record billing.
+          Manage your ONCEClic subscription tier, voice minutes, and Creem merchant-of-record billing.
         </p>
       </div>
 
@@ -327,7 +223,7 @@ export const BillingPage: React.FC = () => {
           <div className="space-y-4 min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
               <h2 className="text-xl sm:text-2xl font-black text-white">
-                {isTrial && !sub?.paddleSubscriptionId ? '7-Day Free Trial' : `${activePlanMeta.name} Plan`}
+                {isTrial && !hasPaidSubscriptionId ? '7-Day Free Trial' : `${activePlanMeta.name} Plan`}
               </h2>
               {isCancelScheduled ? (
                 <Badge variant="warning">Canceling at Period End</Badge>
@@ -352,14 +248,14 @@ export const BillingPage: React.FC = () => {
             <div className="space-y-1">
               <div className="flex items-baseline space-x-2">
                 <span className="text-3xl sm:text-4xl font-black text-white">
-                  {isTrial && !sub?.paddleSubscriptionId ? '$0' : `$${activePlanMeta.priceUsd}`}
+                  {isTrial && !hasPaidSubscriptionId ? '$0' : `$${activePlanMeta.priceUsd}`}
                 </span>
                 <span className="text-xs sm:text-sm font-medium text-slate-400">
-                  {isTrial && !sub?.paddleSubscriptionId ? 'during 7-day trial' : '/ month recurring'}
+                  {isTrial && !hasPaidSubscriptionId ? 'during 7-day trial' : '/ month recurring'}
                 </span>
               </div>
               <p className="text-xs font-semibold text-emerald-400">
-                {isTrial && !sub?.paddleSubscriptionId
+                {isTrial && !hasPaidSubscriptionId
                   ? `7-Day Free Trial • ${activePlanMeta.voiceMinutes} Voice Minutes • No credit card required`
                   : `${activePlanMeta.name} • ${activePlanMeta.voiceMinutes} Voice Minutes/month • Cancel anytime`}
               </p>
@@ -385,7 +281,7 @@ export const BillingPage: React.FC = () => {
               <p className="text-[11px] text-slate-400 leading-relaxed">
                 {billingStatus?.aiUsageStatus === 'LIMIT_REACHED'
                   ? "You've reached your monthly voice minute limit. Upgrade your subscription below to increase your capacity."
-                  : isTrial && !sub?.paddleSubscriptionId
+                  : isTrial && !hasPaidSubscriptionId
                   ? 'Includes 15 voice minutes during your cardless trial. Upgrade below for 50 to 400 minutes/month.'
                   : `Includes ${activePlanMeta.voiceMinutes} monthly voice minutes subject to reasonable-use limits.`}
               </p>
@@ -404,7 +300,7 @@ export const BillingPage: React.FC = () => {
                 </p>
               )}
 
-              {isActive && !isCancelScheduled && sub?.paddleSubscriptionId && (
+              {isActive && !isCancelScheduled && hasPaidSubscriptionId && (
                 <p className="flex items-center space-x-1.5 text-emerald-400 font-semibold">
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>
@@ -423,7 +319,7 @@ export const BillingPage: React.FC = () => {
                 </p>
               )}
 
-              {isTrial && !sub?.paddleSubscriptionId && !isTrialEndingSoon && (
+              {isTrial && !hasPaidSubscriptionId && !isTrialEndingSoon && (
                 <p className="flex items-start sm:items-center gap-1.5 text-amber-400 font-semibold">
                   <Clock className="w-4 h-4 shrink-0 mt-0.5 sm:mt-0" />
                   <span>
@@ -468,7 +364,7 @@ export const BillingPage: React.FC = () => {
               </a>
             )}
 
-            {sub?.paddleCustomerId && (
+            {hasCreemCustomer && (
               <button
                 onClick={handleOpenCustomerPortal}
                 disabled={portalLoading}
@@ -479,11 +375,11 @@ export const BillingPage: React.FC = () => {
                 ) : (
                   <ExternalLink className="w-4 h-4 text-emerald-400" />
                 )}
-                <span>Paddle Customer Portal</span>
+                <span>Creem Customer Portal</span>
               </button>
             )}
 
-            {isActive && !isCancelScheduled && sub?.paddleSubscriptionId && (
+            {isActive && !isCancelScheduled && hasPaidSubscriptionId && (
               <button
                 onClick={() => setShowCancelModal(true)}
                 className="w-full px-4 py-2.5 bg-slate-950 hover:bg-rose-950/40 text-slate-400 hover:text-rose-300 font-semibold text-xs rounded-xl border border-slate-800 transition flex items-center justify-center space-x-1.5"
@@ -494,7 +390,7 @@ export const BillingPage: React.FC = () => {
 
             <div className="flex items-center space-x-1.5 text-[11px] text-slate-400 justify-center pt-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Paddle Merchant of Record</span>
+              <span>Creem Merchant of Record</span>
             </div>
           </div>
         </div>
@@ -502,10 +398,25 @@ export const BillingPage: React.FC = () => {
 
       {/* Available Subscription Plans Selection Grid */}
       <div id="plans-section" className="space-y-4 pt-4">
-        <div>
-          <h2 className="text-lg sm:text-xl font-bold text-white">Select a Subscription Tier</h2>
-          <p className="text-xs text-slate-400">
-            Choose the monthly voice capacity and features suited for your business.
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg sm:text-xl font-bold text-white">Select a Subscription Tier</h2>
+            <p className="text-xs text-slate-400">
+              Choose the monthly voice capacity and features suited for your business.
+            </p>
+          </div>
+        </div>
+
+        {/* Pre-Checkout Merchant of Record & Policy Disclosure */}
+        <div className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-4 text-xs text-slate-300 space-y-1.5">
+          <div className="flex items-center space-x-2 text-emerald-400 font-semibold">
+            <ShieldCheck className="w-4 h-4 shrink-0" />
+            <span>Merchant of Record &amp; Billing Notice</span>
+          </div>
+          <p className="text-slate-400 text-[11px] leading-relaxed">
+            Payments, checkout security, tax compliance, and recurring subscription billing are securely processed by <strong>Creem</strong> as our Merchant of Record. Subscriptions automatically renew monthly until canceled. You may cancel anytime from this dashboard or the customer portal with access continuing through your paid cycle. Review our{' '}
+            <Link to="/refund-policy" className="text-emerald-400 hover:underline font-medium">Refund Policy</Link> and{' '}
+            <Link to="/terms" className="text-emerald-400 hover:underline font-medium">Terms of Service</Link>.
           </p>
         </div>
 
@@ -514,7 +425,7 @@ export const BillingPage: React.FC = () => {
             const plan = SUBSCRIPTION_PLANS[tier];
             const planConfig = billingConfig?.plans?.[tier];
             const isCurrentPlan = isPaidActive && currentTier === tier;
-            const isConfigured = !!(planConfig?.isConfigured && planConfig?.priceId);
+            const isConfigured = !!(planConfig?.isConfigured && planConfig?.productId);
             const isPro = tier === 'PRO';
 
             return (
@@ -572,7 +483,7 @@ export const BillingPage: React.FC = () => {
                     </button>
                   ) : (
                     <button
-                      onClick={() => handlePaddleCheckout(tier)}
+                      onClick={() => handleCreemCheckout(tier)}
                       disabled={checkoutOpening}
                       className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
                         isPro
@@ -580,15 +491,23 @@ export const BillingPage: React.FC = () => {
                           : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700'
                       }`}
                     >
-                      <Zap className="w-3.5 h-3.5" />
+                      {checkoutOpening ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Zap className="w-3.5 h-3.5" />
+                      )}
                       <span>
-                        {isPaidActive ? `Switch to ${plan.name} ($${plan.priceUsd}/mo)` : `Upgrade to ${plan.name} ($${plan.priceUsd}/mo)`}
+                        {checkoutOpening
+                          ? 'Redirecting to Creem...'
+                          : isPaidActive
+                          ? `Switch to ${plan.name} ($${plan.priceUsd}/mo)`
+                          : `Upgrade to ${plan.name} ($${plan.priceUsd}/mo)`}
                       </span>
                     </button>
                   )}
                   {!isConfigured && !isCurrentPlan && (
                     <p className="mt-2 text-[10px] text-amber-400/80 text-center font-medium">
-                      Paddle Price ID not yet configured on server
+                      Creem Product ID not yet configured on server
                     </p>
                   )}
                 </div>
@@ -602,7 +521,7 @@ export const BillingPage: React.FC = () => {
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-4 min-w-0">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <h3 className="text-sm font-bold text-white flex items-center space-x-2">
-            <span>Paddle Gateway Status</span>
+            <span>Creem Gateway Status</span>
           </h3>
           <Badge variant={billingConfig?.isConfigured ? 'success' : 'warning'}>
             {billingConfig?.isConfigured ? 'Gateway Active' : 'Config Required'}
@@ -612,19 +531,19 @@ export const BillingPage: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 sm:gap-4 text-xs font-mono">
           <div className="bg-slate-950 p-3 sm:p-3.5 rounded-xl border border-slate-800 min-w-0">
             <p className="text-slate-500 text-[10px]">Environment</p>
-            <p className="text-white font-bold capitalize">{billingConfig?.environment || 'Active'}</p>
+            <p className="text-white font-bold capitalize">{billingConfig?.environment || 'test'}</p>
           </div>
           <div className="bg-slate-950 p-3 sm:p-3.5 rounded-xl border border-slate-800 min-w-0">
             <p className="text-slate-500 text-[10px]">Starter ($19)</p>
-            <p className="text-white truncate font-medium">{billingConfig?.plans?.STARTER?.priceId || 'Not configured'}</p>
+            <p className="text-white truncate font-medium">{billingConfig?.plans?.STARTER?.productId || 'Not configured'}</p>
           </div>
           <div className="bg-slate-950 p-3 sm:p-3.5 rounded-xl border border-slate-800 min-w-0">
             <p className="text-slate-500 text-[10px]">Pro ($49)</p>
-            <p className="text-white truncate font-medium">{billingConfig?.plans?.PRO?.priceId || billingConfig?.priceId || 'Not configured'}</p>
+            <p className="text-white truncate font-medium">{billingConfig?.plans?.PRO?.productId || 'Not configured'}</p>
           </div>
           <div className="bg-slate-950 p-3 sm:p-3.5 rounded-xl border border-slate-800 min-w-0">
             <p className="text-slate-500 text-[10px]">Business ($99)</p>
-            <p className="text-white truncate font-medium">{billingConfig?.plans?.BUSINESS?.priceId || 'Not configured'}</p>
+            <p className="text-white truncate font-medium">{billingConfig?.plans?.BUSINESS?.productId || 'Not configured'}</p>
           </div>
         </div>
       </div>

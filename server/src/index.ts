@@ -64,11 +64,11 @@ app.use(
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-organization-id', 'x-webhook-token', 'paddle-signature'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-organization-id', 'x-webhook-token', 'paddle-signature', 'creem-signature', 'x-creem-signature', 'webhook-signature', 'webhook-id', 'webhook-timestamp'],
   })
 );
 
-// Capture raw body for Paddle webhook HMAC signature verification
+// Capture raw body for Creem & Paddle webhook HMAC signature verification
 app.use(
   express.json({
     verify: (req: any, _res, buf) => {
@@ -89,6 +89,7 @@ app.get(['/health', '/api/health'], (req, res) => {
     env: config.nodeEnv,
     aiProvider: config.ai.provider,
     aiAvailable: config.ai.provider === 'gemini' ? config.gemini.isAvailable : config.openai.isAvailable,
+    creemConfigured: config.creem.isConfigured,
     paddleConfigured: config.paddle.isConfigured,
     composioConfigured: config.composio.isConfigured,
     composioWebhookConfigured: config.composio.isWebhookConfigured,
@@ -210,7 +211,7 @@ export async function startServer() {
     console.log(`  Environment: ${config.nodeEnv}`);
     const isAiReady = config.ai.provider === 'gemini' ? config.gemini.isAvailable : config.openai.isAvailable;
     console.log(`  AI Provider: ${config.ai.provider.toUpperCase()} (${isAiReady ? 'Ready' : 'Requires API Key'})`);
-    console.log(`  Paddle Billing: ${config.paddle.isConfigured ? 'Ready' : 'Requires PADDLE_WEBHOOK_SECRET'}`);
+    console.log(`  Creem Billing: ${config.creem.isConfigured ? 'Ready' : 'Requires CREEM_API_KEY & CREEM_WEBHOOK_SECRET'}`);
     console.log(`==================================================`);
   });
 

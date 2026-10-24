@@ -86,7 +86,7 @@ export const Contact: React.FC = () => {
               </div>
               <div className="flex items-center space-x-2 text-xs text-slate-400">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Paddle Merchant of Record for Payments</span>
+                <span>Creem Merchant of Record for Payments</span>
               </div>
             </div>
           </div>

@@ -61,10 +61,10 @@ export const CookiePolicy: React.FC = () => {
 
               <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
                 <h3 className="font-bold text-white text-xs uppercase tracking-wider text-emerald-400">
-                  C. Payment Processing (Paddle)
+                  C. Payment Processing (Creem)
                 </h3>
                 <p className="text-xs text-slate-300">
-                  When you initiate a checkout or upgrade to ONCEClic Pro, our Merchant of Record (Paddle) may utilize session cookies necessary for fraud prevention, checkout security, and transaction completion.
+                  When you initiate a checkout or upgrade your subscription, our Merchant of Record (Creem) may utilize session cookies necessary for fraud prevention, checkout security, and transaction completion.
                 </p>
               </div>
             </div>

@@ -35,7 +35,7 @@ export const Footer: React.FC = () => {
               </a>
               <div className="inline-flex items-center space-x-2 text-slate-400">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                <span>Merchant of Record: Paddle</span>
+                <span>Merchant of Record: Creem</span>
               </div>
             </div>
           </div>
@@ -122,7 +122,7 @@ export const Footer: React.FC = () => {
             <span>&copy; {new Date().getFullYear()} ONCEClic (onceclic.com). All rights reserved.</span>
           </div>
           <div className="flex items-center space-x-4">
-            <span>Payments & Billing powered by Paddle</span>
+            <span>Payments & Billing powered by Creem</span>
             <span>&bull;</span>
             <Link to="/privacy-policy" className="hover:text-slate-400">Privacy</Link>
             <span>&bull;</span>

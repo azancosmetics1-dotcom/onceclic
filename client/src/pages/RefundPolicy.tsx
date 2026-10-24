@@ -41,78 +41,109 @@ export const RefundPolicy: React.FC = () => {
               </li>
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span><strong>No Automatic Charges:</strong> You will never be charged automatically when your trial ends. Paid subscriptions begin only if you choose to manually upgrade to a paid plan starting from $19/month (Starter $19/mo, Pro $49/mo, Business $99/mo).</span>
+                <span><strong>No Automatic Charges:</strong> You will never be charged automatically when your trial ends. Paid subscriptions begin only if you choose to manually upgrade to a paid plan (Starter $19/mo, Pro $49/mo, Business $99/mo).</span>
               </li>
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span><strong>Merchant of Record:</strong> Paddle acts as the Merchant of Record for applicable paid transactions on ONCEClic.</span>
+                <span><strong>Merchant of Record:</strong> Creem acts as the online Merchant of Record for paid transactions on ONCEClic (with historical transactions supported for existing Paddle customers).</span>
               </li>
             </ul>
           </div>
 
           {/* Section 1 */}
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-4">
-            <h2 className="text-lg font-bold text-white">1. Free Trial Period</h2>
+            <h2 className="text-lg font-bold text-white">1. Free Trial & Non-Automatic Conversion</h2>
             <p>
-              ONCEClic provides a 7-day free trial for users to evaluate our AI receptionist, appointment scheduling, and automated messaging capabilities. Because trial access is 100% free and requires no payment method at registration, no charges are incurred during the trial period.
+              ONCEClic provides a 7-day free trial for businesses to evaluate our AI phone receptionist, real-time calendar booking, and multi-channel messaging capabilities.
+            </p>
+            <p>
+              Because trial access is 100% free and requires no credit card or payment credentials at signup, <strong>your trial will never automatically convert into a paid charge</strong>. When your trial concludes, your account transitions to an inactive state while preserving your configuration, business hours, and knowledge base. You can choose at any time whether to upgrade to a paid plan.
             </p>
           </section>
 
           {/* Section 2 */}
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-4">
-            <h2 className="text-lg font-bold text-white">2. Upgrades & Paid Subscriptions</h2>
+            <h2 className="text-lg font-bold text-white">2. Upgrades, Recurring Renewal & Pricing</h2>
             <p>
-              Following or during your trial, you may choose to upgrade to one of our subscription tiers — <strong>Starter ($19 USD/month)</strong>, <strong>ONCEClic Pro ($49 USD/month)</strong>, or <strong>Business ($99 USD/month)</strong>. Upgrading requires completing checkout through our Merchant of Record, <strong>Paddle</strong>.
+              You may upgrade to any of our three published monthly plans at any time:
             </p>
+            <ul className="list-disc pl-5 space-y-1 text-xs sm:text-sm text-slate-300">
+              <li><strong>Starter:</strong> $19.00 USD per month (includes 50 voice minutes and core AI receptionist features).</li>
+              <li><strong>ONCEClic Pro:</strong> $49.00 USD per month (includes 150 voice minutes, transcripts, SMS/email alerts, and custom FAQs).</li>
+              <li><strong>Business:</strong> $99.00 USD per month (includes 400 voice minutes, multiple numbers, and advanced analytics).</li>
+            </ul>
             <p>
-              Once upgraded, recurring subscription fees are billed on a monthly cycle until canceled. You can cancel your subscription at any time directly through your dashboard billing portal.
+              <strong>Recurring Renewal:</strong> Upgrades require completing checkout through our Merchant of Record, <strong>Creem</strong>. Paid subscriptions renew automatically on a recurring monthly billing cycle on the same calendar day each month until you cancel.
             </p>
           </section>
 
           {/* Section 3 */}
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-4">
-            <h2 className="text-lg font-bold text-white">3. Merchant of Record & Refund Processing</h2>
+            <h2 className="text-lg font-bold text-white">3. Cancellation Policy & When Access Ends</h2>
             <p>
-              Our order process is conducted by our online Merchant of Record, <strong>Paddle.com</strong>. Paddle handles all customer service inquiries relating to payment processing, billing receipts, tax collection, and transaction compliance.
+              You may cancel your subscription at any time without fees or penalties through the <strong>Billing</strong> section of your dashboard or directly through the Creem Customer Portal.
             </p>
-            <p>
-              Applicable refunds for paid transactions are evaluated and processed according to applicable Paddle policies and the specific circumstances of the transaction. Paddle processes approved refunds back to the original payment method used at the time of purchase.
-            </p>
+            <ul className="list-disc pl-5 space-y-2 text-xs sm:text-sm text-slate-300">
+              <li><strong>Access Until Cycle End:</strong> Cancellation schedules the termination at the end of your then-current paid billing period. You retain full access to all features, included voice minutes, and AI receptionist services through the end of the paid cycle.</li>
+              <li><strong>No Subsequent Charges:</strong> No further monthly charges will occur once cancellation is scheduled.</li>
+              <li><strong>Data Preservation:</strong> Your account settings, prompt instructions, phone configurations, and knowledge documents remain saved and will not be deleted, allowing you to reactivate in the future without reconfiguring your AI.</li>
+            </ul>
           </section>
 
           {/* Section 4 */}
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-4">
-            <h2 className="text-lg font-bold text-white">4. Cancellation Policy</h2>
+            <h2 className="text-lg font-bold text-white">4. Refund Policy & Eligible Conditions</h2>
             <p>
-              You may cancel your ONCEClic Pro subscription at any time. When you cancel:
+              Our order processing and recurring billing are conducted by our Merchant of Record, <strong>Creem</strong>. Creem and ONCEClic evaluate refund inquiries under the following principles:
             </p>
-            <ul className="list-disc pl-5 space-y-2 text-xs sm:text-sm text-slate-300">
-              <li>Your subscription will remain active until the end of your current paid billing cycle.</li>
-              <li>You will not be billed for subsequent billing cycles.</li>
-              <li>Your business data, configurations, and knowledge base remain preserved in your account unless you request deletion.</li>
-            </ul>
+            <div className="space-y-3 text-xs sm:text-sm">
+              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                <p className="font-bold text-white">A. Technical Failure or Inability to Deliver Service (14-Day Window)</p>
+                <p className="text-slate-300 mt-1">
+                  If you encounter a verified critical service defect, telephony provisioning failure, or platform outage that our technical team cannot resolve within 14 calendar days of your initial paid upgrade, you are eligible for a <strong>100% full refund</strong> of the initial subscription charge.
+                </p>
+              </div>
+              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                <p className="font-bold text-white">B. Duplicate Charges and Billing Mistakes</p>
+                <p className="text-slate-300 mt-1">
+                  If you are erroneously billed twice, experience a duplicate transaction, or are charged after a confirmed cancellation timestamp, please contact us immediately. Verified erroneous and duplicate charges are <strong>100% refunded</strong> to your original payment method.
+                </p>
+              </div>
+              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                <p className="font-bold text-white">C. Partial-Month & Mid-Cycle Cancellations</p>
+                <p className="text-slate-300 mt-1">
+                  Because subscriptions remain fully operational until the end of the paid monthly billing period upon cancellation, we do not automatically offer prorated partial-period refunds for voluntary mid-cycle cancellation, except where required by applicable statutory consumer protection law.
+                </p>
+              </div>
+              <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                <p className="font-bold text-white">D. Statutory Consumer Rights</p>
+                <p className="text-slate-300 mt-1">
+                  Nothing in this policy limits, modifies, or excludes your statutory consumer rights under applicable local laws (including the statutory right of withdrawal available to consumers in the European Union and the United Kingdom within 14 days of purchase).
+                </p>
+              </div>
+            </div>
           </section>
 
           {/* Section 5 */}
           <section className="bg-slate-900 border border-emerald-500/20 rounded-2xl p-6 sm:p-8 space-y-4">
             <h2 className="text-lg font-bold text-white flex items-center space-x-2">
               <Mail className="w-5 h-5 text-emerald-400" />
-              <span>5. How to Request Help with a Billing Issue</span>
+              <span>5. How to Submit a Refund or Billing Request</span>
             </h2>
             <p>
-              If you experience any unexpected billing issue, double-charge, or service disruption, ONCEClic is committed to assisting you. Please contact our support team promptly with your account details:
+              To request a refund, report an unexpected charge, or inquire about an existing transaction, please contact our support team promptly:
             </p>
             <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs font-mono space-y-1">
-              <p className="text-slate-400">Email Support:</p>
+              <p className="text-slate-400">Support Contact Email:</p>
               <a href="mailto:kamiabc007@gmail.com" className="text-emerald-400 hover:underline font-bold text-sm">
                 kamiabc007@gmail.com
               </a>
               <p className="text-slate-500 text-[11px] pt-1">
-                Please include your registered account email, organization name, and transaction details.
+                Please include: (1) Your registered account email address, (2) Your organization name, and (3) The transaction date or receipt ID from Creem.
               </p>
             </div>
             <p className="text-xs text-slate-400">
-              We will review your inquiry and work alongside Paddle to resolve any billing discrepancies swiftly.
+              We review and acknowledge all billing inquiries within 24–48 business hours. Approved refunds are credited directly back to the original payment method by our Merchant of Record.
             </p>
           </section>
         </div>

@@ -43,7 +43,7 @@ export const Pricing: React.FC = () => {
     },
     {
       q: 'Who processes payments and billing?',
-      a: 'Paddle acts as our Merchant of Record for all paid transactions, handling checkout, invoicing, sales taxes, and recurring billing securely.',
+      a: 'Creem acts as our Merchant of Record for all paid transactions, handling checkout, invoicing, sales taxes, and recurring billing securely.',
     },
     {
       q: 'Can I cancel my subscription?',

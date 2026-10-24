@@ -100,7 +100,7 @@ export const About: React.FC = () => {
               <span>Transparent Access &amp; Pricing</span>
             </h2>
             <p className="text-xs sm:text-sm text-slate-300">
-              We offer three transparent plans — <strong>Starter ($19/mo)</strong>, <strong>Pro ($49/mo)</strong>, and <strong>Business ($99/mo)</strong> — with a <strong>7-day free trial ($0, no credit card required)</strong>. Billing is handled securely through <strong>Paddle</strong> as our Merchant of Record.
+              We offer three transparent plans — <strong>Starter ($19/mo)</strong>, <strong>Pro ($49/mo)</strong>, and <strong>Business ($99/mo)</strong> — with a <strong>7-day free trial ($0, no credit card required)</strong>. Billing is handled securely through <strong>Creem</strong> as our Merchant of Record.
             </p>
             <div className="pt-2">
               <Link

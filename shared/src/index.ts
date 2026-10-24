@@ -91,6 +91,7 @@ export enum AuditAction {
   SUBSCRIPTION_EXPIRED = 'SUBSCRIPTION_EXPIRED',
   PAYMENT_FAILED = 'PAYMENT_FAILED',
   PADDLE_WEBHOOK_RECEIVED = 'PADDLE_WEBHOOK_RECEIVED',
+  CREEM_WEBHOOK_RECEIVED = 'CREEM_WEBHOOK_RECEIVED',
   EMAIL_VERIFICATION_SENT = 'EMAIL_VERIFICATION_SENT',
   EMAIL_VERIFIED = 'EMAIL_VERIFIED',
   EMAIL_VERIFICATION_RESENT = 'EMAIL_VERIFICATION_RESENT',
@@ -272,6 +273,12 @@ export interface OrganizationMembership {
 export interface Subscription {
   id: string;
   organizationId: string;
+  // Creem fields
+  creemCustomerId?: string;
+  creemSubscriptionId?: string;
+  creemCheckoutId?: string;
+  creemProductId?: string;
+  // Preserved Paddle historical fields
   paddleCustomerId?: string;
   paddleSubscriptionId?: string;
   paddleTransactionId?: string;
@@ -899,6 +906,7 @@ export interface CustomerPlanConfig {
   id: PaidPlanTier;
   name: string;
   priceUsd: number;
+  productId?: string | null;
   priceId: string | null;
   isConfigured: boolean;
   voiceMinutes: number;
@@ -913,6 +921,9 @@ export interface CustomerSubscription {
   status: SubscriptionStatus;
   planTier?: PlanTier;
   priceId?: string | null;
+  creemProductId?: string | null;
+  creemCustomerId?: string | null;
+  creemSubscriptionId?: string | null;
   trialStartedAt?: string | null;
   trialEndsAt?: string | null;
   currentPeriodStart?: string | null;
@@ -930,9 +941,10 @@ export interface CustomerBillingStatus {
 }
 
 export interface CustomerBillingConfig {
+  provider: 'creem' | 'paddle';
   clientToken: string;
   priceId: string;
-  environment: 'sandbox' | 'production';
+  environment: 'sandbox' | 'production' | 'test';
   isConfigured: boolean;
   planName: string;
   monthlyPriceUsd: number;

@@ -74,7 +74,7 @@ export const Welcome: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-sm font-bold text-white">{planMeta.name}</h3>
-                <p className="text-xs text-slate-400">Merchant of Record: Paddle</p>
+                <p className="text-xs text-slate-400">Merchant of Record: Creem</p>
               </div>
             </div>
             <div className="text-right">
@@ -109,7 +109,7 @@ export const Welcome: React.FC = () => {
 
           <div className="pt-2 text-[11px] text-slate-400 flex items-center justify-center space-x-1.5 border-t border-slate-800">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Encrypted & verified via Paddle</span>
+            <span>Encrypted & verified via Creem</span>
           </div>
         </div>
 

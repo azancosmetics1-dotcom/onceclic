@@ -19,6 +19,14 @@ const paddleEnvironment: 'sandbox' | 'production' = rawPaddleEnv === 'production
 
 const defaultSandboxProPrice = paddleEnvironment === 'sandbox' ? 'pri_01j7onceclic_pro_19m_sandbox' : '';
 
+const rawCreemEnv = process.env.CREEM_ENVIRONMENT?.toLowerCase().trim();
+const creemEnvironment: 'test' | 'prod' =
+  rawCreemEnv === 'production' || rawCreemEnv === 'prod'
+    ? 'prod'
+    : rawCreemEnv === 'test' || rawCreemEnv === 'sandbox'
+      ? 'test'
+      : (isProduction ? 'prod' : 'test');
+
 export const config = {
   port: parseInt(process.env.PORT || '5000', 10),
   nodeEnv: process.env.NODE_ENV || (isProduction ? 'production' : 'development'),
@@ -50,6 +58,37 @@ export const config = {
     model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
     embeddingModel: process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004',
     isAvailable: !!process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes('placeholder'),
+  },
+
+  creem: {
+    apiKey: process.env.CREEM_API_KEY || '',
+    webhookSecret: process.env.CREEM_WEBHOOK_SECRET || '',
+    environment: creemEnvironment,
+    isConfigured: !!process.env.CREEM_API_KEY && !process.env.CREEM_API_KEY.includes('placeholder'),
+    isWebhookConfigured: !!process.env.CREEM_WEBHOOK_SECRET && !process.env.CREEM_WEBHOOK_SECRET.includes('placeholder'),
+    plans: {
+      STARTER: {
+        id: 'STARTER' as const,
+        name: 'Starter',
+        priceUsd: 19,
+        productId: process.env.CREEM_STARTER_PRODUCT_ID || '',
+        voiceMinutes: 50,
+      },
+      PRO: {
+        id: 'PRO' as const,
+        name: 'ONCEClic Pro',
+        priceUsd: 49,
+        productId: process.env.CREEM_PRO_PRODUCT_ID || '',
+        voiceMinutes: 150,
+      },
+      BUSINESS: {
+        id: 'BUSINESS' as const,
+        name: 'Business',
+        priceUsd: 99,
+        productId: process.env.CREEM_BUSINESS_PRODUCT_ID || '',
+        voiceMinutes: 400,
+      },
+    },
   },
 
   paddle: {

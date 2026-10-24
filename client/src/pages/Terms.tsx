@@ -70,16 +70,16 @@ export const Terms: React.FC = () => {
                 <strong>7-Day Free Trial:</strong> All new users receive access to a 7-day free trial ($0.00). No credit card or payment information is required to start the trial. The trial is application-managed and will not automatically charge you.
               </p>
               <p>
-                <strong>ONCEClic Pro Plan:</strong> Following or during the trial, you may choose to upgrade to <strong>ONCEClic Pro</strong> at <strong>$19 USD per month</strong>.
+                <strong>Paid Subscription Tiers:</strong> Following or during the trial, you may choose to upgrade to one of our monthly subscription tiers: <strong>Starter ($19 USD/month)</strong>, <strong>Pro ($49 USD/month)</strong>, or <strong>Business ($99 USD/month)</strong>.
               </p>
               <p>
-                <strong>Merchant of Record:</strong> Payments and recurring billing for ONCEClic Pro are securely processed by <strong>Paddle.com</strong>, acting as our Merchant of Record. By upgrading to a paid subscription, you agree to Paddle's checkout terms and policies.
+                <strong>Merchant of Record:</strong> Payments, invoicing, and recurring billing for OnceClic subscriptions are securely processed by <strong>Creem</strong>, acting as our Merchant of Record. By upgrading to a paid subscription, you agree to Creem's checkout terms and policies.
               </p>
               <p>
                 <strong>Renewal & Cancellation:</strong> Paid subscriptions automatically renew on a monthly basis until canceled. You can cancel your subscription at any time via your dashboard billing settings. Cancellation takes effect at the end of the then-current billing period.
               </p>
               <p>
-                <strong>Refunds:</strong> Refund requests are handled in accordance with our <Link to="/refund-policy" className="text-emerald-400 hover:underline">Refund Policy</Link> and Paddle's applicable Merchant of Record policies.
+                <strong>Refunds:</strong> Refund requests are handled in accordance with our <Link to="/refund-policy" className="text-emerald-400 hover:underline">Refund Policy</Link> and Creem's applicable Merchant of Record policies.
               </p>
             </div>
           </section>

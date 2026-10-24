@@ -174,6 +174,10 @@ async function runAllTests() {
     await runPaddleLiveSwitchTests();
     console.log('');
 
+    const { runCreemBillingTests } = await import('./creem-billing.test');
+    await runCreemBillingTests();
+    console.log('');
+
     const { runForgotPasswordTests } = await import('./forgot-password.test');
     await runForgotPasswordTests();
     console.log('');

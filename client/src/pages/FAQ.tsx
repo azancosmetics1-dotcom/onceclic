@@ -56,9 +56,9 @@ export const FAQ: React.FC = () => {
     },
     {
       category: 'Billing & Merchant of Record',
-      question: 'How does billing work and what is Paddle?',
+      question: 'How does billing work and what is Creem?',
       answer:
-        'Paddle acts as our Merchant of Record for all paid transactions. Paddle handles payment processing, invoicing, sales tax/VAT compliance, and subscription billing securely.',
+        'Creem acts as our Merchant of Record for all paid transactions. Creem handles payment processing, invoicing, sales tax/VAT compliance, and subscription billing securely.',
     },
     {
       category: 'Billing & Merchant of Record',
@@ -75,7 +75,7 @@ export const FAQ: React.FC = () => {
           <Link to="/refund-policy" className="text-emerald-400 hover:underline">
             Refund Policy
           </Link>{' '}
-          and Paddle’s applicable Merchant of Record policies. If you have any billing concerns, you can contact us directly at{' '}
+          and Creem’s applicable Merchant of Record policies. If you have any billing concerns, you can contact us directly at{' '}
           <a href="mailto:kamiabc007@gmail.com" className="text-emerald-400 hover:underline">
             kamiabc007@gmail.com
           </a>

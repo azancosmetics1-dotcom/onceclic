@@ -723,8 +723,14 @@ class EmbeddedDatabase implements IDatabase {
     }
 
     if (op === '=') {
+      if (rowVal === null || rowVal === undefined || targetVal === null || targetVal === undefined) {
+        return false;
+      }
       return rowVal == targetVal;
     } else if (op === '!=' || op === '<>') {
+      if (rowVal === null || rowVal === undefined || targetVal === null || targetVal === undefined) {
+        return false;
+      }
       return rowVal != targetVal;
     } else if (op === 'IS') {
       if (targetVal === null) return rowVal === null || rowVal === undefined;

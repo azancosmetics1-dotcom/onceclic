@@ -1,6 +1,6 @@
 import { AuthService } from '../server/src/services/AuthService';
 import { ConversationService } from '../server/src/services/ConversationService';
-import { PaddleBillingService } from '../server/src/services/PaddleBillingService';
+import { CreemBillingService } from '../server/src/services/CreemBillingService';
 import { AIBudgetService } from '../server/src/services/AIBudgetService';
 import { getDatabase } from '../server/src/db';
 import { ConversationChannel, SubscriptionStatus } from '@onceclic/shared';
@@ -79,11 +79,11 @@ export async function runLegacyAccountChatAndComingSoonTests() {
         const org = await db.getOne('SELECT id FROM organizations WHERE id = $1 AND is_active = TRUE', [organizationId]);
         if (org) {
           try {
-            const createdSub = await PaddleBillingService.createTrialSubscription(organizationId);
+            const createdSub = await CreemBillingService.createTrialSubscription(organizationId);
             sub = {
               status: createdSub.status,
               trial_ends_at: createdSub.trialEndsAt,
-              paddle_subscription_id: createdSub.paddleSubscriptionId,
+              paddle_subscription_id: (createdSub as any).creemSubscriptionId || createdSub.paddleSubscriptionId,
             };
           } catch {}
         }

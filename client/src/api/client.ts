@@ -31,6 +31,7 @@ import {
   VoiceAnalyticsSummary,
   TelephonyCountryInfo,
   AvailablePhoneNumber,
+  PaidPlanTier,
 } from '@onceclic/shared';
 
 
@@ -406,6 +407,13 @@ class ApiClient {
   async cancelSubscription(): Promise<{ success: boolean; status: string; scheduledChange?: string }> {
     return this.request('/billing/cancel', {
       method: 'POST',
+    });
+  }
+
+  async createCheckoutSession(planTier: PaidPlanTier): Promise<{ checkoutUrl: string; checkoutId: string }> {
+    return this.request('/billing/checkout', {
+      method: 'POST',
+      body: JSON.stringify({ planTier }),
     });
   }
 

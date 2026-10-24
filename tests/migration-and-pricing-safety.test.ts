@@ -3,7 +3,6 @@ import { db } from '../server/src/db';
 import { config } from '../server/src/config';
 import { DEFAULT_VOICE_PLAN_LIMITS, SubscriptionStatus, VoiceConnectionMethod } from '../shared/src';
 import { VoiceService } from '../server/src/services/voice/VoiceService';
-import { PaddleBillingService } from '../server/src/services/PaddleBillingService';
 import { toCustomerBillingConfig } from '../server/src/serializers/customerSerializers';
 import { v4 as uuidv4 } from 'uuid';
 

@@ -52,8 +52,8 @@ export class AIBudgetService {
       const org = await db.getOne('SELECT id FROM organizations WHERE id = $1 AND is_active = TRUE', [organizationId]);
       if (org) {
         try {
-          const { PaddleBillingService } = await import('./PaddleBillingService');
-          const createdSub = await PaddleBillingService.createTrialSubscription(organizationId);
+          const { CreemBillingService } = await import('./CreemBillingService');
+          const createdSub = await CreemBillingService.createTrialSubscription(organizationId);
           sub = {
             id: createdSub.id,
             status: createdSub.status,
