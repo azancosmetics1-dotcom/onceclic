@@ -77,9 +77,18 @@ export const BillingPage: React.FC = () => {
   const handleCreemCheckout = async (targetTier: PaidPlanTier = 'PRO') => {
     const planMeta = SUBSCRIPTION_PLANS[targetTier];
     const planConfig = billingConfig?.plans?.[targetTier];
+    const isGatewayActive = Boolean(billingConfig?.creemConfigured ?? billingConfig?.isConfigured);
+
+    if (!isGatewayActive) {
+      setActionMessage({
+        type: 'error',
+        text: 'Creem payment gateway is not yet configured on the server. Please configure CREEM_API_KEY in server environment settings.',
+      });
+      return;
+    }
 
     // Guard: ensure this plan is configured (has a product ID)
-    if (!planConfig?.isConfigured && !planConfig?.productId) {
+    if (!planConfig?.isConfigured || !planConfig?.productId) {
       setActionMessage({
         type: 'error',
         text: `Checkout for the ${planMeta?.name || targetTier} plan ($${planMeta?.priceUsd || ''}/mo) is not currently available because its Creem Product ID (CREEM_${targetTier}_PRODUCT_ID) is not configured on the server. Please contact support.`,
@@ -425,7 +434,8 @@ export const BillingPage: React.FC = () => {
             const plan = SUBSCRIPTION_PLANS[tier];
             const planConfig = billingConfig?.plans?.[tier];
             const isCurrentPlan = isPaidActive && currentTier === tier;
-            const isConfigured = !!(planConfig?.isConfigured && planConfig?.productId);
+            const isGatewayActive = Boolean(billingConfig?.creemConfigured ?? billingConfig?.isConfigured);
+            const isPlanConfigured = Boolean(planConfig?.isConfigured && planConfig?.productId && isGatewayActive);
             const isPro = tier === 'PRO';
 
             return (
@@ -484,30 +494,40 @@ export const BillingPage: React.FC = () => {
                   ) : (
                     <button
                       onClick={() => handleCreemCheckout(tier)}
-                      disabled={checkoutOpening}
+                      disabled={checkoutOpening || !isPlanConfigured}
                       className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 ${
-                        isPro
+                        !isPlanConfigured
+                          ? 'bg-slate-800/60 text-slate-500 border border-slate-800 cursor-not-allowed'
+                          : isPro
                           ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/20'
                           : 'bg-slate-800 hover:bg-slate-700 text-white border border-slate-700'
                       }`}
                     >
                       {checkoutOpening ? (
                         <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : !isPlanConfigured ? (
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-500/70" />
                       ) : (
                         <Zap className="w-3.5 h-3.5" />
                       )}
                       <span>
                         {checkoutOpening
                           ? 'Redirecting to Creem...'
+                          : !isGatewayActive
+                          ? 'Gateway Config Required'
+                          : !planConfig?.productId
+                          ? 'Product ID Not Configured'
                           : isPaidActive
                           ? `Switch to ${plan.name} ($${plan.priceUsd}/mo)`
                           : `Upgrade to ${plan.name} ($${plan.priceUsd}/mo)`}
                       </span>
                     </button>
                   )}
-                  {!isConfigured && !isCurrentPlan && (
+                  {!isPlanConfigured && !isCurrentPlan && (
                     <p className="mt-2 text-[10px] text-amber-400/80 text-center font-medium">
-                      Creem Product ID not yet configured on server
+                      {!isGatewayActive
+                        ? 'Creem API key (CREEM_API_KEY) required on server'
+                        : `Creem Product ID (CREEM_${tier}_PRODUCT_ID) not yet configured on server`}
                     </p>
                   )}
                 </div>
@@ -523,8 +543,8 @@ export const BillingPage: React.FC = () => {
           <h3 className="text-sm font-bold text-white flex items-center space-x-2">
             <span>Creem Gateway Status</span>
           </h3>
-          <Badge variant={billingConfig?.isConfigured ? 'success' : 'warning'}>
-            {billingConfig?.isConfigured ? 'Gateway Active' : 'Config Required'}
+          <Badge variant={Boolean(billingConfig?.creemConfigured ?? billingConfig?.isConfigured) ? 'success' : 'warning'}>
+            {Boolean(billingConfig?.creemConfigured ?? billingConfig?.isConfigured) ? 'Gateway Active' : 'Config Required'}
           </Badge>
         </div>
 

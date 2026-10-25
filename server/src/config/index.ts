@@ -20,12 +20,22 @@ const paddleEnvironment: 'sandbox' | 'production' = rawPaddleEnv === 'production
 const defaultSandboxProPrice = paddleEnvironment === 'sandbox' ? 'pri_01j7onceclic_pro_19m_sandbox' : '';
 
 const rawCreemEnv = process.env.CREEM_ENVIRONMENT?.toLowerCase().trim();
+const rawCreemKey = (process.env.CREEM_API_KEY || '').trim();
 const creemEnvironment: 'test' | 'prod' =
-  rawCreemEnv === 'production' || rawCreemEnv === 'prod'
-    ? 'prod'
-    : rawCreemEnv === 'test' || rawCreemEnv === 'sandbox'
-      ? 'test'
+  rawCreemEnv === 'test' || rawCreemEnv === 'sandbox' || rawCreemKey.startsWith('creem_sk_test_') || rawCreemKey.startsWith('test_')
+    ? 'test'
+    : rawCreemEnv === 'production' || rawCreemEnv === 'prod' || rawCreemKey.startsWith('creem_sk_live_') || rawCreemKey.startsWith('creem_sk_prod_')
+      ? 'prod'
       : (isProduction ? 'prod' : 'test');
+
+const cleanCreemProductId = (raw?: string): string => {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.includes('placeholder') || trimmed.includes('your_') || trimmed === 'prod_') {
+    return '';
+  }
+  return trimmed;
+};
 
 export const config = {
   port: parseInt(process.env.PORT || '5000', 10),
@@ -64,28 +74,28 @@ export const config = {
     apiKey: process.env.CREEM_API_KEY || '',
     webhookSecret: process.env.CREEM_WEBHOOK_SECRET || '',
     environment: creemEnvironment,
-    isConfigured: !!process.env.CREEM_API_KEY && !process.env.CREEM_API_KEY.includes('placeholder'),
-    isWebhookConfigured: !!process.env.CREEM_WEBHOOK_SECRET && !process.env.CREEM_WEBHOOK_SECRET.includes('placeholder'),
+    isConfigured: !!process.env.CREEM_API_KEY && !process.env.CREEM_API_KEY.includes('placeholder') && !process.env.CREEM_API_KEY.includes('your_'),
+    isWebhookConfigured: !!process.env.CREEM_WEBHOOK_SECRET && !process.env.CREEM_WEBHOOK_SECRET.includes('placeholder') && !process.env.CREEM_WEBHOOK_SECRET.includes('your_'),
     plans: {
       STARTER: {
         id: 'STARTER' as const,
         name: 'Starter',
         priceUsd: 19,
-        productId: process.env.CREEM_STARTER_PRODUCT_ID || '',
+        productId: cleanCreemProductId(process.env.CREEM_STARTER_PRODUCT_ID),
         voiceMinutes: 50,
       },
       PRO: {
         id: 'PRO' as const,
         name: 'ONCEClic Pro',
         priceUsd: 49,
-        productId: process.env.CREEM_PRO_PRODUCT_ID || '',
+        productId: cleanCreemProductId(process.env.CREEM_PRO_PRODUCT_ID),
         voiceMinutes: 150,
       },
       BUSINESS: {
         id: 'BUSINESS' as const,
         name: 'Business',
         priceUsd: 99,
-        productId: process.env.CREEM_BUSINESS_PRODUCT_ID || '',
+        productId: cleanCreemProductId(process.env.CREEM_BUSINESS_PRODUCT_ID),
         voiceMinutes: 400,
       },
     },

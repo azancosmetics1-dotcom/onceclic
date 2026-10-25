@@ -82,11 +82,23 @@ export function toCustomerBillingStatus(params: {
 export function toCustomerBillingConfig(config: any): CustomerBillingConfig {
   const creem = (config as any).creem || {};
   const paddle = (config as any).paddle || {};
-  const isCreemActive = Boolean(creem.isConfigured || creem.plans?.PRO?.productId);
+
+  const isCreemConfigured = Boolean(creem.isConfigured);
+  const isPaddleConfigured = Boolean(paddle.isConfigured);
+
+  const isValidCreemProductId = (id?: string | null): boolean => {
+    if (!id) return false;
+    const clean = id.trim();
+    return clean.length > 0 && !clean.includes('placeholder') && !clean.includes('your_') && clean !== 'prod_';
+  };
 
   const starterProductId = creem.plans?.STARTER?.productId || '';
   const proProductId = creem.plans?.PRO?.productId || '';
   const businessProductId = creem.plans?.BUSINESS?.productId || '';
+
+  const starterValid = isValidCreemProductId(starterProductId);
+  const proValid = isValidCreemProductId(proProductId);
+  const businessValid = isValidCreemProductId(businessProductId);
 
   const starterPriceId = paddle.plans?.STARTER?.priceId || (config as any).plans?.STARTER?.priceId || '';
   const proPriceId = paddle.plans?.PRO?.priceId || paddle.priceId || (config as any).plans?.PRO?.priceId || '';
@@ -97,12 +109,9 @@ export function toCustomerBillingConfig(config: any): CustomerBillingConfig {
       id: 'STARTER',
       name: 'Starter',
       priceUsd: 19,
-      productId: starterProductId && !starterProductId.includes('placeholder') ? starterProductId : null,
+      productId: starterValid ? starterProductId.trim() : null,
       priceId: starterPriceId && !starterPriceId.includes('placeholder') ? starterPriceId : null,
-      isConfigured: Boolean(
-        (starterProductId && !starterProductId.includes('placeholder')) ||
-        (starterPriceId && !starterPriceId.includes('placeholder'))
-      ),
+      isConfigured: starterValid && isCreemConfigured,
       voiceMinutes: 50,
       features: [
         '50 Included Voice Minutes / mo',
@@ -116,12 +125,9 @@ export function toCustomerBillingConfig(config: any): CustomerBillingConfig {
       id: 'PRO',
       name: 'ONCEClic Pro',
       priceUsd: 49,
-      productId: proProductId && !proProductId.includes('placeholder') ? proProductId : null,
+      productId: proValid ? proProductId.trim() : null,
       priceId: proPriceId && !proPriceId.includes('placeholder') ? proPriceId : null,
-      isConfigured: Boolean(
-        (proProductId && !proProductId.includes('placeholder')) ||
-        (proPriceId && !proPriceId.includes('placeholder'))
-      ),
+      isConfigured: proValid && isCreemConfigured,
       voiceMinutes: 150,
       highlight: true,
       badge: 'Most Popular',
@@ -138,12 +144,9 @@ export function toCustomerBillingConfig(config: any): CustomerBillingConfig {
       id: 'BUSINESS',
       name: 'Business',
       priceUsd: 99,
-      productId: businessProductId && !businessProductId.includes('placeholder') ? businessProductId : null,
+      productId: businessValid ? businessProductId.trim() : null,
       priceId: businessPriceId && !businessPriceId.includes('placeholder') ? businessPriceId : null,
-      isConfigured: Boolean(
-        (businessProductId && !businessProductId.includes('placeholder')) ||
-        (businessPriceId && !businessPriceId.includes('placeholder'))
-      ),
+      isConfigured: businessValid && isCreemConfigured,
       voiceMinutes: 400,
       features: [
         '400 Included Voice Minutes / mo',
@@ -156,11 +159,14 @@ export function toCustomerBillingConfig(config: any): CustomerBillingConfig {
   };
 
   return {
-    provider: isCreemActive ? 'creem' : 'paddle',
+    provider: 'creem',
     clientToken: String(paddle.clientToken || ''),
     priceId: String(paddle.priceId || proPriceId || ''),
-    environment: isCreemActive ? (creem.environment === 'prod' ? 'production' : 'test') : (paddle.environment === 'production' ? 'production' : 'sandbox'),
-    isConfigured: Boolean(creem.isConfigured || paddle.isConfigured),
+    environment: creem.environment === 'prod' ? 'production' : 'test',
+    isConfigured: isCreemConfigured,
+    creemConfigured: isCreemConfigured,
+    creemWebhookConfigured: Boolean(creem.isWebhookConfigured),
+    paddleConfigured: isPaddleConfigured,
     planName: String(config.billing?.planName || 'ONCEClic Pro'),
     monthlyPriceUsd: Number(config.billing?.monthlyPriceUsd) || 19,
     trialPeriodDays: Number(config.billing?.trialPeriodDays) || 7,

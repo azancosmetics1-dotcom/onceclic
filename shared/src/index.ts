@@ -946,6 +946,9 @@ export interface CustomerBillingConfig {
   priceId: string;
   environment: 'sandbox' | 'production' | 'test';
   isConfigured: boolean;
+  creemConfigured?: boolean;
+  creemWebhookConfigured?: boolean;
+  paddleConfigured?: boolean;
   planName: string;
   monthlyPriceUsd: number;
   trialPeriodDays: number;

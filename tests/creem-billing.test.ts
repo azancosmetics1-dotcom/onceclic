@@ -464,7 +464,97 @@ export async function runCreemBillingTests() {
     }
     console.log('  ✓ 9. Legacy Paddle subscriber backward compatibility verified.');
 
-    console.log('\n--- All 9 Creem Billing & Webhook Audit Tests Passed! ---\n');
+    // -------------------------------------------------------------------------
+    // TEST 10: Accurate Configuration Status, Missing Product IDs & Checkout Guards
+    // -------------------------------------------------------------------------
+    console.log('  Testing Accurate Configuration Reporting & Checkout Guards...');
+    
+    // 10a. Completely unconfigured Creem
+    config.creem.apiKey = '';
+    config.creem.isConfigured = false;
+    config.creem.plans.STARTER.productId = '';
+    config.creem.plans.PRO.productId = '';
+    config.creem.plans.BUSINESS.productId = '';
+
+    const unconfiguredClientConfig = toCustomerBillingConfig(config);
+    if (unconfiguredClientConfig.isConfigured !== false) {
+      throw new Error('Billing config isConfigured MUST be false when CREEM_API_KEY is missing');
+    }
+    if (unconfiguredClientConfig.creemConfigured !== false) {
+      throw new Error('Billing config creemConfigured MUST be false when CREEM_API_KEY is missing');
+    }
+    if (unconfiguredClientConfig.plans.STARTER.isConfigured || unconfiguredClientConfig.plans.PRO.isConfigured || unconfiguredClientConfig.plans.BUSINESS.isConfigured) {
+      throw new Error('All plans MUST be isConfigured=false when CREEM_API_KEY is missing');
+    }
+
+    // 10b. Partially configured: Only BUSINESS has a product ID, but API key is missing
+    config.creem.plans.BUSINESS.productId = 'prod_test_biz_123';
+    const partialConfigNoKey = toCustomerBillingConfig(config);
+    if (partialConfigNoKey.plans.BUSINESS.isConfigured) {
+      throw new Error('Plan MUST NOT be marked isConfigured=true if CREEM_API_KEY is missing, even with product ID');
+    }
+
+    // Attempt checkout when gateway not configured
+    let failedGatewayError = '';
+    try {
+      await CreemBillingService.createCheckoutSession({
+        organizationId: uuidv4(),
+        userId: uuidv4(),
+        userEmail: 'test@example.com',
+        planTier: 'BUSINESS',
+      });
+    } catch (err: any) {
+      failedGatewayError = err.message;
+    }
+    if (!failedGatewayError.includes('not configured')) {
+      throw new Error(`Expected gateway not configured error, got: "${failedGatewayError}"`);
+    }
+
+    // 10c. With valid test API key, but only BUSINESS has product ID
+    config.creem.apiKey = 'creem_sk_test_mock_key_for_unit_tests';
+    config.creem.isConfigured = true;
+    config.creem.environment = 'test';
+    config.creem.plans.STARTER.productId = '';
+    config.creem.plans.PRO.productId = '';
+    config.creem.plans.BUSINESS.productId = 'prod_test_biz_123';
+
+    const clientWithBizOnly = toCustomerBillingConfig(config);
+    if (clientWithBizOnly.plans.STARTER.isConfigured !== false || clientWithBizOnly.plans.STARTER.productId !== null) {
+      throw new Error('STARTER must be isConfigured=false with null productId');
+    }
+    if (clientWithBizOnly.plans.PRO.isConfigured !== false || clientWithBizOnly.plans.PRO.productId !== null) {
+      throw new Error('PRO must be isConfigured=false with null productId');
+    }
+    if (clientWithBizOnly.plans.BUSINESS.isConfigured !== true || clientWithBizOnly.plans.BUSINESS.productId !== 'prod_test_biz_123') {
+      throw new Error('BUSINESS must be isConfigured=true with productId set');
+    }
+
+    // Attempt checkout for unconfigured plan (STARTER)
+    let failedStarterError = '';
+    try {
+      await CreemBillingService.createCheckoutSession({
+        organizationId: uuidv4(),
+        userId: uuidv4(),
+        userEmail: 'test@example.com',
+        planTier: 'STARTER',
+      });
+    } catch (err: any) {
+      failedStarterError = err.message;
+    }
+    if (!failedStarterError.includes('Missing configured Creem product ID for STARTER')) {
+      throw new Error(`Expected missing product ID error for STARTER, got: "${failedStarterError}"`);
+    }
+
+    // 10d. Placeholder product ID sanitization
+    config.creem.plans.STARTER.productId = 'prod_your_starter_product_id';
+    const clientWithPlaceholder = toCustomerBillingConfig(config);
+    if (clientWithPlaceholder.plans.STARTER.productId !== null || clientWithPlaceholder.plans.STARTER.isConfigured) {
+      throw new Error('Placeholder product ID must be sanitized to null and isConfigured=false');
+    }
+
+    console.log('  ✓ 10. Accurate configuration reporting, missing product IDs & checkout guards verified.');
+
+    console.log('\n--- All 10 Creem Billing & Webhook Audit Tests Passed! ---\n');
   } finally {
     // Restore original config
     config.creem = originalCreemConfig;
