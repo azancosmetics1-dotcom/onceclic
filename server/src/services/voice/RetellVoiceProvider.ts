@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { IVoiceProvider, InboundCallEvent, VoiceToolCallEvent, CallEndedEvent, VoiceAgentConfig } from './VoiceProvider';
+import { SafeNetworkClient } from './SafeNetworkClient';
 import { config } from '../../config';
 
 export class RetellVoiceProvider implements IVoiceProvider {
@@ -142,7 +143,7 @@ export class RetellVoiceProvider implements IVoiceProvider {
     }
 
     // Official Retell Number Purchase API call
-    const res = await fetch('https://api.retellai.com/create-phone-number', {
+    const res = await SafeNetworkClient.fetch('https://api.retellai.com/create-phone-number', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${config.voice.retellApiKey}`,

@@ -7,6 +7,7 @@ import {
   VoiceAgentConfig,
 } from './VoiceProvider';
 import { config } from '../../config';
+import { SafeNetworkClient } from './SafeNetworkClient';
 
 /**
  * Vapi Voice Provider
@@ -197,7 +198,7 @@ export class VapiVoiceProvider implements IVoiceProvider {
       agentConfig.maxDurationSeconds ??
       config.vapi.maxCallDurationSeconds ??
       config.voice.maxCallDurationSeconds ??
-      180;
+      120;
 
     return {
       assistant: {
@@ -232,13 +233,18 @@ export class VapiVoiceProvider implements IVoiceProvider {
   }
 
   formatToolResponse(toolCallId: string | undefined, result: any): any {
+    // If the result carries a forwardingPhoneNumber, promote it to a top-level field on
+    // the results array entry. Vapi detects this field and initiates the real PSTN transfer.
+    // A serialised JSON string in `result` alone does NOT trigger a transfer.
+    const resultEntry: Record<string, any> = {
+      toolCallId: toolCallId,
+      result: typeof result === 'string' ? result : JSON.stringify(result),
+    };
+    if (result && typeof result === 'object' && typeof result.forwardingPhoneNumber === 'string' && result.forwardingPhoneNumber) {
+      resultEntry.forwardingPhoneNumber = result.forwardingPhoneNumber;
+    }
     return {
-      results: [
-        {
-          toolCallId: toolCallId,
-          result: typeof result === 'string' ? result : JSON.stringify(result),
-        },
-      ],
+      results: [resultEntry],
     };
   }
 
@@ -259,7 +265,7 @@ export class VapiVoiceProvider implements IVoiceProvider {
       agentConfig.maxDurationSeconds ??
       config.vapi.maxCallDurationSeconds ??
       config.voice.maxCallDurationSeconds ??
-      180;
+      120;
 
     const payload: any = {
       name: agentConfig.agentName,
@@ -277,7 +283,7 @@ export class VapiVoiceProvider implements IVoiceProvider {
       },
     };
 
-    const res = await fetch('https://api.vapi.ai/assistant', {
+    const res = await SafeNetworkClient.fetch('https://api.vapi.ai/assistant', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -288,7 +294,11 @@ export class VapiVoiceProvider implements IVoiceProvider {
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(`Vapi assistant creation failed: ${err.message || res.statusText}`);
+      const error: any = new Error(`Vapi assistant creation failed: ${err.message || res.statusText}`);
+      error.status = res.status;
+      error.statusCode = res.status;
+      error.data = err;
+      throw error;
     }
 
     const data: any = await res.json();
@@ -317,7 +327,7 @@ export class VapiVoiceProvider implements IVoiceProvider {
       payload.assistantId = params.assistantId;
     }
 
-    const res = await fetch('https://api.vapi.ai/phone-number', {
+    const res = await SafeNetworkClient.fetch('https://api.vapi.ai/phone-number', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -331,7 +341,7 @@ export class VapiVoiceProvider implements IVoiceProvider {
       if (res.status === 409 || err.message?.includes('already exists') || err.message?.includes('conflict')) {
         let vapiPhoneNumberId = `vapi_pn_${params.phoneNumber.replace(/[^\d]/g, '')}`;
         try {
-          const listRes = await fetch('https://api.vapi.ai/phone-number', {
+          const listRes = await SafeNetworkClient.fetch('https://api.vapi.ai/phone-number', {
             headers: { Authorization: `Bearer ${this.apiKey}` },
           });
           if (listRes.ok) {
@@ -358,7 +368,11 @@ export class VapiVoiceProvider implements IVoiceProvider {
           assistantId: params.assistantId,
         };
       }
-      throw new Error(`Vapi phone number import failed: ${err.message || res.statusText}`);
+      const error: any = new Error(`Vapi phone number import failed: ${err.message || res.statusText}`);
+      error.status = res.status;
+      error.statusCode = res.status;
+      error.data = err;
+      throw error;
     }
 
     const data: any = await res.json();
@@ -370,7 +384,7 @@ export class VapiVoiceProvider implements IVoiceProvider {
   }
 
   async linkPhoneNumberToAssistant(params: { phoneNumberIdOrNumber: string; assistantId: string }): Promise<boolean> {
-    const res = await fetch(`https://api.vapi.ai/phone-number/${params.phoneNumberIdOrNumber}`, {
+    const res = await SafeNetworkClient.fetch(`https://api.vapi.ai/phone-number/${params.phoneNumberIdOrNumber}`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -385,13 +399,13 @@ export class VapiVoiceProvider implements IVoiceProvider {
   }
 
   /**
-   * Terminate active Vapi call on provider side (enforcing 180s duration limit)
+   * Terminate active Vapi call on provider side (enforcing 120s / 2-minute duration limit)
    */
   async terminateCall(callId: string): Promise<boolean> {
     if (!callId) return false;
     try {
       // Primary: POST https://api.vapi.ai/call/{id}/stop
-      const res = await fetch(`https://api.vapi.ai/call/${callId}/stop`, {
+      const res = await SafeNetworkClient.fetch(`https://api.vapi.ai/call/${callId}/stop`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
@@ -401,7 +415,7 @@ export class VapiVoiceProvider implements IVoiceProvider {
       if (res.ok) return true;
 
       // Fallback: DELETE https://api.vapi.ai/call/{id}
-      const delRes = await fetch(`https://api.vapi.ai/call/${callId}`, {
+      const delRes = await SafeNetworkClient.fetch(`https://api.vapi.ai/call/${callId}`, {
         method: 'DELETE',
         headers: {
           Authorization: `Bearer ${this.apiKey}`,

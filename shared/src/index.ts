@@ -835,6 +835,10 @@ export interface PlanDetails {
   priceUsd: number;
   billingPeriod: 'month';
   voiceMinutes: number;
+  /** Maximum active phone numbers allowed for this plan */
+  maxPhoneNumbers: number;
+  /** Maximum inbound AI calls allowed per billing cycle */
+  maxMonthlyCalls: number;
   features: string[];
   highlight?: boolean;
   badge?: string;
@@ -847,11 +851,13 @@ export const SUBSCRIPTION_PLANS: Record<PlanTier, PlanDetails> = {
     priceUsd: 0,
     billingPeriod: 'month',
     voiceMinutes: 15,
+    maxPhoneNumbers: 1,
+    maxMonthlyCalls: 5,
     features: [
-      '15 Included Voice Minutes',
+      '1 Phone Number',
+      '5 AI Calls / month (trial)',
       '24/7 AI Phone Receptionist',
-      'Google Calendar Real-Time Booking',
-      '24/7 Website Live Chat Widget',
+      '24/7 Website AI Chat Widget',
       'No Credit Card Required',
     ],
   },
@@ -861,12 +867,14 @@ export const SUBSCRIPTION_PLANS: Record<PlanTier, PlanDetails> = {
     priceUsd: 19,
     billingPeriod: 'month',
     voiceMinutes: 50,
+    maxPhoneNumbers: 1,
+    maxMonthlyCalls: 20,
     features: [
-      '50 Included Voice Minutes / mo',
+      '1 Phone Number',
+      '20 AI Calls / month',
       '24/7 AI Phone Receptionist',
-      'Existing Business Number Forwarding',
-      'Google Calendar Real-Time Booking',
-      '24/7 Website Live Chat Widget',
+      '24/7 Website AI Chat Widget',
+      'Google Calendar Booking',
     ],
   },
   PRO: {
@@ -875,14 +883,18 @@ export const SUBSCRIPTION_PLANS: Record<PlanTier, PlanDetails> = {
     priceUsd: 49,
     billingPeriod: 'month',
     voiceMinutes: 150,
+    maxPhoneNumbers: 3,
+    maxMonthlyCalls: 50,
     highlight: true,
     badge: 'Most Popular',
     features: [
-      '150 Included Voice Minutes / mo',
-      'Everything in Starter',
+      'Up to 3 Phone Numbers',
+      '50 AI Calls / month',
+      '24/7 AI Phone Receptionist',
+      '24/7 Website AI Chat Widget',
+      'WhatsApp & Email AI',
       'Call Transcripts & Recordings',
-      'SMS & Email Confirmation Alerts',
-      'Custom Industry Knowledge & FAQs',
+      'Google Calendar Booking',
       'Priority Support',
     ],
   },
@@ -892,15 +904,50 @@ export const SUBSCRIPTION_PLANS: Record<PlanTier, PlanDetails> = {
     priceUsd: 99,
     billingPeriod: 'month',
     voiceMinutes: 400,
+    maxPhoneNumbers: 5,
+    maxMonthlyCalls: 100,
     features: [
-      '400 Included Voice Minutes / mo',
-      'Everything in Pro',
-      'Multiple Phone Numbers Support',
-      'Dedicated Team Member Inboxes',
-      'Advanced Call Analytics & Reporting',
+      'Up to 5 Phone Numbers',
+      '100 AI Calls / month',
+      '24/7 AI Phone Receptionist',
+      '24/7 Website AI Chat Widget',
+      'WhatsApp & Email AI',
+      'Call Transcripts & Recordings',
+      'Advanced Call Analytics',
+      'Dedicated Team Inboxes',
+      'Priority Support',
     ],
   },
 };
+
+/**
+ * Authoritative phone number limits per plan tier.
+ * Single source of truth — used by both backend enforcement and frontend display.
+ */
+export const PLAN_PHONE_NUMBER_LIMITS: Record<PlanTier, number> = {
+  TRIAL: 1,
+  STARTER: 1,
+  PRO: 3,
+  BUSINESS: 5,
+};
+
+/**
+ * Authoritative monthly call count limits per plan tier.
+ * These are CALL COUNT limits, not minute limits.
+ * Single source of truth — used by both backend enforcement and frontend display.
+ */
+export const PLAN_MONTHLY_CALL_LIMITS: Record<PlanTier, number> = {
+  TRIAL: 5,
+  STARTER: 20,
+  PRO: 50,
+  BUSINESS: 100,
+};
+
+/**
+ * Maximum duration for a single AI phone call, in seconds.
+ * Enforced at the platform level on both server (VoiceService) and Vapi provider.
+ */
+export const MAX_CALL_DURATION_SECONDS = 120;
 
 export interface CustomerPlanConfig {
   id: PaidPlanTier;
@@ -1398,6 +1445,9 @@ export interface VoicePhoneNumber {
   requiredDocuments?: string[];
   actionRequiredReason?: string;
   lastError?: string;
+  syncStatus?: PhoneSyncStatus | string;
+  syncedAt?: string | null;
+  syncError?: string | null;
   idempotencyKey?: string;
   verificationCode?: string;
   verificationStatus?: 'UNVERIFIED' | 'VERIFIED' | 'FAILED';
@@ -1425,6 +1475,12 @@ export interface VoiceCallRecord {
   conversationId?: string;
   transcript?: string;
   recordingUrl?: string;
+  recordingSyncStatus?: RecordingSyncStatus | string;
+  recordingClaimToken?: string | null;
+  recordingLeaseUntil?: string | null;
+  recordingAttempts?: number;
+  recordingNextRetryAt?: string | null;
+  recordingLastError?: string | null;
   metadata?: Record<string, any>;
   createdAt: string;
 }
@@ -1445,10 +1501,22 @@ export const DEFAULT_VOICE_PLAN_LIMITS: Record<'TRIAL' | 'STARTER' | 'PRO' | 'BU
 
 export interface CustomerVoiceUsage {
   planTier: 'TRIAL' | 'STARTER' | 'PRO' | 'BUSINESS';
+  // Minute-based usage (legacy — kept for backward compatibility)
   includedMinutes: number;
   usedMinutes: number;
   remainingMinutes: number;
   percentageUsed: number;
+  // Call-count–based usage (new authoritative limit)
+  maxMonthlyCalls: number;
+  usedCalls: number;
+  remainingCalls: number;
+  callPercentageUsed: number;
+  callLimitReached: boolean;
+  // Phone number usage
+  maxPhoneNumbers: number;
+  activePhoneNumbers: number;
+  phoneNumberLimitReached: boolean;
+  // Combined limit flag (true if either call limit OR minute limit reached)
   limitReached: boolean;
   billingPeriodStart: string;
   billingPeriodEnd: string;
@@ -1467,6 +1535,40 @@ export type VoiceConnectionTestStatus =
   | 'TESTING'
   | 'CONNECTED'
   | 'FAILED';
+
+export enum OrganizationAssistantStatus {
+  IDLE = 'IDLE',
+  CLAIMED = 'CLAIMED',
+  READY = 'READY',
+  RECONCILIATION_REQUIRED = 'RECONCILIATION_REQUIRED',
+  FAILED = 'FAILED',
+}
+
+export enum PhoneSyncStatus {
+  PENDING = 'PENDING',
+  SYNCHRONIZED = 'SYNCHRONIZED',
+  FAILED = 'FAILED',
+}
+
+export enum RecordingSyncStatus {
+  PENDING = 'PENDING',
+  CLAIMED = 'CLAIMED',
+  COMPLETED = 'COMPLETED',
+  NOT_AVAILABLE = 'NOT_AVAILABLE',
+  FAILED = 'FAILED',
+}
+
+export interface OrganizationVoiceAssistant {
+  organizationId: string;
+  vapiAssistantId?: string | null;
+  provisioningStatus: OrganizationAssistantStatus | string;
+  claimToken?: string | null;
+  claimExpiresAt?: string | null;
+  lastReconciledAt?: string | null;
+  errorMessage?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
 
 export interface CustomerVoiceConfig {
   receptionistActive: boolean;

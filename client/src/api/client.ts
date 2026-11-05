@@ -698,6 +698,110 @@ class ApiClient {
   async getVoiceAnalytics(): Promise<VoiceAnalyticsSummary> {
     return this.request('/voice/analytics');
   }
+
+  // ─── Salon Services ───────────────────────────────────────────────────────
+
+  async getSalonServices(): Promise<any[]> {
+    return this.request('/salon/services');
+  }
+
+  async createSalonService(data: {
+    name: string;
+    description?: string;
+    price?: number;
+    durationMinutes?: number;
+    category?: string;
+    isActive?: boolean;
+    instructions?: string;
+  }): Promise<any> {
+    return this.request('/salon/services', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async updateSalonService(id: string, data: Partial<{
+    name: string;
+    description: string;
+    price: number;
+    durationMinutes: number;
+    category: string;
+    isActive: boolean;
+    instructions: string;
+  }>): Promise<any> {
+    return this.request(`/salon/services/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  }
+
+  async deleteSalonService(id: string): Promise<any> {
+    return this.request(`/salon/services/${id}`, { method: 'DELETE' });
+  }
+
+  // ─── Salon Staff ──────────────────────────────────────────────────────────
+
+  async getSalonStaff(): Promise<any[]> {
+    return this.request('/salon/staff');
+  }
+
+  async createSalonStaff(data: {
+    name: string;
+    phone?: string;
+    email?: string;
+    isActive?: boolean;
+    workingDays?: number[];
+    workingHoursStart?: string;
+    workingHoursEnd?: string;
+  }): Promise<any> {
+    return this.request('/salon/staff', { method: 'POST', body: JSON.stringify(data) });
+  }
+
+  async updateSalonStaff(id: string, data: Partial<{
+    name: string;
+    phone: string;
+    email: string;
+    isActive: boolean;
+    workingDays: number[];
+    workingHoursStart: string;
+    workingHoursEnd: string;
+  }>): Promise<any> {
+    return this.request(`/salon/staff/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+  }
+
+  async deleteSalonStaff(id: string): Promise<any> {
+    return this.request(`/salon/staff/${id}`, { method: 'DELETE' });
+  }
+
+  async getStaffServices(staffId: string): Promise<any[]> {
+    return this.request(`/salon/staff/${staffId}/services`);
+  }
+
+  async assignStaffService(staffId: string, serviceId: string): Promise<any> {
+    return this.request(`/salon/staff/${staffId}/services/${serviceId}`, { method: 'POST' });
+  }
+
+  async removeStaffService(staffId: string, serviceId: string): Promise<any> {
+    return this.request(`/salon/staff/${staffId}/services/${serviceId}`, { method: 'DELETE' });
+  }
+
+  // ─── Industry Configuration ───────────────────────────────────────────────
+
+  async getIndustryConfig(): Promise<{ industryType: string; transferPhoneNumber: string | null; salonSettings: any }> {
+    return this.request('/voice/industry-config');
+  }
+
+  async updateIndustryConfig(data: {
+    industryType?: string;
+    transferPhoneNumber?: string | null;
+    salonSettings?: any;
+  }): Promise<any> {
+    return this.request('/voice/industry-config', { method: 'PUT', body: JSON.stringify(data) });
+  }
+
+  // ─── Voice Recording Playback ─────────────────────────────────────────────
+
+  async getRecordingSignedUrl(callRecordId: string): Promise<{
+    signedUrl: string;
+    expiresInSeconds: number;
+    expiresAt: string;
+  }> {
+    return this.request(`/voice/recordings/${callRecordId}/url`);
+  }
 }
 
 export const api = new ApiClient();

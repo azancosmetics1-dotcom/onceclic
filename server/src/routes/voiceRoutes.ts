@@ -11,6 +11,7 @@ import {
   toCustomerVoiceAnalytics,
   toCustomerCallRecordList,
 } from '../serializers/customerSerializers';
+import { db } from '../db';
 
 const router = Router();
 
@@ -401,6 +402,113 @@ router.get('/analytics', requirePermission('analytics:read'), async (req: Reques
     const analytics = await VoiceService.getVoiceAnalytics(req.organizationId!);
     const serialized = toCustomerVoiceAnalytics(analytics);
     res.json({ success: true, data: serialized });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Industry Configuration ───────────────────────────────────────────────────
+
+const VALID_INDUSTRY_TYPES = ['clinic', 'restaurant', 'salon'] as const;
+
+/**
+ * GET /api/voice/industry-config
+ * Returns the industry type and transfer phone number for the organization.
+ */
+router.get('/industry-config', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
+  try {
+    const orgId = req.organizationId!;
+    const row = await db.getOne(
+      `SELECT industry_type, transfer_phone_number, salon_settings
+       FROM business_settings WHERE organization_id = $1`,
+      [orgId]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        industryType: row?.industry_type || 'clinic',
+        transferPhoneNumber: row?.transfer_phone_number || null,
+        salonSettings: row?.salon_settings || null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/voice/industry-config
+ * Update the industry type, transfer phone number, and salon settings.
+ */
+router.put('/industry-config', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const orgId = req.organizationId!;
+    const { industryType, transferPhoneNumber, salonSettings } = req.body;
+
+    // Validate industryType
+    if (industryType !== undefined && !VALID_INDUSTRY_TYPES.includes(industryType)) {
+      return res.status(400).json({
+        success: false,
+        error: `Invalid industryType. Must be one of: ${VALID_INDUSTRY_TYPES.join(', ')}.`,
+      });
+    }
+
+    // Validate and normalize E.164 phone number if provided
+    let normalizedPhone: string | null = null;
+    if (transferPhoneNumber !== undefined && transferPhoneNumber !== null && transferPhoneNumber !== '') {
+      const digits = String(transferPhoneNumber).replace(/[\s\-().]/g, '');
+      if (!/^\+?[1-9]\d{7,14}$/.test(digits)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid transfer phone number. Must be in E.164 format (e.g. +12125551234).',
+        });
+      }
+      normalizedPhone = digits.startsWith('+') ? digits : `+${digits}`;
+    }
+
+    const sets: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (industryType !== undefined) {
+      sets.push(`industry_type = $${idx++}`);
+      values.push(industryType);
+    }
+    if (transferPhoneNumber !== undefined) {
+      sets.push(`transfer_phone_number = $${idx++}`);
+      values.push(normalizedPhone);
+    }
+    if (salonSettings !== undefined) {
+      sets.push(`salon_settings = $${idx++}`);
+      values.push(salonSettings === null ? null : JSON.stringify(salonSettings));
+    }
+
+    if (sets.length > 0) {
+      sets.push(`updated_at = CURRENT_TIMESTAMP`);
+      values.push(orgId);
+
+      await db.execute(
+        `UPDATE business_settings SET ${sets.join(', ')} WHERE organization_id = $${idx}`,
+        values
+      );
+    }
+
+    // Return updated config
+    const updated = await db.getOne(
+      `SELECT industry_type, transfer_phone_number, salon_settings
+       FROM business_settings WHERE organization_id = $1`,
+      [orgId]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        industryType: updated?.industry_type || 'clinic',
+        transferPhoneNumber: updated?.transfer_phone_number || null,
+        salonSettings: updated?.salon_settings || null,
+      },
+    });
   } catch (err) {
     next(err);
   }

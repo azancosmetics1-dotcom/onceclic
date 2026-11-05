@@ -13,6 +13,8 @@ import {
   AuditAction,
   ConversationChannel,
   DEFAULT_VOICE_PLAN_LIMITS,
+  PLAN_MONTHLY_CALL_LIMITS,
+  PLAN_PHONE_NUMBER_LIMITS,
   VoiceProvisioningStatus,
   SUPPORTED_TELEPHONY_COUNTRIES,
   TelephonyCountryInfo,
@@ -31,7 +33,9 @@ import { VapiVoiceProvider } from './VapiVoiceProvider';
 import { TelnyxTelephonyProvider } from './TelnyxTelephonyProvider';
 import { MockTelephonyProvider } from './MockTelephonyProvider';
 import { VoicePromptBuilder } from './VoicePromptBuilder';
+import { VoiceAssistantProvisioningService } from './VoiceAssistantProvisioningService';
 import { AppointmentService } from '../AppointmentService';
+import { SalonService } from '../SalonService';
 import { AuditService } from '../AuditService';
 import { PhoneNumberPricingService } from './PhoneNumberPricingService';
 import { PhoneNumberBillingService } from './PhoneNumberBillingService';
@@ -49,27 +53,29 @@ export class VoiceService {
     startedAt: number;
     maxDurationSeconds: number;
     terminated?: boolean;
+    isOverflow?: boolean;
   }>();
 
+  private static inFlightPurchases = new Map<string, Promise<VoicePhoneNumber>>();
   private static terminatedCallIds = new Set<string>();
 
   /**
    * Validate and sanitize max call duration seconds.
-   * Default and maximum ceiling for AI receptionist calls is 180 seconds.
-   * Invalid (negative, zero, NaN, non-finite, null) inputs safely fall back to 180s.
+   * Default and maximum ceiling for AI receptionist calls is 120 seconds (2 minutes).
+   * Invalid (negative, zero, NaN, non-finite, null) inputs safely fall back to 120s.
    */
   static validateMaxCallDuration(seconds: any): number {
     const parsed = typeof seconds === 'number' ? seconds : parseInt(String(seconds || ''), 10);
     if (!Number.isFinite(parsed) || isNaN(parsed) || parsed <= 0) {
-      return 180;
+      return 120;
     }
-    // Hard ceiling for AI receptionist call duration is 180 seconds
-    return Math.min(parsed, 180);
+    // Hard ceiling for AI receptionist call duration is 120 seconds (2 minutes)
+    return Math.min(parsed, 120);
   }
 
   /**
    * Resolve effective max call duration for an organization.
-   * Checks organization's business_settings.voice_max_duration_seconds with fallback to server default (180s).
+   * Checks organization's business_settings.voice_max_duration_seconds with fallback to server default (120s).
    */
   static async resolveMaxCallDuration(organizationId?: string): Promise<number> {
     const platformDefault = this.validateMaxCallDuration(config.voice.maxCallDurationSeconds);
@@ -134,7 +140,7 @@ export class VoiceService {
   }
 
   /**
-   * Check if an active call has reached or exceeded its maximum allowed duration (180s default).
+   * Check if an active call has reached or exceeded its maximum allowed duration (120s default).
    */
   static async checkCallDurationLimit(params: {
     callId: string;
@@ -656,70 +662,50 @@ export class VoiceService {
       throw new Error('Explicit confirmation is required before purchasing or provisioning a new phone number.');
     }
 
+    // Deduplicate identical concurrent requests (same org + idempotencyKey or same number)
+    const inFlightKey = `${params.organizationId}:${params.idempotencyKey || params.phoneNumber}`;
+    if (this.inFlightPurchases.has(inFlightKey)) {
+      return this.inFlightPurchases.get(inFlightKey)!;
+    }
+
+    // If another purchase is in flight for the same organization, wait for it so the limit check is serial and atomic
+    const orgInFlight = Array.from(this.inFlightPurchases.keys()).find((k) => k.startsWith(`${params.organizationId}:`));
+    if (orgInFlight) {
+      try {
+        await this.inFlightPurchases.get(orgInFlight);
+      } catch {
+        // Proceed even if prior purchase failed
+      }
+    }
+
+    const purchasePromise = this.executeOrderNewNumber(params);
+    this.inFlightPurchases.set(inFlightKey, purchasePromise);
+
+    try {
+      return await purchasePromise;
+    } finally {
+      this.inFlightPurchases.delete(inFlightKey);
+    }
+  }
+
+  private static async executeOrderNewNumber(params: {
+    organizationId: string;
+    phoneNumber: string;
+    countryCode: string;
+    numberType?: string;
+    idempotencyKey?: string;
+    userId?: string;
+    confirmPurchase: boolean;
+    expectedMonthlyCostUsd?: number;
+    expectedSetupCostUsd?: number;
+    checkoutId?: string;
+  }): Promise<VoicePhoneNumber> {
     const normalized = this.normalizePhoneNumber(params.phoneNumber);
     if (!normalized || normalized.length < 7) {
       throw new Error('Invalid phone number format.');
     }
 
-    // 1. Subscription & usage check
-    const sub = await db.getOne<{ status: string; trial_ends_at: string }>(
-      'SELECT status, trial_ends_at FROM subscriptions WHERE organization_id = $1',
-      [params.organizationId]
-    );
-
-    const now = new Date();
-    const isSubActive =
-      sub &&
-      (sub.status === SubscriptionStatus.ACTIVE ||
-        (sub.status === SubscriptionStatus.TRIALING && new Date(sub.trial_ends_at) > now));
-
-    if (!isSubActive) {
-      throw new Error('An active subscription or valid trial is required to provision a business phone number.');
-    }
-
-    const usage = await this.getVoiceUsage(params.organizationId);
-    if (usage.limitReached) {
-      throw new Error('Your monthly voice minutes have been exhausted. Please upgrade your plan to provision additional numbers.');
-    }
-
-    // Dynamic country and number type validation against catalog
-    const country = (params.countryCode || 'US').toUpperCase().trim();
-    const countryConfig = this.getCountryTelephonyInfo(country);
-    const type = (params.numberType || 'local').toLowerCase() as any;
-    if (!countryConfig.supportedNumberTypes.includes(type)) {
-      throw new Error(`Number type ${type} is not supported in ${countryConfig.countryName}.`);
-    }
-
-    // 1b. Customer checkout verification if checkoutId is supplied
-    let checkoutSession: any = null;
-    if (params.checkoutId) {
-      checkoutSession = await PhoneNumberBillingService.getCheckoutSession(params.organizationId, params.checkoutId);
-      if (!checkoutSession) {
-        throw new Error('Invalid or unverified checkout session.');
-      }
-      if (checkoutSession.status !== 'AUTHORIZED' && checkoutSession.status !== 'PAID') {
-        throw new Error(`Checkout session is not authorized (status: ${checkoutSession.status}). Payment authorization is required before purchasing a phone number.`);
-      }
-      if (checkoutSession.phoneNumber && VoiceService.normalizePhoneNumber(checkoutSession.phoneNumber) !== normalized) {
-        throw new Error('Checkout session was authorized for a different phone number.');
-      }
-    }
-
-    // Purchase protection: authoritative server-side pricing & validation (Telnyx provider cost + fixed $1.00 markup)
-    const quote = PhoneNumberPricingService.getAuthoritativePricing({
-      countryCode: country,
-      numberType: type,
-      phoneNumber: normalized,
-    });
-
-    PhoneNumberPricingService.validateCustomerPrice({
-      expectedCustomerMonthlyCostUsd: params.expectedMonthlyCostUsd,
-      expectedSetupCostUsd: params.expectedSetupCostUsd,
-      authoritativeProviderMonthlyCostUsd: quote.providerCostUsd,
-      authoritativeProviderSetupCostUsd: quote.setupCostUsd,
-    });
-
-    // 2. Idempotency Check & Cross-Tenant Binding
+    // 1. Idempotency Check & Cross-Tenant Binding
     if (params.idempotencyKey) {
       // Prevent cross-tenant idempotency hijacking
       const foreignOrder = await db.getOne<{ id: string; organization_id: string }>(
@@ -759,14 +745,12 @@ export class VoiceService {
       }
     }
 
-    // 3. Duplicate number prevention
+    // 2. Duplicate & cross-tenant phone number ownership check
     const existing = await db.getOne<{
       id: string;
       organization_id: string;
       provisioning_status: string;
-      /** Telnyx ORDER ID (stored separately from the phone-number resource ID since fix) */
       telnyx_order_id?: string;
-      /** Telnyx phone-number RESOURCE ID (used for PATCH /v2/phone_numbers/{id}) */
       telnyx_phone_number_id?: string;
       monthly_cost_usd?: number;
       setup_cost_usd?: number;
@@ -791,6 +775,74 @@ export class VoiceService {
         throw new Error('This phone number has already been provisioned for your organization.');
       }
     }
+
+    // 2. Subscription & usage check
+    const sub = await db.getOne<{ status: string; trial_ends_at: string }>(
+      'SELECT status, trial_ends_at FROM subscriptions WHERE organization_id = $1',
+      [params.organizationId]
+    );
+
+    const now = new Date();
+    const isSubActive =
+      sub &&
+      (sub.status === SubscriptionStatus.ACTIVE ||
+        (sub.status === SubscriptionStatus.TRIALING && new Date(sub.trial_ends_at) > now));
+
+    if (!isSubActive) {
+      throw new Error('An active subscription or valid trial is required to provision a business phone number.');
+    }
+
+    // 1a. Phone number limit check (enforced per plan tier)
+    // Uses a consistent plan-tier resolution so the same subscription state is evaluated
+    // as the getVoiceUsage method.
+    const phoneLimit = await this.checkPhoneNumberLimit(params.organizationId);
+    if (!phoneLimit.allowed) {
+      const planName = phoneLimit.planTier === 'TRIAL' ? 'Free Trial'
+        : phoneLimit.planTier === 'STARTER' ? 'Starter ($19/mo)'
+        : phoneLimit.planTier === 'PRO' ? 'Pro ($49/mo)'
+        : 'Business ($99/mo)';
+      throw new Error(
+        `Phone number limit reached. Your ${planName} plan allows a maximum of ${phoneLimit.limit} active phone number${phoneLimit.limit === 1 ? '' : 's'}. ` +
+        `You currently have ${phoneLimit.activeCount}. Please upgrade your plan to add more numbers.`
+      );
+    }
+
+    // Dynamic country and number type validation against catalog
+    const country = (params.countryCode || 'US').toUpperCase().trim();
+    const countryConfig = this.getCountryTelephonyInfo(country);
+    const type = (params.numberType || 'local').toLowerCase() as any;
+    if (!countryConfig.supportedNumberTypes.includes(type)) {
+      throw new Error(`Number type ${type} is not supported in ${countryConfig.countryName}.`);
+    }
+
+    // 1b. Customer checkout verification if checkoutId is supplied
+    let checkoutSession: any = null;
+    if (params.checkoutId) {
+      checkoutSession = await PhoneNumberBillingService.getCheckoutSession(params.organizationId, params.checkoutId);
+      if (!checkoutSession) {
+        throw new Error('Invalid or unverified checkout session.');
+      }
+      if (checkoutSession.status !== 'AUTHORIZED' && checkoutSession.status !== 'PAID') {
+        throw new Error(`Checkout session is not authorized (status: ${checkoutSession.status}). Payment authorization is required before purchasing a phone number.`);
+      }
+      if (checkoutSession.phoneNumber && VoiceService.normalizePhoneNumber(checkoutSession.phoneNumber) !== normalized) {
+        throw new Error('Checkout session was authorized for a different phone number.');
+      }
+    }
+
+    // Purchase protection: authoritative server-side pricing & validation (Telnyx provider cost + fixed $1.00 markup)
+    const quote = PhoneNumberPricingService.getAuthoritativePricing({
+      countryCode: country,
+      numberType: type,
+      phoneNumber: normalized,
+    });
+
+    PhoneNumberPricingService.validateCustomerPrice({
+      expectedCustomerMonthlyCostUsd: params.expectedMonthlyCostUsd,
+      expectedSetupCostUsd: params.expectedSetupCostUsd,
+      authoritativeProviderMonthlyCostUsd: quote.providerCostUsd,
+      authoritativeProviderSetupCostUsd: quote.setupCostUsd,
+    });
 
     const telephony = this.getTelephonyProvider();
     const voice = this.getVoiceProvider();
@@ -981,20 +1033,16 @@ export class VoiceService {
       ]
     );
 
-    // Step D: Voice Provider (Vapi) Assistant Linking & Orchestration
+    // Step D: Voice Provider (Vapi) Assistant Linking & Orchestration (Organization-Level Canonical Assistant)
     let vapiAssistantId: string | undefined;
     let vapiPhoneNumberId: string | undefined;
     try {
       const promptData = await VoicePromptBuilder.buildPrompt(params.organizationId);
-      if (voice.createOrUpdateAssistant) {
-        const asst = await voice.createOrUpdateAssistant({
-          agentName: promptData.agentName,
-          systemPrompt: promptData.systemPrompt,
-          greeting: promptData.greeting,
-          tools: promptData.tools,
-        });
-        vapiAssistantId = asst.assistantId;
-      }
+      const orgAssistant = await VoiceAssistantProvisioningService.getOrCreateOrganizationAssistant(
+        params.organizationId,
+        { customVoiceProvider: voice }
+      );
+      vapiAssistantId = orgAssistant.assistantId;
 
       if (voice.importPhoneNumber) {
         const importRes = await voice.importPhoneNumber({
@@ -1011,6 +1059,9 @@ export class VoiceService {
           assistantId: vapiAssistantId,
         });
       }
+
+      // Synchronize phone lines under the canonical assistant
+      await VoiceAssistantProvisioningService.synchronizePhoneLines(params.organizationId, vapiAssistantId);
 
       const routingResult = await telephony.configureRoutingToVapi({
         // Pass current resource ID (may be null — configureRoutingToVapi will attempt GET lookup)
@@ -1360,7 +1411,81 @@ export class VoiceService {
   }
 
   /**
-   * Check Voice Minute usage for the current billing period
+   * Resolve the plan tier for an organization from its subscription row.
+   * Returns 'TRIAL' as a safe default for any unrecognized or inactive state.
+   */
+  private static resolvePlanTier(sub: {
+    status: string;
+    price_id?: string;
+    plan_tier?: string;
+    trial_ends_at?: string;
+  } | null): 'TRIAL' | 'STARTER' | 'PRO' | 'BUSINESS' {
+    if (!sub) return 'TRIAL';
+    const isTrial = sub.status === SubscriptionStatus.TRIALING;
+    const isActive = sub.status === SubscriptionStatus.ACTIVE || sub.status === SubscriptionStatus.PAST_DUE;
+
+    if (isTrial) return 'TRIAL';
+    if (!isActive) return 'TRIAL';
+
+    const storedTier = ((sub as any)?.plan_tier || (sub as any)?.planTier || '')?.toUpperCase();
+    if (storedTier === 'STARTER' || storedTier === 'PRO' || storedTier === 'BUSINESS') {
+      return storedTier as 'STARTER' | 'PRO' | 'BUSINESS';
+    }
+    if (sub.price_id) {
+      const { PaddleBillingService } = require('../PaddleBillingService');
+      const resolved = PaddleBillingService.resolvePlanTierFromPriceId(sub.price_id);
+      if (resolved === 'STARTER' || resolved === 'PRO' || resolved === 'BUSINESS') return resolved;
+    }
+    return 'TRIAL';
+  }
+
+  /**
+   * Check whether an organization has reached its plan's phone number limit.
+   * Returns { allowed, activeCount, limit, planTier }.
+   * Uses SELECT FOR UPDATE on voice_phone_numbers to prevent race conditions.
+   */
+  static async checkPhoneNumberLimit(
+    organizationId: string,
+    database?: typeof db
+  ): Promise<{
+    allowed: boolean;
+    activeCount: number;
+    limit: number;
+    planTier: 'TRIAL' | 'STARTER' | 'PRO' | 'BUSINESS';
+  }> {
+    const d = database || db;
+    const sub = await d.getOne<{
+      status: string;
+      price_id?: string;
+      plan_tier?: string;
+      trial_ends_at?: string;
+    }>(
+      `SELECT status, price_id, plan_tier, trial_ends_at FROM subscriptions WHERE organization_id = $1`,
+      [organizationId]
+    );
+
+    const planTier = this.resolvePlanTier(sub);
+    const limit = PLAN_PHONE_NUMBER_LIMITS[planTier];
+
+    // Count active and porting phone numbers for this org
+    const countRow = await d.getOne<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM voice_phone_numbers
+       WHERE organization_id = $1 AND status IN ('ACTIVE', 'PORTING')`,
+      [organizationId]
+    );
+    const activeCount = parseInt(countRow?.count ?? '0', 10);
+
+    return {
+      allowed: activeCount < limit,
+      activeCount,
+      limit,
+      planTier,
+    };
+  }
+
+  /**
+   * Check Voice usage for the current billing period.
+   * Returns both call-count usage (new authoritative) and minute usage (legacy).
    */
   static async getVoiceUsage(organizationId: string): Promise<CustomerVoiceUsage> {
     const sub = await db.getOne<{
@@ -1376,30 +1501,18 @@ export class VoiceService {
       [organizationId]
     );
 
-    const isTrial = sub?.status === SubscriptionStatus.TRIALING;
-    const isActive = sub?.status === SubscriptionStatus.ACTIVE || sub?.status === SubscriptionStatus.PAST_DUE;
+    const planTier = this.resolvePlanTier(sub);
 
-    let planTier: 'TRIAL' | 'STARTER' | 'PRO' | 'BUSINESS' = 'TRIAL';
-    if (isTrial) {
-      planTier = 'TRIAL';
-    } else if (isActive) {
-      const storedTier = ((sub as any)?.plan_tier || (sub as any)?.planTier || '')?.toUpperCase();
-      if (storedTier === 'STARTER' || storedTier === 'PRO' || storedTier === 'BUSINESS') {
-        planTier = storedTier;
-      } else if (sub?.price_id) {
-        const { PaddleBillingService } = require('../PaddleBillingService');
-        const resolved = PaddleBillingService.resolvePlanTierFromPriceId(sub.price_id);
-        planTier = resolved || 'TRIAL';
-      } else {
-        planTier = 'TRIAL';
-      }
-    } else {
-      planTier = 'TRIAL';
-    }
+    // ── Minute limits (legacy, kept for backward compat) ──────────────────
+    const includedMinutes = config.voice.planLimits[planTier] || DEFAULT_VOICE_PLAN_LIMITS[planTier] || 15;
 
-    const includedMinutes = config.voice.planLimits[planTier] || DEFAULT_VOICE_PLAN_LIMITS[planTier] || (planTier === 'STARTER' ? 50 : planTier === 'BUSINESS' ? 400 : planTier === 'PRO' ? 150 : 15);
+    // ── Call count limits (new authoritative) ─────────────────────────────
+    const maxMonthlyCalls = PLAN_MONTHLY_CALL_LIMITS[planTier];
 
-    // Calculate billing cycle window (or last 30 days)
+    // ── Phone number limits ───────────────────────────────────────────────
+    const maxPhoneNumbers = PLAN_PHONE_NUMBER_LIMITS[planTier];
+
+    // ── Billing period window ─────────────────────────────────────────────
     const now = new Date();
     const periodStart = sub?.current_period_start
       ? new Date(sub.current_period_start)
@@ -1408,6 +1521,34 @@ export class VoiceService {
       ? new Date(sub.current_period_end)
       : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
+    // ── Count calls consumed in this billing period ───────────────────────
+    // Only counted_for_limit=TRUE rows are authoritative; falls back to
+    // time-window count if column doesn't yet exist (pre-migration 025).
+    let usedCalls = 0;
+    try {
+      const callCountRow = await db.getOne<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM voice_call_records
+         WHERE organization_id = $1
+           AND started_at >= $2
+           AND started_at <= $3
+           AND counted_for_limit = TRUE`,
+        [organizationId, periodStart.toISOString(), periodEnd.toISOString()]
+      );
+      usedCalls = parseInt(callCountRow?.count ?? '0', 10);
+    } catch {
+      // Migration 025 not yet applied — fall back to counting completed calls
+      const fallbackRow = await db.getOne<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM voice_call_records
+         WHERE organization_id = $1
+           AND started_at >= $2
+           AND started_at <= $3
+           AND status = 'COMPLETED'`,
+        [organizationId, periodStart.toISOString(), periodEnd.toISOString()]
+      );
+      usedCalls = parseInt(fallbackRow?.count ?? '0', 10);
+    }
+
+    // ── Minute usage (legacy) ─────────────────────────────────────────────
     const callRows = await db.query(
       `SELECT duration_minutes, duration_seconds FROM voice_call_records
        WHERE organization_id = $1 AND started_at >= $2 AND started_at <= $3`,
@@ -1426,9 +1567,25 @@ export class VoiceService {
     }
     usedMinutes = Math.round(usedMinutes * 10) / 10;
 
+    // ── Active and Porting phone number count ─────────────────────────────
+    const phoneCountRow = await db.getOne<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM voice_phone_numbers
+       WHERE organization_id = $1 AND status IN ('ACTIVE', 'PORTING')`,
+      [organizationId]
+    );
+    const activePhoneNumbers = parseInt(phoneCountRow?.count ?? '0', 10);
+
+    // ── Derived fields ────────────────────────────────────────────────────
     const remainingMinutes = Math.max(0, Math.round((includedMinutes - usedMinutes) * 10) / 10);
-    const percentageUsed = Math.min(100, Math.round((usedMinutes / includedMinutes) * 100));
-    const limitReached = usedMinutes >= includedMinutes;
+    const percentageUsed = Math.min(100, Math.round((usedMinutes / Math.max(1, includedMinutes)) * 100));
+
+    const remainingCalls = Math.max(0, maxMonthlyCalls - usedCalls);
+    const callPercentageUsed = Math.min(100, Math.round((usedCalls / Math.max(1, maxMonthlyCalls)) * 100));
+    const callLimitReached = usedCalls >= maxMonthlyCalls;
+    const phoneNumberLimitReached = activePhoneNumbers >= maxPhoneNumbers;
+
+    // Combined limit flag: call count is now the primary enforcement mechanism
+    const limitReached = callLimitReached;
 
     return {
       planTier,
@@ -1436,6 +1593,14 @@ export class VoiceService {
       usedMinutes,
       remainingMinutes,
       percentageUsed,
+      maxMonthlyCalls,
+      usedCalls,
+      remainingCalls,
+      callPercentageUsed,
+      callLimitReached,
+      maxPhoneNumbers,
+      activePhoneNumbers,
+      phoneNumberLimitReached,
       limitReached,
       billingPeriodStart: periodStart.toISOString(),
       billingPeriodEnd: periodEnd.toISOString(),
@@ -1585,15 +1750,23 @@ export class VoiceService {
       };
     }
 
-    // 3. Minute Limit Check
+    // 3. Monthly Call Limit Check (call-count based, not minute based)
     const usage = await this.getVoiceUsage(organizationId);
-    if (usage.limitReached) {
+    if (usage.callLimitReached) {
       await AuditService.log({
         organizationId,
         action: AuditAction.VOICE_LIMIT_REACHED,
         entityType: 'VOICE_USAGE',
         entityId: organizationId,
-        metadata: { usedMinutes: usage.usedMinutes, limit: usage.includedMinutes },
+        metadata: { usedCalls: usage.usedCalls, limit: usage.maxMonthlyCalls, planTier: usage.planTier },
+      });
+
+      this.activeCalls.set(event.callId, {
+        callId: event.callId,
+        organizationId,
+        startedAt: Date.now(),
+        maxDurationSeconds: 15,
+        isOverflow: true,
       });
 
       return {
@@ -1601,8 +1774,9 @@ export class VoiceService {
         organizationId,
         responsePayload: provider.formatInboundResponse({
           agentName: 'Receptionist',
-          greeting: 'Thank you for calling. Our phone receptionist has reached its monthly call allowance. Please leave a message or visit our website.',
-          systemPrompt: 'Monthly minute limit reached. Politely advise the customer to leave contact info or visit the website, then end call.',
+          greeting: 'Thank you for calling. Our AI phone receptionist has reached its monthly call allowance. Please visit our website or call back next month.',
+          systemPrompt: 'Monthly call limit reached. Politely advise the caller to visit the website or try again next month. Keep it brief and friendly.',
+          maxDurationSeconds: 15,
         }),
       };
     }
@@ -1699,7 +1873,7 @@ export class VoiceService {
       throw new Error('Could not securely resolve organization for voice tool call. Call is not tracked and no verified organizationId was supplied.');
     }
 
-    // Server-side call duration limit enforcement (180-second maximum ceiling)
+    // Server-side call duration limit enforcement (120-second / 2-minute maximum ceiling)
     const limitCheck = await this.checkCallDurationLimit({
       callId: params.callId,
       organizationId: orgId,
@@ -1754,7 +1928,7 @@ export class VoiceService {
 
       // 2. Tool: book_appointment
       if (toolName === 'book_appointment') {
-        const { serviceName, customerName, customerPhone, customerEmail, startTime, notes } = args;
+        const { serviceName, customerName, customerPhone, customerEmail, startTime, notes, staffId, durationMinutes } = args;
 
         if (!serviceName || !customerName || !customerPhone || !startTime) {
           return {
@@ -1762,6 +1936,33 @@ export class VoiceService {
           };
         }
 
+        // If staffId is provided (salon flow), use SalonService for double-booking prevention
+        if (staffId) {
+          const appt = await SalonService.bookSalonAppointment({
+            organizationId: orgId,
+            staffId,
+            serviceName,
+            customerName,
+            customerPhone,
+            customerEmail: customerEmail || `${customerPhone.replace(/[^\d]/g, '')}@phone-caller.onceclic.com`,
+            startTime,
+            durationMinutes: durationMinutes || 30,
+            notes: notes ? `Voice Phone Booking. Notes: ${notes}` : 'Booked via ONCEClic AI Phone Receptionist',
+            conversationId: params.callId,
+          });
+
+          return {
+            success: true,
+            appointmentId: appt.id,
+            serviceName,
+            customerName,
+            startTime: appt.start_time || startTime,
+            staffId,
+            message: `Appointment successfully confirmed for ${customerName} on ${new Date(startTime).toLocaleString('en-US', { timeZone: 'UTC' })}.`,
+          };
+        }
+
+        // Standard clinic/default booking path
         const appointment = await AppointmentService.bookAppointment({
           organizationId: orgId,
           serviceName,
@@ -1845,6 +2046,235 @@ export class VoiceService {
           success: true,
           appointmentId: canceled.id,
           message: 'Appointment has been cancelled successfully.',
+        };
+      }
+
+      // ── 5. Tool: transfer_call ──────────────────────────────────────────────
+      if (toolName === 'transfer_call') {
+        // Load the transfer destination from org's business_settings — never from caller args
+        const settings = await db.getOne<{ transfer_phone_number?: string }>(
+          `SELECT transfer_phone_number FROM business_settings WHERE organization_id = $1`,
+          [orgId]
+        );
+
+        const transferNumber = settings?.transfer_phone_number;
+
+        if (!transferNumber) {
+          return {
+            canTransfer: false,
+            message: 'Human transfer is not configured for this business. I can help you with what I know, or you may call back during business hours.',
+          };
+        }
+
+        const reason = args.reason || 'Customer requested human assistance';
+        console.log(`[VoiceService] Call transfer requested for org ${orgId}: ${reason}`);
+
+        // IMPORTANT: `forwardingPhoneNumber` is a top-level field that VapiVoiceProvider
+        // promotes into the Vapi tool-result response entry.
+        // Vapi intercepts this field and initiates the real PSTN transfer — it does NOT
+        // execute a transfer from a serialised JSON string in `result`.
+        return {
+          canTransfer: true,
+          transferDestination: transferNumber,
+          forwardingPhoneNumber: transferNumber,
+          reason,
+          message: `Transferring you to our staff. Please hold.`,
+        };
+      }
+
+      // ── 6. Tool: check_staff_availability (salon) ───────────────────────────
+      if (toolName === 'check_staff_availability') {
+        const { date, staffId, durationMinutes } = args;
+        const dateStr = date || args.dateStr;
+
+        if (!dateStr) {
+          return { error: 'Date is required in YYYY-MM-DD format.' };
+        }
+
+        const duration = durationMinutes || args.duration || 30;
+
+        // If staffId provided, check that specific staff member
+        if (staffId) {
+          const slots = await SalonService.getStaffAvailableSlots(orgId, staffId, dateStr, duration);
+          const available = slots.filter((s) => s.available);
+          return {
+            date: dateStr,
+            staffId,
+            hasAvailableSlots: available.length > 0,
+            slots: available.slice(0, 5).map((s) => ({
+              startTime: s.startTime,
+              displayTime: new Date(s.startTime).toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true,
+                timeZone: 'UTC',
+              }),
+            })),
+            message: available.length > 0
+              ? `Found ${available.length} available slots for the requested staff.`
+              : `No available slots for this staff member on ${dateStr}.`,
+          };
+        }
+
+        // Otherwise return general availability from appointment system
+        const slots = await AppointmentService.getAvailableSlots(orgId, dateStr, duration);
+        const available = slots.filter((s) => s.available);
+        return {
+          date: dateStr,
+          hasAvailableSlots: available.length > 0,
+          slots: available.slice(0, 5).map((s) => ({
+            startTime: s.startTime,
+            displayTime: new Date(s.startTime).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+              timeZone: 'UTC',
+            }),
+          })),
+          message: available.length > 0
+            ? `Found ${available.length} available slots on ${dateStr}.`
+            : `No available slots on ${dateStr}. Please try another date.`,
+        };
+      }
+
+      // ── 7. Tool: check_reservation_availability (restaurant) ────────────────
+      if (toolName === 'check_reservation_availability') {
+        const { date, partySize } = args;
+        const dateStr = date || args.dateStr;
+
+        if (!dateStr) return { error: 'Date is required in YYYY-MM-DD format.' };
+        if (!partySize || isNaN(Number(partySize))) return { error: 'partySize is required.' };
+
+        const partySizeNum = Number(partySize);
+
+        // Check configured max party size
+        const settings = await db.getOne(
+          `SELECT reservation_settings FROM business_settings WHERE organization_id = $1`,
+          [orgId]
+        );
+        let maxPartySize = 20;
+        if (settings?.reservation_settings) {
+          const rs = typeof settings.reservation_settings === 'string'
+            ? JSON.parse(settings.reservation_settings)
+            : settings.reservation_settings;
+          maxPartySize = rs?.maxPartySize || rs?.max_party_size || 20;
+        }
+
+        if (partySizeNum > maxPartySize) {
+          return {
+            available: false,
+            message: `I'm sorry, we can accommodate a maximum of ${maxPartySize} guests per reservation. For larger parties, please contact us directly.`,
+          };
+        }
+
+        // Check general availability for the date
+        const slots = await AppointmentService.getAvailableSlots(orgId, dateStr, 90);
+        const available = slots.filter((s) => s.available);
+
+        return {
+          date: dateStr,
+          partySize: partySizeNum,
+          available: available.length > 0,
+          slots: available.slice(0, 5).map((s) => ({
+            startTime: s.startTime,
+            displayTime: new Date(s.startTime).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+              hour12: true,
+              timeZone: 'UTC',
+            }),
+          })),
+          message: available.length > 0
+            ? `We have availability on ${dateStr} for a party of ${partySizeNum}.`
+            : `We don't have availability on ${dateStr}. Would you like to try another date?`,
+        };
+      }
+
+      // ── 8. Tool: book_reservation (restaurant) ──────────────────────────────
+      if (toolName === 'book_reservation') {
+        const { customerName, customerPhone, partySize, startTime, seatingPreference, notes } = args;
+
+        if (!customerName || !customerPhone || !partySize || !startTime) {
+          return {
+            error: 'Missing required fields: customerName, customerPhone, partySize, and startTime are required.',
+          };
+        }
+
+        const partySizeNum = Number(partySize);
+        if (isNaN(partySizeNum) || partySizeNum < 1) {
+          return { error: 'Invalid party size.' };
+        }
+
+        // Load restaurant capacity settings
+        const bookingSettings = await db.getOne(
+          `SELECT reservation_settings FROM business_settings WHERE organization_id = $1`,
+          [orgId]
+        );
+        let maxConcurrentGuests = 20;
+        if (bookingSettings?.reservation_settings) {
+          const rs = typeof bookingSettings.reservation_settings === 'string'
+            ? JSON.parse(bookingSettings.reservation_settings)
+            : bookingSettings.reservation_settings;
+          maxConcurrentGuests = rs?.maxPartySize || rs?.max_party_size || 20;
+        }
+
+        // Per-reservation size guard
+        if (partySizeNum > maxConcurrentGuests) {
+          return {
+            success: false,
+            error: `Maximum party size is ${maxConcurrentGuests}. Please contact us for larger groups.`,
+          };
+        }
+
+        // Concurrent capacity check: sum all overlapping CONFIRMED/REQUESTED party sizes.
+        // A new reservation of duration 90 min blocks [startTime, startTime+90min).
+        const reservationDurationMs = 90 * 60 * 1000;
+        const reservationStart = new Date(startTime);
+        const reservationEnd = new Date(reservationStart.getTime() + reservationDurationMs);
+
+        const overlapping = await db.query(
+          `SELECT COALESCE(party_size, 1) AS party_size
+           FROM appointments
+           WHERE organization_id = $1
+             AND staff_id IS NULL
+             AND status IN ('CONFIRMED', 'REQUESTED')
+             AND start_time < $2
+             AND end_time > $3`,
+          [orgId, reservationEnd.toISOString(), reservationStart.toISOString()]
+        );
+        const currentGuests = overlapping.rows.reduce(
+          (sum: number, row: any) => sum + (Number(row.party_size) || 1), 0
+        );
+        if (currentGuests + partySizeNum > maxConcurrentGuests) {
+          return {
+            success: false,
+            error: `Sorry, we don't have capacity for a party of ${partySizeNum} at that time. We currently have ${currentGuests} of ${maxConcurrentGuests} seats reserved. Please try a different time.`,
+          };
+        }
+
+        // Book via SalonService.bookSalonAppointment which supports party_size
+        const appointment = await SalonService.bookSalonAppointment({
+          organizationId: orgId,
+          serviceName: `Reservation (Party of ${partySizeNum})`,
+          customerName,
+          customerEmail: `${customerPhone.replace(/[^\d]/g, '')}@phone-caller.onceclic.com`,
+          customerPhone,
+          startTime,
+          partySize: partySizeNum,
+          seatingPreference: seatingPreference || null,
+          notes: notes ? `Voice Reservation. Notes: ${notes}` : 'Reserved via AI Phone Receptionist',
+          durationMinutes: 90,
+          conversationId: params.callId,
+        });
+
+        return {
+          success: true,
+          appointmentId: appointment.id,
+          customerName: appointment.customer_name || customerName,
+          partySize: partySizeNum,
+          startTime: appointment.start_time || startTime,
+          seatingPreference: seatingPreference || null,
+          message: `Reservation confirmed for ${customerName}, party of ${partySizeNum} on ${new Date(startTime).toLocaleString('en-US', { timeZone: 'UTC' })}.`,
         };
       }
 
@@ -1960,12 +2390,17 @@ export class VoiceService {
     }
 
     // 3. Insert Voice Call Record
+    // counted_for_limit=TRUE for completed calls with duration > 0.
+    // Calls that never connected (durationSeconds=0) or were limit-overflow announcements are recorded but do NOT consume allowance.
+    const isOverflow = trackedCall?.isOverflow === true;
+    const countsTowardLimit = durationSeconds > 0 && !isOverflow;
     await db.execute(
       `INSERT INTO voice_call_records (
          id, organization_id, provider, provider_call_id, caller_phone, direction,
          started_at, ended_at, duration_seconds, duration_minutes, status, outcome,
-         booked_appointment_id, conversation_id, transcript, recording_url, created_at
-       ) VALUES ($1, $2, $3, $4, $5, 'INBOUND', $6, $7, $8, $9, 'COMPLETED', $10, $11, $12, $13, $14, CURRENT_TIMESTAMP)`,
+         booked_appointment_id, conversation_id, transcript, recording_url,
+         counted_for_limit, created_at
+       ) VALUES ($1, $2, $3, $4, $5, 'INBOUND', $6, $7, $8, $9, 'COMPLETED', $10, $11, $12, $13, $14, $15, CURRENT_TIMESTAMP)`,
       [
         recordId,
         organizationId,
@@ -1981,6 +2416,7 @@ export class VoiceService {
         convId,
         event.transcript || null,
         event.recordingUrl || null,
+        countsTowardLimit,
       ]
     );
 

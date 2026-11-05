@@ -150,12 +150,15 @@ export class AppointmentService {
 
     // 1. Execute transactional double-booking lock
     const booked = await db.withTransaction(async (tx) => {
-      // Conflict Check: Verify no existing appointment overlaps with requested time
+      // Conflict Check: Verify no existing appointment overlaps with requested time.
+      // FOR UPDATE acquires row-level locks on the conflicting rows so concurrent transactions
+      // block until this transaction completes, preventing READ COMMITTED double-booking races.
       const conflicts = await tx.query(
         `SELECT id, customer_name, start_time, end_time FROM appointments
          WHERE organization_id = $1
            AND status IN ('CONFIRMED', 'REQUESTED')
-           AND start_time < $2 AND end_time > $3`,
+           AND start_time < $2 AND end_time > $3
+         FOR UPDATE`,
         [params.organizationId, calculatedEndTime, params.startTime]
       );
 
@@ -460,13 +463,14 @@ export class AppointmentService {
 
     const oldStartTime = existing.startTime;
 
-    // Check conflict excluding current appointment
+    // Check conflict excluding current appointment, with FOR UPDATE to prevent concurrent rescheduling races
     const conflicts = await db.query(
       `SELECT id FROM appointments
        WHERE organization_id = $1
          AND id != $2
          AND status IN ('CONFIRMED', 'REQUESTED')
-         AND start_time < $3 AND end_time > $4`,
+         AND start_time < $3 AND end_time > $4
+       FOR UPDATE`,
       [params.organizationId, params.appointmentId, calculatedEndTime, params.newStartTime]
     );
 

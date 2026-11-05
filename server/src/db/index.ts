@@ -200,6 +200,11 @@ class EmbeddedDatabase implements IDatabase {
       'voice_phone_numbers',
       'voice_call_records',
       'voice_phone_number_checkouts',
+      'organization_voice_assistants',
+      // Migration 023: Salon and voice completion
+      'salon_services',
+      'salon_staff',
+      'salon_staff_services',
     ];
     for (const t of tableNames) {
       if (!this.tables.has(t)) {
@@ -214,14 +219,38 @@ class EmbeddedDatabase implements IDatabase {
     const trimmed = sql.trim();
     const cleanSql = trimmed.replace(/\s+/g, ' ');
 
-    // 1. SELECT queries
+    // 1. SELECT queries (including information_schema virtual queries)
     if (/^SELECT/i.test(cleanSql)) {
+      // Handle information_schema.tables virtual query (for migration/regression checks)
+      if (/FROM\s+information_schema\.tables/i.test(cleanSql)) {
+        const tableNameMatch = cleanSql.match(/table_name\s*=\s*'([^']+)'/i);
+        if (tableNameMatch) {
+          const tableName = tableNameMatch[1].toLowerCase();
+          if (this.tables.has(tableName)) {
+            return { rows: [{ table_name: tableName, table_schema: 'public' }] as any, rowCount: 1 };
+          }
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [], rowCount: 0 };
+      }
       return this.handleSelect<T>(cleanSql, params);
     }
 
-    // 2. INSERT queries
+    // 2. INSERT queries (handle ON CONFLICT DO NOTHING by stripping it before processing)
     if (/^INSERT INTO/i.test(cleanSql)) {
-      return this.handleInsert<T>(cleanSql, params);
+      const hasOnConflict = /ON CONFLICT/i.test(cleanSql);
+      const normalizedSql = hasOnConflict
+        ? cleanSql.replace(/\s+ON CONFLICT\s+DO\s+NOTHING/i, '')
+        : cleanSql;
+      try {
+        return this.handleInsert<T>(normalizedSql, params);
+      } catch (err: any) {
+        // If ON CONFLICT DO NOTHING was specified, suppress duplicate-key errors
+        if (hasOnConflict && err?.message?.includes('duplicate key')) {
+          return { rows: [], rowCount: 0 };
+        }
+        throw err;
+      }
     }
 
     // 3. UPDATE queries
@@ -333,6 +362,32 @@ class EmbeddedDatabase implements IDatabase {
           return r;
         });
       }
+    }
+
+    // JOIN: salon_services INNER JOIN salon_staff_services
+    if (table === 'salon_services' && /JOIN salon_staff_services/i.test(sql)) {
+      const sssTable = this.tables.get('salon_staff_services');
+      if (sssTable) {
+        const sssRows = Array.from(sssTable.values());
+        // Extract staff_id and org_id from params based on WHERE sss.organization_id=$1 AND sss.staff_id=$2
+        const whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+ORDER BY|\s+LIMIT|\s+GROUP BY|$)/i);
+        const whereClause = whereMatch ? whereMatch[1] : '';
+        // Find param indices for sss.organization_id and sss.staff_id
+        const orgIdMatch = whereClause.match(/sss\.organization_id\s*=\s*\$(\d+)/i);
+        const staffIdMatch = whereClause.match(/sss\.staff_id\s*=\s*\$(\d+)/i);
+        const filterOrgId = orgIdMatch ? params[parseInt(orgIdMatch[1], 10) - 1] : null;
+        const filterStaffId = staffIdMatch ? params[parseInt(staffIdMatch[1], 10) - 1] : null;
+
+        rows = rows.filter(r => {
+          return sssRows.some(sss =>
+            sss.service_id === r.id &&
+            (!filterOrgId || sss.organization_id === filterOrgId) &&
+            (!filterStaffId || sss.staff_id === filterStaffId)
+          );
+        });
+      }
+      // Skip generic WHERE evaluation for join queries (already filtered above)
+      return { rows: rows as T[], rowCount: rows.length };
     }
 
     // Basic WHERE filter parser
@@ -449,6 +504,9 @@ class EmbeddedDatabase implements IDatabase {
       }
     });
 
+    if (table === 'organization_voice_assistants' && row.organization_id && !row.id) {
+      row.id = row.organization_id;
+    }
     if (!row.id) {
       row.id = `id_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     }
@@ -457,6 +515,60 @@ class EmbeddedDatabase implements IDatabase {
     if (table === 'oauth_states' && row.consumed_at === undefined) row.consumed_at = null;
     if (table === 'email_connections' && row.error_message === undefined) row.error_message = null;
     if (table === 'calendar_connections' && row.error_message === undefined) row.error_message = null;
+
+    // Migration 023: Set defaults for new columns on existing tables
+    if (table === 'business_settings') {
+      if (row.industry_type === undefined) row.industry_type = 'clinic';
+      if (row.transfer_phone_number === undefined) row.transfer_phone_number = null;
+      if (row.salon_settings === undefined) row.salon_settings = null;
+      if (row.reservation_settings === undefined) row.reservation_settings = null;
+      if (row.business_hours === undefined) row.business_hours = null;
+      if (row.services === undefined) row.services = null;
+      if (row.cancellation_policy === undefined) row.cancellation_policy = null;
+    }
+    if (table === 'appointments') {
+      if (row.staff_id === undefined) row.staff_id = null;
+      if (row.party_size === undefined) row.party_size = null;
+      if (row.seating_preference === undefined) row.seating_preference = null;
+    }
+    if (table === 'voice_call_records') {
+      if (row.recording_storage_path === undefined) row.recording_storage_path = null;
+      if (row.recording_sync_status === undefined) row.recording_sync_status = null;
+      if (row.recording_claim_token === undefined) row.recording_claim_token = null;
+      if (row.recording_lease_until === undefined) row.recording_lease_until = null;
+      if (row.recording_attempts === undefined) row.recording_attempts = 0;
+    }
+
+    // salon_staff: working_days may be a JSON string; parse if needed
+    if (table === 'salon_staff') {
+      if (row.working_days === undefined) row.working_days = [1, 2, 3, 4, 5, 6];
+      if (row.working_hours_start === undefined) row.working_hours_start = '09:00';
+      if (row.working_hours_end === undefined) row.working_hours_end = '18:00';
+      if (typeof row.working_days === 'string') {
+        try { row.working_days = JSON.parse(row.working_days); } catch { /* keep as-is */ }
+      }
+    }
+
+    // salon_services defaults
+    if (table === 'salon_services') {
+      if (row.is_active === undefined) row.is_active = true;
+      if (row.price === undefined) row.price = 0;
+      if (row.duration_minutes === undefined) row.duration_minutes = 30;
+    }
+
+    // salon_staff_services: composite primary key (staff_id + service_id)
+    if (table === 'salon_staff_services') {
+      // Use composite key as map key instead of a generated id
+      const compositeKey = `${row.staff_id}::${row.service_id}`;
+      // Check for duplicate
+      for (const existing of tableData.values()) {
+        if (existing.staff_id === row.staff_id && existing.service_id === row.service_id) {
+          throw new Error(`duplicate key value violates unique constraint "salon_staff_services_pkey"`);
+        }
+      }
+      tableData.set(compositeKey, row);
+      return { rows: [row] as T[], rowCount: 1 };
+    }
 
     // Check unique constraints
     if (table === 'users' && row.email) {
@@ -499,6 +611,13 @@ class EmbeddedDatabase implements IDatabase {
       for (const existing of tableData.values()) {
         if (existing.idempotency_key === row.idempotency_key) {
           throw new Error(`duplicate key value violates unique constraint "idx_trial_notifications_idemp"`);
+        }
+      }
+    }
+    if (table === 'organization_voice_assistants' && row.organization_id) {
+      for (const existing of tableData.values()) {
+        if (existing.organization_id === row.organization_id) {
+          throw new Error('duplicate key value violates unique constraint "organization_voice_assistants_pkey"');
         }
       }
     }
@@ -704,6 +823,8 @@ class EmbeddedDatabase implements IDatabase {
       targetVal = params[pIdx];
     } else if (targetValStr === 'NULL') {
       targetVal = null;
+    } else if (targetValStr.toUpperCase() === 'CURRENT_TIMESTAMP' || targetValStr.toUpperCase() === 'NOW()') {
+      targetVal = new Date().toISOString();
     } else if (targetValStr === 'TRUE') {
       targetVal = true;
     } else if (targetValStr === 'FALSE') {

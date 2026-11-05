@@ -18,6 +18,7 @@
     "test": "npx tsx tests/run-all.ts",
     "composio:verify": "npx tsx server/src/scripts/verify-composio.ts",
     "composio:setup": "npx tsx server/src/scripts/setup-composio.ts",
+    "voice:backfill": "npx tsx server/src/scripts/voice-backfill.ts",
     "start": "node server/dist/index.js",
     "migrate": "node server/dist/db/migrate.js"
   },

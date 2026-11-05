@@ -22,7 +22,7 @@ export interface CallEndedEvent {
   startedAt?: string;
   endedAt?: string;
   durationSeconds: number;
-  durationMinutes: number;
+  durationMinutes?: number;
   transcript?: string;
   recordingUrl?: string;
   disconnectionReason?: string;

@@ -192,8 +192,8 @@ export const config = {
     isTelnyxConfigured: !!process.env.TELNYX_API_KEY && !process.env.TELNYX_API_KEY.includes('placeholder'),
     isConfigured: (!!process.env.VAPI_API_KEY && !process.env.VAPI_API_KEY.includes('placeholder')) || (!!process.env.RETELL_API_KEY && !process.env.RETELL_API_KEY.includes('placeholder')),
     maxCallDurationSeconds: (() => {
-      const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '180', 10);
-      return isNaN(parsed) || !isFinite(parsed) || parsed <= 0 ? 180 : Math.min(parsed, 180);
+      const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '120', 10);
+      return isNaN(parsed) || !isFinite(parsed) || parsed <= 0 ? 120 : Math.min(parsed, 120);
     })(),
     planLimits: {
       TRIAL: parseInt(process.env.VOICE_TRIAL_LIMIT_MINUTES || '15', 10),
@@ -219,8 +219,8 @@ export const config = {
     // Vapi supports Google Gemini natively — see https://docs.vapi.ai/
     voiceGeminiModel: process.env.VAPI_GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-3.5-flash',
     maxCallDurationSeconds: (() => {
-      const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '180', 10);
-      return isNaN(parsed) || !isFinite(parsed) || parsed <= 0 ? 180 : Math.min(parsed, 180);
+      const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '120', 10);
+      return isNaN(parsed) || !isFinite(parsed) || parsed <= 0 ? 120 : Math.min(parsed, 120);
     })(),
   },
 };

@@ -182,6 +182,26 @@ async function runAllTests() {
     await runForgotPasswordTests();
     console.log('');
 
+    const { runVoiceBackfillAndMigrationTests } = await import('./voice-backfill-and-migration.test');
+    await runVoiceBackfillAndMigrationTests();
+    console.log('');
+
+    const { runVoiceProvisioningAndNetworkTests } = await import('./voice-provisioning-and-network.test');
+    await runVoiceProvisioningAndNetworkTests();
+    console.log('');
+
+    const { runVoicePrompt3Tests } = await import('./voice-prompt3.test');
+    await runVoicePrompt3Tests();
+    console.log('');
+
+    const { runBookingConcurrencyTests } = await import('./booking-concurrency.test');
+    await runBookingConcurrencyTests();
+    console.log('');
+
+    const { runVoicePlanLimitsTests } = await import('./voice-plan-limits.test');
+    await runVoicePlanLimitsTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

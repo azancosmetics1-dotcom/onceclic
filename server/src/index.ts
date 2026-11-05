@@ -20,6 +20,8 @@ import integrationRoutes from './routes/integrationRoutes';
 import webhookRoutes from './routes/webhookRoutes';
 import voiceRoutes from './routes/voiceRoutes';
 import voiceWebhookRoutes from './routes/voiceWebhookRoutes';
+import salonRoutes from './routes/salonRoutes';
+import voiceRecordingRoutes from './routes/voiceRecordingRoutes';
 
 dotenv.config();
 
@@ -160,6 +162,8 @@ app.use('/api/voice/webhooks', voiceWebhookRoutes);
 app.use('/api/voice/webhook', voiceWebhookRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/voice', voiceRoutes);
+app.use('/api/salon', salonRoutes);
+app.use('/api/voice/recordings', voiceRecordingRoutes);
 
 // Fallback JSON 404 handler for API routes
 app.use('/api', (req, res) => {
@@ -225,6 +229,10 @@ export async function startServer() {
 
     const { TrialNotificationService } = require('./services/TrialNotificationService');
     TrialNotificationService.startScheduledChecks(3600000); // Check hourly
+
+    // Start Voice Recording Sync Worker (60s poll)
+    const { VoiceRecordingSyncWorker } = require('./services/voice/VoiceRecordingSyncWorker');
+    VoiceRecordingSyncWorker.startPolling(60000);
   }
 
   return { app, server };

@@ -2,32 +2,17 @@ import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
 import { Footer } from '../components/Footer';
-import { Check, ShieldCheck, HelpCircle, Bot, Sparkles, ArrowRight } from 'lucide-react';
+import { Check, ShieldCheck, HelpCircle, Bot, Sparkles, ArrowRight, Phone, Zap, BarChart3 } from 'lucide-react';
 
 export const Pricing: React.FC = () => {
   useEffect(() => {
     document.title = 'ONCEClic Pricing — Starter ($19/mo), Pro ($49/mo) & Business ($99/mo)';
   }, []);
 
-  const planFeatures = [
-    '24/7 Website AI Receptionist Chatbot',
-    'Automated Business Email & Gmail Answering',
-    'Google Calendar & Real-Time Slot Availability Sync',
-    'Instagram DM Receptionist with Live Booking',
-    'Facebook Page Messenger AI Receptionist',
-    'Double-Booking Prevention Engine',
-    'Custom Business Knowledge Base & FAQs Grounding',
-    'Seamless Human Handoff & Team Alerts',
-    'Multi-Tenant Team Member Roles (Owner, Manager, Staff)',
-    'Strict Zero-Hallucination & Anti-Injection Guardrails',
-    'Easy 1-Line Website Script Embed or Direct Link',
-    'AI usage is subject to reasonable-use limits.',
-  ];
-
   const faqs = [
     {
       q: 'How does the 7-day free trial work?',
-      a: 'Start your 7-day free trial with no credit card required. Your trial is $0 for 7 days with limited AI usage during your free trial. When the trial ends, you can choose whether to upgrade to Starter ($19/mo), Pro ($49/mo), or Business ($99/mo).',
+      a: 'Start your 7-day free trial with no credit card required. Your trial is $0 for 7 days with limited AI usage. When the trial ends, choose whether to upgrade to Starter ($19/mo), Pro ($49/mo), or Business ($99/mo).',
     },
     {
       q: 'Is a credit card required to start the trial?',
@@ -38,8 +23,12 @@ export const Pricing: React.FC = () => {
       a: 'When your trial ends, you are never automatically charged. You can choose whether to upgrade to Starter ($19/month), Pro ($49/month), or Business ($99/month) to keep your AI receptionist and booking automation active.',
     },
     {
-      q: 'What are the AI usage terms?',
-      a: 'Limited AI usage during your free trial. On the ONCEClic Pro plan, AI usage is subject to reasonable-use limits.',
+      q: 'How does the AI call limit work?',
+      a: 'Each plan includes a monthly AI call allowance (Starter: 20 calls, Pro: 50 calls, Business: 100 calls). Each individual AI call is limited to 2 minutes (120 seconds). Only calls that connect and have a duration greater than zero count toward your limit. Calls that never connect are not counted.',
+    },
+    {
+      q: 'How many phone numbers can I have?',
+      a: 'Each plan includes a limit on active Telnyx phone numbers: Starter allows 1, Pro allows up to 3, and Business allows up to 5. Numbers are purchased separately via Telnyx and billed per number per month.',
     },
     {
       q: 'Who processes payments and billing?',
@@ -89,13 +78,21 @@ export const Pricing: React.FC = () => {
                 </div>
               </div>
 
-              <div className="mt-4 mb-2 flex items-baseline space-x-2">
+              <div className="mt-4 mb-1 flex items-baseline space-x-2">
                 <span className="text-4xl font-black text-white">$19</span>
                 <span className="text-slate-400 text-xs font-medium">USD / month</span>
               </div>
-              <p className="text-xs text-emerald-400 font-semibold mb-6">
-                Includes 50 Voice Call Minutes / mo
-              </p>
+              <div className="flex items-center space-x-3 mb-6 text-xs">
+                <span className="text-emerald-400 font-semibold flex items-center space-x-1">
+                  <Phone className="w-3 h-3" />
+                  <span>1 phone number</span>
+                </span>
+                <span className="text-slate-600">•</span>
+                <span className="text-emerald-400 font-semibold flex items-center space-x-1">
+                  <Zap className="w-3 h-3" />
+                  <span>20 AI calls/mo</span>
+                </span>
+              </div>
 
               <Link
                 to="/signup?plan=starter"
@@ -109,15 +106,15 @@ export const Pricing: React.FC = () => {
                 <ul className="space-y-2.5 text-xs text-slate-300">
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span><strong>50 Included Voice Minutes</strong> / mo</span>
+                    <span><strong>1 Telnyx Phone Number</strong></span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span><strong>20 AI Phone Calls</strong> / month</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                     <span>24/7 AI Phone Receptionist</span>
-                  </li>
-                  <li className="flex items-start space-x-2">
-                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>Existing Business Number Forwarding</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
@@ -127,10 +124,14 @@ export const Pricing: React.FC = () => {
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
                     <span>24/7 Website Live Chat Widget</span>
                   </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Call Transcripts & Recordings</span>
+                  </li>
                 </ul>
               </div>
             </div>
-            <p className="text-[11px] text-slate-500 mt-6 text-center">AI usage subject to reasonable-use limits.</p>
+            <p className="text-[11px] text-slate-500 mt-6 text-center">AI calls subject to reasonable-use limits.</p>
           </div>
 
           {/* Pro Plan (Most Popular) */}
@@ -150,13 +151,21 @@ export const Pricing: React.FC = () => {
                 </div>
               </div>
 
-              <div className="mt-4 mb-2 flex items-baseline space-x-2">
+              <div className="mt-4 mb-1 flex items-baseline space-x-2">
                 <span className="text-4xl font-black text-white">$49</span>
                 <span className="text-slate-400 text-xs font-medium">USD / month</span>
               </div>
-              <p className="text-xs text-emerald-400 font-semibold mb-6">
-                Includes 150 Voice Call Minutes / mo
-              </p>
+              <div className="flex items-center space-x-3 mb-6 text-xs">
+                <span className="text-emerald-400 font-semibold flex items-center space-x-1">
+                  <Phone className="w-3 h-3" />
+                  <span>Up to 3 numbers</span>
+                </span>
+                <span className="text-slate-600">•</span>
+                <span className="text-emerald-400 font-semibold flex items-center space-x-1">
+                  <Zap className="w-3 h-3" />
+                  <span>50 AI calls/mo</span>
+                </span>
+              </div>
 
               <Link
                 to="/signup?plan=pro"
@@ -170,19 +179,27 @@ export const Pricing: React.FC = () => {
                 <ul className="space-y-2.5 text-xs text-slate-300">
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span><strong>150 Included Voice Minutes</strong> / mo</span>
+                    <span><strong>Up to 3 Telnyx Phone Numbers</strong></span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>Call Transcripts &amp; Recordings</span>
+                    <span><strong>50 AI Phone Calls</strong> / month</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>SMS &amp; Email Confirmation Alerts</span>
+                    <span>WhatsApp AI Receptionist</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>Custom Industry Knowledge &amp; FAQs</span>
+                    <span>Automated Email Answering</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>SMS & Email Confirmation Alerts</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Custom Industry Knowledge & FAQs</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
@@ -191,7 +208,7 @@ export const Pricing: React.FC = () => {
                 </ul>
               </div>
             </div>
-            <p className="text-[11px] text-slate-500 mt-6 text-center">AI usage subject to reasonable-use limits.</p>
+            <p className="text-[11px] text-slate-500 mt-6 text-center">AI calls subject to reasonable-use limits.</p>
           </div>
 
           {/* Business Plan */}
@@ -199,21 +216,29 @@ export const Pricing: React.FC = () => {
             <div>
               <div className="flex items-center space-x-3 mb-4">
                 <div className="w-9 h-9 rounded-xl bg-slate-800 text-slate-300 flex items-center justify-center">
-                  <Bot className="w-5 h-5" />
+                  <BarChart3 className="w-5 h-5" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-white">Business</h2>
-                  <p className="text-xs text-slate-400">High Volume Phone Answering</p>
+                  <p className="text-xs text-slate-400">High Volume Multi-Line AI</p>
                 </div>
               </div>
 
-              <div className="mt-4 mb-2 flex items-baseline space-x-2">
+              <div className="mt-4 mb-1 flex items-baseline space-x-2">
                 <span className="text-4xl font-black text-white">$99</span>
                 <span className="text-slate-400 text-xs font-medium">USD / month</span>
               </div>
-              <p className="text-xs text-emerald-400 font-semibold mb-6">
-                Includes 400 Voice Call Minutes / mo
-              </p>
+              <div className="flex items-center space-x-3 mb-6 text-xs">
+                <span className="text-emerald-400 font-semibold flex items-center space-x-1">
+                  <Phone className="w-3 h-3" />
+                  <span>Up to 5 numbers</span>
+                </span>
+                <span className="text-slate-600">•</span>
+                <span className="text-emerald-400 font-semibold flex items-center space-x-1">
+                  <Zap className="w-3 h-3" />
+                  <span>100 AI calls/mo</span>
+                </span>
+              </div>
 
               <Link
                 to="/signup?plan=business"
@@ -227,11 +252,15 @@ export const Pricing: React.FC = () => {
                 <ul className="space-y-2.5 text-xs text-slate-300">
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span><strong>400 Included Voice Minutes</strong> / mo</span>
+                    <span><strong>Up to 5 Telnyx Phone Numbers</strong></span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>Multiple Phone Numbers Support</span>
+                    <span><strong>100 AI Phone Calls</strong> / month</span>
+                  </li>
+                  <li className="flex items-start space-x-2">
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                    <span>Advanced Call Analytics & Reporting</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
@@ -239,12 +268,12 @@ export const Pricing: React.FC = () => {
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>Advanced Call Analytics &amp; Reporting</span>
+                    <span>Dedicated Account Manager</span>
                   </li>
                 </ul>
               </div>
             </div>
-            <p className="text-[11px] text-slate-500 mt-6 text-center">AI usage subject to reasonable-use limits.</p>
+            <p className="text-[11px] text-slate-500 mt-6 text-center">AI calls subject to reasonable-use limits.</p>
           </div>
         </div>
 

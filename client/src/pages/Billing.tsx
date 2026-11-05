@@ -196,7 +196,7 @@ export const BillingPage: React.FC = () => {
           <span>Billing &amp; Subscription</span>
         </h1>
         <p className="text-xs text-slate-400 mt-1">
-          Manage your ONCEClic subscription tier, voice minutes, and Creem merchant-of-record billing.
+          Manage your ONCEClic subscription tier, AI call allowance, and Creem merchant-of-record billing.
         </p>
       </div>
 
@@ -265,8 +265,8 @@ export const BillingPage: React.FC = () => {
               </div>
               <p className="text-xs font-semibold text-emerald-400">
                 {isTrial && !hasPaidSubscriptionId
-                  ? `7-Day Free Trial • ${activePlanMeta.voiceMinutes} Voice Minutes • No credit card required`
-                  : `${activePlanMeta.name} • ${activePlanMeta.voiceMinutes} Voice Minutes/month • Cancel anytime`}
+                  ? `7-Day Free Trial • ${activePlanMeta.maxMonthlyCalls ?? 5} AI Calls • No credit card required`
+                  : `${activePlanMeta.name} • ${activePlanMeta.maxMonthlyCalls ?? 50} AI Calls/month • Cancel anytime`}
               </p>
             </div>
 
@@ -283,16 +283,16 @@ export const BillingPage: React.FC = () => {
                   ) : billingStatus?.aiUsageStatus === 'LIMITED' ? (
                     <span className="text-amber-400">Trial Allocation</span>
                   ) : (
-                    <span className="text-emerald-400">Active ({activePlanMeta.voiceMinutes}m)</span>
+                    <span className="text-emerald-400">Active ({activePlanMeta.maxMonthlyCalls ?? activePlanMeta.voiceMinutes} calls)</span>
                   )}
                 </span>
               </div>
               <p className="text-[11px] text-slate-400 leading-relaxed">
                 {billingStatus?.aiUsageStatus === 'LIMIT_REACHED'
-                  ? "You've reached your monthly voice minute limit. Upgrade your subscription below to increase your capacity."
+                  ? "You've reached your monthly AI call limit. Upgrade your subscription below to increase your capacity."
                   : isTrial && !hasPaidSubscriptionId
-                  ? 'Includes 15 voice minutes during your cardless trial. Upgrade below for 50 to 400 minutes/month.'
-                  : `Includes ${activePlanMeta.voiceMinutes} monthly voice minutes subject to reasonable-use limits.`}
+                  ? 'Includes 5 AI calls during your cardless trial. Upgrade below for 20 to 100 calls/month.'
+                  : `Includes ${activePlanMeta.maxMonthlyCalls ?? 50} monthly AI calls subject to reasonable-use limits.`}
               </p>
             </div>
 
@@ -411,7 +411,7 @@ export const BillingPage: React.FC = () => {
           <div>
             <h2 className="text-lg sm:text-xl font-bold text-white">Select a Subscription Tier</h2>
             <p className="text-xs text-slate-400">
-              Choose the monthly voice capacity and features suited for your business.
+              Choose the AI call allowance and features suited for your business.
             </p>
           </div>
         </div>
@@ -467,9 +467,14 @@ export const BillingPage: React.FC = () => {
                       <span className="text-3xl font-black text-white">${plan.priceUsd}</span>
                       <span className="text-xs text-slate-400">/month</span>
                     </div>
-                    <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-xs font-semibold text-emerald-400">
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>{plan.voiceMinutes} Voice Minutes / mo</span>
+                    <div className="mt-2 flex items-center gap-3">
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-xs font-semibold text-emerald-400">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>{plan.maxMonthlyCalls ?? plan.voiceMinutes} AI Calls / mo</span>
+                      </div>
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-semibold text-slate-300">
+                        <span>{plan.maxPhoneNumbers ?? 1} phone{(plan.maxPhoneNumbers ?? 1) !== 1 ? 's' : ''}</span>
+                      </div>
                     </div>
                   </div>
 

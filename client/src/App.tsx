@@ -39,7 +39,7 @@ import { ConversationsPage } from './pages/Conversations';
 import { EmailPage } from './pages/Email';
 import { BillingPage } from './pages/Billing';
 import { SettingsPage } from './pages/Settings';
-
+import { SalonManagement } from './pages/SalonManagement';
 // Public Hosted Chat & Dedicated Booking
 import { HostedChat } from './pages/HostedChat';
 import { PublicBooking } from './pages/PublicBooking';
@@ -130,6 +130,7 @@ export const App: React.FC = () => {
             <Route path="email" element={<EmailPage />} />
             <Route path="billing" element={<BillingPage />} />
             <Route path="settings" element={<SettingsPage />} />
+            <Route path="salon" element={<SalonManagement />} />
           </Route>
 
           {/* Public Hosted Chat for Visitors */}

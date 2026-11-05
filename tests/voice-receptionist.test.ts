@@ -215,7 +215,7 @@ export async function runVoiceReceptionistTests() {
   assert.ok(promptResult.systemPrompt.includes('Dental Checkup'), 'System prompt contains configured services');
   assert.ok(promptResult.systemPrompt.includes('free validated parking'), 'System prompt contains knowledge facts');
   assert.ok(promptResult.systemPrompt.includes('NEVER invent unlisted prices'), 'System prompt enforces anti-hallucination');
-  assert.ok(promptResult.tools.length === 4, 'Includes 4 standard voice tools (check, book, reschedule, cancel)');
+  assert.ok(promptResult.tools.length === 5, 'Includes 5 standard voice tools (check, book, reschedule, cancel, transfer_call)');
   console.log('  ✓ 5. Voice prompt is speech-optimized, grounded in verified knowledge, and includes tool definitions');
 
   // ========================================================
@@ -450,20 +450,23 @@ export async function runVoiceReceptionistTests() {
   // ========================================================
   console.log('\n[12. Mid-Call Limit & Inbound Exhaustion Behavior]');
 
-  // Insert a call that exhausts remaining trial allowance (15m limit)
-  await VoiceService.handleCallEnded({
-    callId: 'call_test_exhaust_limit',
-    fromNumber: '+16505559876',
-    toNumber: existingPhone,
-    startedAt: new Date(Date.now() - 900000).toISOString(),
-    endedAt: new Date().toISOString(),
-    durationSeconds: 900,
-    durationMinutes: 15.0,
-    transcript: 'Customer: General questions.\nAI: Have a wonderful day.',
-  });
+  // Insert calls to exhaust TRIAL plan call limit (5 calls max).
+  // We already have 1 call (call_test_completed_123, 2 min), so we need 4 more.
+  for (let i = 0; i < 4; i++) {
+    await VoiceService.handleCallEnded({
+      callId: `call_test_exhaust_limit_${i}`,
+      fromNumber: '+16505559876',
+      toNumber: existingPhone,
+      startedAt: new Date(Date.now() - 900000 - i * 1000).toISOString(),
+      endedAt: new Date().toISOString(),
+      durationSeconds: 60,
+      durationMinutes: 1.0,
+      transcript: 'Customer: General questions.\nAI: Have a wonderful day.',
+    });
+  }
 
   const usageAfterExhaustion = await VoiceService.getVoiceUsage(orgAId);
-  assert.strictEqual(usageAfterExhaustion.limitReached, true, 'Minute limit reached flagged');
+  assert.strictEqual(usageAfterExhaustion.limitReached, true, 'Call count limit reached flagged');
 
   // Next inbound call must be blocked with polite message
   const blockedCallRes = await VoiceService.handleInboundCall({
@@ -473,7 +476,7 @@ export async function runVoiceReceptionistTests() {
     provider: 'MOCK_VOICE',
   });
   assert.strictEqual(blockedCallRes.allowed, false, 'Inbound call blocked once minute limit reached');
-  console.log('  ✓ 17. Minute exhaustion blocks subsequent inbound calls with graceful message');
+  console.log('  ✓ 17. Call limit exhaustion blocks subsequent inbound calls with graceful message');
 
   // ========================================================
   // 13. Subscription State: CANCELED
@@ -536,6 +539,13 @@ export async function runVoiceReceptionistTests() {
     organizationId: orgCId,
     email: orgCEmail,
   });
+
+  // Upgrade Org C to BUSINESS plan so it can provision multiple phone numbers
+  // (TRIAL allows only 1 number; provisioning tests require multiple)
+  await db.execute(
+    `UPDATE subscriptions SET plan_tier = 'BUSINESS', status = $1 WHERE organization_id = $2`,
+    [SubscriptionStatus.ACTIVE, orgCId]
+  );
 
   // Test 20: Country selection and available number search
   const supportedCountries = VoiceService.getSupportedCountries();
@@ -932,11 +942,13 @@ export async function runVoiceReceptionistTests() {
   assert.strictEqual((orgCConfig as any).vapiWebhookSecret, undefined, 'Vapi webhook secret not exposed to customer');
   console.log('  ✓ 31. Zero customer provider credentials required; private keys remain exclusively server-side');
 
-  // Reactivate Org C trial for subsequent provisioning tests
-  await db.execute('UPDATE subscriptions SET status = $1 WHERE organization_id = $2', [
+  // Reactivate Org C trial for subsequent provisioning tests and reset test numbers
+  await db.execute('UPDATE subscriptions SET status = $1, plan_tier = $2 WHERE organization_id = $3', [
     SubscriptionStatus.ACTIVE,
+    'BUSINESS',
     orgCId,
   ]);
+  await db.execute('DELETE FROM voice_phone_numbers WHERE organization_id = $1', [orgCId]);
 
   // Test 32: Purchase protection & price accuracy verification
   const newNumberToOrder = '+14155557711';
@@ -1153,6 +1165,7 @@ export async function runVoiceReceptionistTests() {
   // 17. Telnyx Order ID Separation & Setup Cost Validation Regressions
   // ========================================================
   console.log('\n[17. Telnyx Order ID Separation & Setup Cost Validation Regressions]');
+  await db.execute('DELETE FROM voice_phone_numbers WHERE organization_id = $1', [orgCId]);
 
   // Test 41: Blocker 1 regression — Order ID and Resource ID are strictly distinct
   const mockProvisionSample = await mockTelephony.provisionNumber({
@@ -1396,13 +1409,13 @@ export async function runVoiceReceptionistTests() {
   console.log('  ✓ 48. Assistant assignment is organization-specific and tenant isolation is strictly enforced');
 
   // ========================================================
-  // 19. 180-Second (Three-Minute) Call Duration Limit Verification
+  // 19. 120-Second (Two-Minute) Call Duration Limit Verification
   // ========================================================
-  console.log('\n[19. 180-Second (Three-Minute) Call Duration Limit Verification]');
+  console.log('\n[19. 120-Second (Two-Minute) Call Duration Limit Verification]');
 
-  // Test 49: Default duration is 180 seconds across config, assistant, and inbound webhook payload
+  // Test 49: Default duration is 120 seconds across config, assistant, and inbound webhook payload
   const defaultDuration = await VoiceService.resolveMaxCallDuration();
-  assert.strictEqual(defaultDuration, 180, 'Default call duration must be 180 seconds');
+  assert.strictEqual(defaultDuration, 120, 'Default call duration must be 120 seconds');
 
   const vapiInboundCheck = vapiProviderInstance.formatInboundResponse({
     agentName: 'Luna',
@@ -1411,8 +1424,8 @@ export async function runVoiceReceptionistTests() {
   });
   assert.strictEqual(
     vapiInboundCheck?.assistant?.maxDurationSeconds,
-    180,
-    'Vapi assistant inbound response payload must configure maxDurationSeconds=180'
+    120,
+    'Vapi assistant inbound response payload must configure maxDurationSeconds=120'
   );
 
   const mockInboundCheck = mockProvider.formatInboundResponse({
@@ -1421,8 +1434,8 @@ export async function runVoiceReceptionistTests() {
   });
   assert.strictEqual(
     mockInboundCheck.maxDurationSeconds,
-    180,
-    'Mock provider formatInboundResponse must include maxDurationSeconds=180'
+    120,
+    'Mock provider formatInboundResponse must include maxDurationSeconds=120'
   );
 
   const inboundCallRes = await VoiceService.handleInboundCall({
@@ -1432,28 +1445,28 @@ export async function runVoiceReceptionistTests() {
     provider: 'MOCK',
   });
   assert.strictEqual(inboundCallRes.allowed, true);
-  assert.strictEqual(inboundCallRes.responsePayload.maxDurationSeconds, 180, 'Inbound call response payload carries 180s limit');
-  console.log('  ✓ 49. Default call duration is 180 seconds across config, provider assistant, and inbound webhook responses');
+  assert.strictEqual(inboundCallRes.responsePayload.maxDurationSeconds, 120, 'Inbound call response payload carries 120s limit');
+  console.log('  ✓ 49. Default call duration is 120 seconds across config, provider assistant, and inbound webhook responses');
 
-  // Test 50: Invalid configuration is rejected or safely falls back to 180 seconds
-  assert.strictEqual(VoiceService.validateMaxCallDuration(-15), 180, 'Negative duration safely falls back to 180');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(0), 180, 'Zero duration safely falls back to 180');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(NaN), 180, 'NaN duration safely falls back to 180');
-  assert.strictEqual(VoiceService.validateMaxCallDuration('invalid_string'), 180, 'String duration safely falls back to 180');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(Infinity), 180, 'Infinity duration safely falls back to 180');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(null), 180, 'Null duration safely falls back to 180');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(120), 120, 'Valid custom duration under 180 is accepted');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(600), 180, 'Excessive duration is capped at 180s hard ceiling');
-  console.log('  ✓ 50. Invalid duration configuration safely falls back to 180 seconds (ceiling enforced)');
+  // Test 50: Invalid configuration is rejected or safely falls back to 120 seconds
+  assert.strictEqual(VoiceService.validateMaxCallDuration(-15), 120, 'Negative duration safely falls back to 120');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(0), 120, 'Zero duration safely falls back to 120');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(NaN), 120, 'NaN duration safely falls back to 120');
+  assert.strictEqual(VoiceService.validateMaxCallDuration('invalid_string'), 120, 'String duration safely falls back to 120');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(Infinity), 120, 'Infinity duration safely falls back to 120');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(null), 120, 'Null duration safely falls back to 120');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(90), 90, 'Valid custom duration under 120 is accepted');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(600), 120, 'Excessive duration is capped at 120s hard ceiling');
+  console.log('  ✓ 50. Invalid duration configuration safely falls back to 120 seconds (ceiling enforced)');
 
   // Test 51: A call is terminated when maximum duration is reached
   const testCallExceededId = `call_exceeded_${Date.now()}`;
   const exceedCheck = await VoiceService.checkCallDurationLimit({
     callId: testCallExceededId,
-    elapsedSeconds: 181,
+    elapsedSeconds: 125,
     organizationId: orgAId,
   });
-  assert.strictEqual(exceedCheck.exceeded, true, 'Call exceeding 180s marked as exceeded');
+  assert.strictEqual(exceedCheck.exceeded, true, 'Call exceeding 120s marked as exceeded');
   assert.ok(mockProvider.terminatedCalls.has(testCallExceededId), 'Call termination dispatched to provider');
 
   // Verify server-side mid-call tool execution guard blocks call
@@ -1464,19 +1477,19 @@ export async function runVoiceReceptionistTests() {
     organizationId: orgAId,
   });
   assert.strictEqual(toolExceededRes.callTerminated, true, 'Tool execution returns callTerminated: true');
-  assert.ok(toolExceededRes.error?.includes('180 seconds'), 'Error message informs caller of 180s limit reached');
-  console.log('  ✓ 51. Call automatically terminated when maximum 180-second duration is reached; mid-call tools blocked');
+  assert.ok(toolExceededRes.error?.includes('120 seconds'), 'Error message informs caller of 120s limit reached');
+  console.log('  ✓ 51. Call automatically terminated when maximum 120-second duration is reached; mid-call tools blocked');
 
   // Test 52: Calls below the limit are not terminated prematurely
   const testCallNormalId = `call_normal_${Date.now()}`;
   const normalCheck = await VoiceService.checkCallDurationLimit({
     callId: testCallNormalId,
-    elapsedSeconds: 90,
+    elapsedSeconds: 60,
     organizationId: orgAId,
   });
-  assert.strictEqual(normalCheck.exceeded, false, 'Call at 90s is not exceeded');
+  assert.strictEqual(normalCheck.exceeded, false, 'Call at 60s is not exceeded');
   assert.strictEqual(mockProvider.terminatedCalls.has(testCallNormalId), false, 'Call below limit is not terminated');
-  console.log('  ✓ 52. Calls below the 180-second limit are not terminated prematurely');
+  console.log('  ✓ 52. Calls below the 120-second limit are not terminated prematurely');
 
   // Test 53: Duplicate termination events are handled idempotently
   const testCallIdempotentId = `call_idempotent_${Date.now()}`;
@@ -1793,36 +1806,36 @@ export async function runVoiceReceptionistTests() {
   assert.notStrictEqual(resolvedA?.organizationId, isoOrgBId, 'Org A phone never resolves to Org B');
   console.log('  ✓ 69. Phone-number-to-organization mappings are strictly scoped — no cross-tenant routing');
 
-  // ---- Test 70: 180-second max duration enforced on both tenant A and tenant B calls ----
+  // ---- Test 70: 120-second max duration enforced on both tenant A and tenant B calls ----
   const isoCallA2Id = `iso_dur_a_${isoTs}`;
   const isoCallB2Id = `iso_dur_b_${isoTs}`;
 
-  // Simulate Org A call that has exceeded 180s
+  // Simulate Org A call that has exceeded 120s
   (VoiceService as any).activeCalls.set(isoCallA2Id, {
     callId: isoCallA2Id,
     organizationId: isoOrgAId,
-    startedAt: Date.now() - 195 * 1000, // 195 seconds ago → over limit
-    maxDurationSeconds: 180,
+    startedAt: Date.now() - 135 * 1000, // 135 seconds ago → over limit
+    maxDurationSeconds: 120,
   });
   const limitCheckA = await VoiceService.checkCallDurationLimit({ callId: isoCallA2Id, organizationId: isoOrgAId });
-  assert.strictEqual(limitCheckA.exceeded, true, 'Org A call over 180s is correctly flagged as exceeded');
+  assert.strictEqual(limitCheckA.exceeded, true, 'Org A call over 120s is correctly flagged as exceeded');
 
-  // Simulate Org B call that has exceeded 180s
+  // Simulate Org B call that has exceeded 120s
   (VoiceService as any).activeCalls.set(isoCallB2Id, {
     callId: isoCallB2Id,
     organizationId: isoOrgBId,
-    startedAt: Date.now() - 200 * 1000, // 200 seconds ago → over limit
-    maxDurationSeconds: 180,
+    startedAt: Date.now() - 140 * 1000, // 140 seconds ago → over limit
+    maxDurationSeconds: 120,
   });
   const limitCheckB = await VoiceService.checkCallDurationLimit({ callId: isoCallB2Id, organizationId: isoOrgBId });
-  assert.strictEqual(limitCheckB.exceeded, true, 'Org B call over 180s is correctly flagged as exceeded');
+  assert.strictEqual(limitCheckB.exceeded, true, 'Org B call over 120s is correctly flagged as exceeded');
 
   // Verify the limit checks for each org only apply to their own tracked calls
   const limitCheckACrossOrg = await VoiceService.checkCallDurationLimit({ callId: isoCallB2Id, organizationId: isoOrgAId });
   // Org A querying Org B's callId: it's still exceeded (duration is read from tracker, not org-gated here)
   // The point is it uses the tracked callId's own data, not Org A's data
   assert.strictEqual(limitCheckACrossOrg.exceeded, true, 'checkCallDurationLimit reads from callId tracker, not org-level data');
-  console.log('  ✓ 70. 180-second call duration limit enforced on both Org A and Org B tenant calls');
+  console.log('  ✓ 70. 120-second call duration limit enforced on both Org A and Org B tenant calls');
 
   // ---- Test 71 (bonus): executeVoiceTool for valid Org A call resolves correct orgId from activeCalls ----
   const toolResultA = await VoiceService.executeVoiceTool({
@@ -2093,6 +2106,12 @@ export async function runVoiceReceptionistTests() {
   );
   console.log('  ✓ 90. Telnyx inventory delays do not cause a duplicate order');
 
+  // Clean up duplicate test numbers from Tests 88 & 90 so billingOrgId stays within PRO limit (3 numbers), keeping authorizedOrder
+  await db.execute(
+    'DELETE FROM voice_phone_numbers WHERE organization_id = $1 AND id != $2',
+    [billingOrgId, authorizedOrder.id]
+  );
+
   // Test 91: Vapi import failure is recoverable without repurchasing
   const failRecoverNumber = '+14155557706';
   const failTelephony = new MockTelephonyProvider();
@@ -2309,10 +2328,10 @@ export async function runVoiceReceptionistTests() {
   assert.strictEqual(untouchedPro.plan_tier, 'PRO');
   console.log('  ✓ 103. Paddle webhook router isolates phone number events from base Pro subscriptions');
 
-  // Test 104: 180-second call duration limit remains strictly enforced
+  // Test 104: 120-second call duration limit remains strictly enforced
   const maxDur = await VoiceService.resolveMaxCallDuration(billingOrgId);
-  assert.strictEqual(maxDur, 180, 'Max call duration ceiling is strictly 180 seconds');
-  console.log('  ✓ 104. 180-second call duration limit remains enforced');
+  assert.strictEqual(maxDur, 120, 'Max call duration ceiling is strictly 120 seconds');
+  console.log('  ✓ 104. 120-second call duration limit remains enforced');
 
   // ---- Summary ----
   console.log('\n  === Section 21 Results ===');

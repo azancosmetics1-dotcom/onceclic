@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import { ITelephonyProvider } from './VoiceProvider';
+import { SafeNetworkClient } from './SafeNetworkClient';
 import {
   AvailablePhoneNumber,
   SUPPORTED_TELEPHONY_COUNTRIES,
@@ -132,7 +133,7 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
     query.set('filter[features][]', 'voice');
     query.set('filter[limit]', String(Math.min(params.limit || 5, 20)));
 
-    const response = await fetch(`https://api.telnyx.com/v2/available_phone_numbers?${query.toString()}`, {
+    const response = await SafeNetworkClient.fetch(`https://api.telnyx.com/v2/available_phone_numbers?${query.toString()}`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
@@ -214,7 +215,7 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
       throw new Error(`Unsupported country for telephony provisioning: ${country}`);
     }
 
-    const response = await fetch('https://api.telnyx.com/v2/number_orders', {
+    const response = await SafeNetworkClient.fetch('https://api.telnyx.com/v2/number_orders', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
@@ -305,7 +306,7 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
     query.set('filter[phone_number]', phoneNumber);
     query.set('page[size]', '1');
 
-    const res = await fetch(`https://api.telnyx.com/v2/phone_numbers?${query.toString()}`, {
+    const res = await SafeNetworkClient.fetch(`https://api.telnyx.com/v2/phone_numbers?${query.toString()}`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         'Content-Type': 'application/json',
@@ -394,7 +395,7 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
     }
 
     // PATCH /v2/phone_numbers/{resourceId} — assigns the SIP connection
-    const res = await fetch(`https://api.telnyx.com/v2/phone_numbers/${resourceId}`, {
+    const res = await SafeNetworkClient.fetch(`https://api.telnyx.com/v2/phone_numbers/${resourceId}`, {
       method: 'PATCH',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,

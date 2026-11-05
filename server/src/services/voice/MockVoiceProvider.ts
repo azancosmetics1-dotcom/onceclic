@@ -62,7 +62,7 @@ export class MockVoiceProvider implements IVoiceProvider {
 
   formatInboundResponse(agentConfig: VoiceAgentConfig): any {
     this.lastInboundConfig = agentConfig;
-    const maxDurationSeconds = agentConfig.maxDurationSeconds ?? 180;
+    const maxDurationSeconds = agentConfig.maxDurationSeconds ?? 120;
     return {
       success: true,
       provider: this.providerName,

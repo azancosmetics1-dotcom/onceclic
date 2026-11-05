@@ -1,19 +1,19 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { api } from '../api/client';
 import {
   CustomerVoiceConfig,
   VoicePhoneNumber,
   VoiceCallRecord,
   VoiceAnalyticsSummary,
-  VoiceConnectionMethod,
   VoiceProvisioningStatus,
   TelephonyCountryInfo,
   AvailablePhoneNumber,
+  PLAN_PHONE_NUMBER_LIMITS,
+  PLAN_MONTHLY_CALL_LIMITS,
 } from '@onceclic/shared';
 import {
   Phone,
   PhoneCall,
-  PhoneForwarded,
   CheckCircle2,
   AlertCircle,
   Clock,
@@ -32,9 +32,14 @@ import {
   RefreshCw,
   Info,
   FileCheck,
+  Play,
+  Pause,
+  Settings,
+  Scissors,
+  ExternalLink,
+  TrendingUp,
 } from 'lucide-react';
 import { Badge } from '../components/Badge';
-
 export const AIReceptionistPage: React.FC = () => {
   const [config, setConfig] = useState<CustomerVoiceConfig | null>(null);
   const [calls, setCalls] = useState<VoiceCallRecord[]>([]);
@@ -45,7 +50,7 @@ export const AIReceptionistPage: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Setup Form State
-  const [activeTab, setActiveTab] = useState<'NEW' | 'EXISTING'>('NEW');
+  // Note: "Connect Existing Number" has been removed — only new Telnyx numbers supported.
 
   // New Number Flow State
   const [selectedCountry, setSelectedCountry] = useState<string>('US');
@@ -58,17 +63,7 @@ export const AIReceptionistPage: React.FC = () => {
   const [orderingNumber, setOrderingNumber] = useState<boolean>(false);
   const [orderProgressState, setOrderProgressState] = useState<string | null>(null);
 
-  // Existing Number Flow State
-  const [existingCountry, setExistingCountry] = useState<string>('US');
-  const [existingMethod, setExistingMethod] = useState<VoiceConnectionMethod>(
-    VoiceConnectionMethod.EXISTING_FORWARDING
-  );
-  const [inputPhoneNumber, setInputPhoneNumber] = useState('');
-  const [validatingExisting, setValidatingExisting] = useState(false);
-  const [existingValidationResult, setExistingValidationResult] = useState<any | null>(null);
-  const [verificationCode, setVerificationCode] = useState('');
-  const [verifyingCode, setVerifyingCode] = useState(false);
-  const [submittingExisting, setSubmittingExisting] = useState(false);
+  // Existing number flow removed — only new Telnyx numbers are supported.
 
   // Test Call Modal State
   const [testCallLoadingId, setTestCallLoadingId] = useState<string | null>(null);
@@ -88,22 +83,41 @@ export const AIReceptionistPage: React.FC = () => {
 
   const [retryingNumberId, setRetryingNumberId] = useState<string | null>(null);
 
+  // Industry Config State
+  const [industryType, setIndustryType] = useState<string>('clinic');
+  const [transferPhoneNumber, setTransferPhoneNumber] = useState<string>('');
+  const [savingIndustryConfig, setSavingIndustryConfig] = useState(false);
+  const [industryConfigLoaded, setIndustryConfigLoaded] = useState(false);
+
+  // Recording audio player state
+  const [playingRecordingId, setPlayingRecordingId] = useState<string | null>(null);
+  const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
+  const [recordingLoading, setRecordingLoading] = useState<string | null>(null);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   const loadData = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const [statusRes, callsRes, analyticsRes, countriesRes] = await Promise.all([
+      const [statusRes, callsRes, analyticsRes, countriesRes, industryRes] = await Promise.all([
         api.getVoiceStatus().catch(() => null),
         api.getVoiceCalls(50).catch(() => []),
         api.getVoiceAnalytics().catch(() => null),
         api.getVoiceCountries().catch(() => []),
+        api.getIndustryConfig().catch(() => null),
       ]);
 
       if (statusRes) setConfig(statusRes);
       if (callsRes) setCalls(callsRes);
       if (analyticsRes) setAnalytics(analyticsRes);
       if (countriesRes && countriesRes.length > 0) setCountries(countriesRes);
+      if (industryRes) {
+        setIndustryType(industryRes.industryType || 'clinic');
+        setTransferPhoneNumber(industryRes.transferPhoneNumber || '');
+        setIndustryConfigLoaded(true);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load voice receptionist data.');
     } finally {
@@ -190,54 +204,6 @@ export const AIReceptionistPage: React.FC = () => {
     }
   };
 
-  // Validate existing number
-  const handleValidateExisting = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputPhoneNumber.trim()) {
-      setError('Please enter your business phone number.');
-      return;
-    }
-
-    try {
-      setValidatingExisting(true);
-      setError(null);
-      const res = await api.validateExistingVoiceNumber({
-        phoneNumber: inputPhoneNumber.trim(),
-        countryCode: existingCountry,
-      });
-      setExistingValidationResult(res.data || res);
-    } catch (err: any) {
-      setError(err.message || 'Failed to validate phone number.');
-      setExistingValidationResult(null);
-    } finally {
-      setValidatingExisting(false);
-    }
-  };
-
-  // Connect existing number
-  const handleConnectExisting = async () => {
-    if (!inputPhoneNumber.trim()) return;
-
-    try {
-      setSubmittingExisting(true);
-      setError(null);
-      await api.connectExistingVoiceNumber({
-        phoneNumber: inputPhoneNumber.trim(),
-        countryCode: existingCountry,
-        connectionMethod: existingMethod,
-        forwardingTarget: existingValidationResult?.forwardingTarget,
-      });
-      setSuccessMsg('Your business phone number has been linked! Perform a test call to activate.');
-      setInputPhoneNumber('');
-      setExistingValidationResult(null);
-      await loadData();
-    } catch (err: any) {
-      setError(err.message || 'Failed to connect phone number.');
-    } finally {
-      setSubmittingExisting(false);
-    }
-  };
-
   // Run test call to verify AI Receptionist routing before marking ACTIVE
   const handleRunTestCall = async (id: string, phoneStr: string) => {
     try {
@@ -296,6 +262,55 @@ export const AIReceptionistPage: React.FC = () => {
     }
   };
 
+  // Industry config save handler
+  const saveIndustryConfig = async () => {
+    setSavingIndustryConfig(true);
+    setError(null);
+    try {
+      await api.updateIndustryConfig({
+        industryType,
+        transferPhoneNumber: transferPhoneNumber.trim() || null,
+      });
+      setSuccessMsg('Industry configuration saved successfully.');
+    } catch (err: any) {
+      setError(err.message || 'Failed to save industry configuration.');
+    } finally {
+      setSavingIndustryConfig(false);
+    }
+  };
+
+  // Audio player: load signed URL and play
+  const handlePlayRecording = async (callId: string) => {
+    if (playingRecordingId === callId) {
+      // Toggle pause
+      if (audioRef.current) {
+        if (audioRef.current.paused) {
+          audioRef.current.play();
+        } else {
+          audioRef.current.pause();
+        }
+      }
+      return;
+    }
+
+    setRecordingLoading(callId);
+    setRecordingError(null);
+    setPlayingRecordingId(null);
+    setRecordingUrl(null);
+
+    try {
+      const result = await api.getRecordingSignedUrl(callId);
+      const url = result?.signedUrl;
+      if (!url) throw new Error('No signed URL returned.');
+      setRecordingUrl(url);
+      setPlayingRecordingId(callId);
+    } catch (err: any) {
+      setRecordingError(err.message || 'Recording not available.');
+    } finally {
+      setRecordingLoading(null);
+    }
+  };
+
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -311,7 +326,13 @@ export const AIReceptionistPage: React.FC = () => {
   }
 
   const usage = config?.voiceUsage;
-  const isLimitReached = usage?.limitReached;
+  const isCallLimitReached = usage?.callLimitReached ?? usage?.limitReached ?? false;
+  const isPhoneLimitReached = usage?.phoneNumberLimitReached ?? false;
+  const usedCalls = usage?.usedCalls ?? 0;
+  const maxCalls = usage?.maxMonthlyCalls ?? (PLAN_MONTHLY_CALL_LIMITS[usage?.planTier ?? 'PRO'] ?? 50);
+  const callPct = Math.min(100, Math.round((usedCalls / Math.max(1, maxCalls)) * 100));
+  const activePhones = usage?.activePhoneNumbers ?? (config?.phoneNumbers?.filter(n => n.status === 'ACTIVE').length ?? 0);
+  const maxPhones = usage?.maxPhoneNumbers ?? (PLAN_PHONE_NUMBER_LIMITS[usage?.planTier ?? 'PRO'] ?? 3);
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-8">
@@ -359,84 +380,117 @@ export const AIReceptionistPage: React.FC = () => {
         </div>
       )}
 
-      {/* Voice Usage Meter & Plan Allowance */}
+      {/* Usage Stats Grid — Call Allowance + Phone Number Quota */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* Monthly Call Allowance */}
         <div className="lg:col-span-2 p-6 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                Monthly Voice Minute Allowance
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Monthly AI Call Allowance</span>
               </span>
               <span className="text-xs font-semibold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 {usage?.planTier || 'PRO'} Plan
               </span>
             </div>
 
-            <div className="mt-4 flex items-baseline space-x-2">
-              <span className="text-3xl font-extrabold text-white">{usage?.usedMinutes || 0}</span>
-              <span className="text-slate-400 text-base font-medium">/ {usage?.includedMinutes || 150} minutes used</span>
+            <div className="mt-4 flex items-baseline justify-between flex-wrap gap-2">
+              <div className="flex items-baseline space-x-2">
+                <span className={`text-3xl font-extrabold ${isCallLimitReached ? 'text-rose-400' : 'text-white'}`}>
+                  {usedCalls}
+                </span>
+                <span className="text-slate-400 text-base font-medium">/ {maxCalls} calls used this month</span>
+              </div>
+              <span className="text-xs text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded border border-slate-700/50 font-medium">
+                Max 2 min / call
+              </span>
             </div>
 
             {/* Progress Bar */}
             <div className="mt-3 w-full bg-slate-800 rounded-full h-2.5 overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${
-                  (usage?.percentageUsed || 0) > 90
+                  callPct > 90
                     ? 'bg-rose-500'
-                    : (usage?.percentageUsed || 0) > 70
+                    : callPct > 70
                     ? 'bg-amber-500'
                     : 'bg-gradient-to-r from-emerald-500 to-teal-400'
                 }`}
-                style={{ width: `${Math.min(100, usage?.percentageUsed || 0)}%` }}
+                style={{ width: `${callPct}%` }}
               />
             </div>
+
+            {callPct > 70 && !isCallLimitReached && (
+              <p className="mt-2 text-xs text-amber-400 flex items-center space-x-1">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                <span>Approaching monthly call limit — {maxCalls - usedCalls} calls remaining.</span>
+              </p>
+            )}
+            {isCallLimitReached && (
+              <p className="mt-2 text-xs text-rose-400 flex items-center space-x-1">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>Monthly call limit reached. Callers will hear a polite message until your plan resets.</span>
+              </p>
+            )}
           </div>
 
           <div className="mt-4 pt-4 border-t border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between text-xs text-slate-400 gap-2">
             <div className="flex items-center space-x-1.5">
               <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>Voice AI conversation limits automatically reset at the start of each billing cycle.</span>
+              <span>Call allowance resets at the start of each billing cycle.</span>
             </div>
-            {isLimitReached && (
+            {isCallLimitReached && (
               <a
                 href="/app/billing"
                 className="inline-flex items-center text-xs font-bold text-emerald-400 hover:text-emerald-300 underline"
               >
-                Upgrade Plan for More Minutes &rarr;
+                Upgrade for More Calls →
               </a>
             )}
           </div>
         </div>
 
-        {/* Quick Phone Number Status Card */}
+        {/* Phone Number Quota Card */}
         <div className="p-6 rounded-2xl bg-slate-900/90 border border-slate-800 flex flex-col justify-between">
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Active Inbound Number
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
+              <Phone className="w-3.5 h-3.5" />
+              <span>Phone Numbers</span>
             </span>
-            <div className="mt-3">
-              {config?.activeNumber ? (
-                <div>
-                  <p className="text-xl font-mono font-bold text-white tracking-wide">
-                    {config.activeNumber}
-                  </p>
-                  <p className="text-xs text-emerald-400 mt-1 flex items-center space-x-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Connected ({config.connectionMethod?.replace(/_/g, ' ')})</span>
-                  </p>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-sm text-slate-400 font-medium">No active business phone</p>
-                  <p className="text-xs text-slate-500 mt-1">Get a new dedicated number or link your existing line below</p>
-                </div>
-              )}
+            <div className="mt-3 flex items-baseline space-x-1">
+              <span className={`text-3xl font-extrabold ${isPhoneLimitReached ? 'text-amber-400' : 'text-white'}`}>
+                {activePhones}
+              </span>
+              <span className="text-slate-400 text-base">/ {maxPhones}</span>
             </div>
+            <p className="text-xs text-slate-500 mt-1">active numbers on your plan</p>
+            {config?.activeNumber ? (
+              <div className="mt-3">
+                <p className="text-sm font-mono font-bold text-white tracking-wide">{config.activeNumber}</p>
+                <p className="text-xs text-emerald-400 mt-1 flex items-center space-x-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Connected & Active</span>
+                </p>
+              </div>
+            ) : (
+              <div className="mt-3">
+                <p className="text-sm text-slate-400 font-medium">No active number</p>
+                <p className="text-xs text-slate-500 mt-1">Purchase a Telnyx number below</p>
+              </div>
+            )}
           </div>
-
-          <div className="mt-4 pt-4 border-t border-slate-800 text-xs text-slate-400 flex items-center justify-between">
-            <span>Telephony Routing:</span>
-            <span className="text-slate-200 font-medium">Vapi + Telnyx Global</span>
+          <div className="mt-4 pt-4 border-t border-slate-800">
+            {isPhoneLimitReached ? (
+              <a href="/app/billing" className="text-xs font-bold text-amber-400 hover:text-amber-300 underline flex items-center space-x-1">
+                <span>Upgrade to add more numbers →</span>
+              </a>
+            ) : (
+              <p className="text-xs text-slate-500">
+                {maxPhones - activePhones} number slot{maxPhones - activePhones !== 1 ? 's' : ''} available
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -465,49 +519,107 @@ export const AIReceptionistPage: React.FC = () => {
         </div>
       )}
 
-      {/* Phone Number Setup Section (Two Choices) */}
+      {/* Industry Configuration Panel */}
       <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
-        <div className="p-6 border-b border-slate-800">
-          <h2 className="text-lg font-bold text-white">Setup Your Business Phone Line</h2>
-          <p className="text-sm text-slate-400 mt-1">
-            Choose whether to get a new dedicated phone number or connect your existing carrier number.
-          </p>
-
-          {/* Option Tabs */}
-          <div className="mt-6 flex flex-wrap gap-3">
+        <div className="p-5 border-b border-slate-800 flex items-center gap-3">
+          <div className="p-2 bg-blue-500/10 rounded-lg">
+            <Settings className="w-5 h-5 text-blue-400" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-white">Industry & Transfer Settings</h2>
+            <p className="text-xs text-slate-400 mt-0.5">Configure your business type and human transfer number</p>
+          </div>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1.5">Business Industry</label>
+              <select
+                value={industryType}
+                onChange={(e) => setIndustryType(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
+              >
+                <option value="clinic">Clinic / Healthcare</option>
+                <option value="restaurant">Restaurant</option>
+                <option value="salon">Salon / Beauty Parlour</option>
+              </select>
+              <p className="text-xs text-slate-500 mt-1">Determines AI receptionist behavior and available tools.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-1.5">Human Transfer Number (E.164)</label>
+              <input
+                type="tel"
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-blue-500"
+                value={transferPhoneNumber}
+                onChange={(e) => setTransferPhoneNumber(e.target.value)}
+                placeholder="+12125551234"
+              />
+              <p className="text-xs text-slate-500 mt-1">AI will transfer calls here when a human is requested.</p>
+            </div>
+          </div>
+          {industryType === 'salon' && (
+            <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3 flex items-center gap-3">
+              <Scissors className="w-4 h-4 text-purple-400 flex-shrink-0" />
+              <div className="flex-1 text-sm text-purple-200">
+                You have selected Salon mode. Manage your services and stylists in the Salon Management page.
+              </div>
+              <a
+                href="/app/salon"
+                className="text-xs text-purple-400 hover:text-purple-300 flex items-center gap-1 flex-shrink-0"
+              >
+                Open <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          )}
+          <div className="flex justify-end">
             <button
-              onClick={() => setActiveTab('NEW')}
-              className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition flex items-center space-x-2 ${
-                activeTab === 'NEW'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-750'
-              }`}
+              onClick={saveIndustryConfig}
+              disabled={savingIndustryConfig}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
             >
-              <Plus className="w-4 h-4" />
-              <span>Get a New Number</span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] uppercase font-bold bg-slate-950/30 text-emerald-950">
-                Direct Line
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('EXISTING')}
-              className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition flex items-center space-x-2 ${
-                activeTab === 'EXISTING'
-                  ? 'bg-emerald-500 text-slate-950 shadow-md shadow-emerald-500/20'
-                  : 'bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-750'
-              }`}
-            >
-              <PhoneForwarded className="w-4 h-4" />
-              <span>Connect Existing Number</span>
+              {savingIndustryConfig ? 'Saving…' : 'Save Settings'}
             </button>
           </div>
         </div>
+      </div>
 
-        {/* ======================================================== */}
-        {/* CHOICE 1: GET A NEW NUMBER (VAPI + TELNYX) */}
-        {/* ======================================================== */}
-        {activeTab === 'NEW' && (
+      {/* Phone Number Setup Section — Purchase New Telnyx Number */}
+      <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
+        <div className="p-6 border-b border-slate-800">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center space-x-2">
+                <Phone className="w-5 h-5 text-emerald-400" />
+                <span>Get a Dedicated Business Phone Number</span>
+              </h2>
+              <p className="text-sm text-slate-400 mt-1">
+                Purchase a new Telnyx number powered by Vapi AI.{' '}
+                <span className="text-slate-300 font-medium">{activePhones}/{maxPhones} number{maxPhones !== 1 ? 's' : ''} used on your plan.</span>
+              </p>
+            </div>
+            {isPhoneLimitReached && (
+              <a
+                href="/app/billing"
+                className="inline-flex items-center px-4 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm font-semibold hover:bg-amber-500/20 transition"
+              >
+                Upgrade to Add More Numbers →
+              </a>
+            )}
+          </div>
+
+          {isPhoneLimitReached && (
+            <div className="mt-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-sm flex items-center space-x-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>
+                You've reached your plan's limit of {maxPhones} phone number{maxPhones !== 1 ? 's' : ''}.
+                Upgrade your plan to add more dedicated numbers.
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Get a New Number — Vapi + Telnyx */}
+        {!isPhoneLimitReached ? (
           <div className="p-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {/* Country Selection */}
@@ -629,128 +741,8 @@ export const AIReceptionistPage: React.FC = () => {
               </div>
             )}
           </div>
-        )}
+        ) : null}
 
-        {/* ======================================================== */}
-        {/* CHOICE 2: CONNECT AN EXISTING NUMBER */}
-        {/* ======================================================== */}
-        {activeTab === 'EXISTING' && (
-          <div className="p-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <button
-                type="button"
-                onClick={() => setExistingMethod(VoiceConnectionMethod.EXISTING_FORWARDING)}
-                className={`p-4 rounded-xl border text-left transition ${
-                  existingMethod === VoiceConnectionMethod.EXISTING_FORWARDING
-                    ? 'border-emerald-500 bg-emerald-500/5'
-                    : 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
-                }`}
-              >
-                <div className="font-semibold text-white text-sm">1. Call Forwarding</div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Keep your current carrier. Route unanswered or business calls to ONCEClic using carrier dial codes.
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setExistingMethod(VoiceConnectionMethod.EXISTING_SIP)}
-                className={`p-4 rounded-xl border text-left transition ${
-                  existingMethod === VoiceConnectionMethod.EXISTING_SIP
-                    ? 'border-emerald-500 bg-emerald-500/5'
-                    : 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
-                }`}
-              >
-                <div className="font-semibold text-white text-sm">2. VoIP / SIP Trunking</div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Connect your existing VoIP PBX or Telnyx/Twilio SIP trunk to Vapi AI voice endpoints.
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setExistingMethod(VoiceConnectionMethod.EXISTING_PORT)}
-                className={`p-4 rounded-xl border text-left transition ${
-                  existingMethod === VoiceConnectionMethod.EXISTING_PORT
-                    ? 'border-emerald-500 bg-emerald-500/5'
-                    : 'border-slate-800 bg-slate-950/40 hover:border-slate-700'
-                }`}
-              >
-                <div className="font-semibold text-white text-sm">3. Number Porting</div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Transfer full number ownership to ONCEClic where carrier porting is supported.
-                </p>
-              </button>
-            </div>
-
-            <form onSubmit={handleValidateExisting} className="space-y-4 max-w-xl">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Your Current Business Phone Number (International E.164)
-                </label>
-                <div className="relative">
-                  <Phone className="w-5 h-5 text-slate-500 absolute left-3.5 top-3" />
-                  <input
-                    type="tel"
-                    value={inputPhoneNumber}
-                    onChange={(e) => setInputPhoneNumber(e.target.value)}
-                    placeholder="+1 (555) 234-5678"
-                    className="w-full pl-11 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 transition font-mono text-sm"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={validatingExisting}
-                className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl text-xs transition disabled:opacity-50"
-              >
-                {validatingExisting ? 'Validating Format...' : 'Validate Number & View Carrier Setup'}
-              </button>
-            </form>
-
-            {/* Carrier-specific setup and activation guide */}
-            {existingValidationResult && (
-              <div className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4 max-w-2xl">
-                <div className="flex items-center space-x-2 text-emerald-400 font-semibold text-sm">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Number Validated: {existingValidationResult.normalized}</span>
-                </div>
-
-                <div className="text-xs text-slate-300 space-y-2">
-                  <p>
-                    Routing Target for AI Receptionist:{' '}
-                    <strong className="font-mono text-white bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-                      {existingValidationResult.forwardingTarget}
-                    </strong>
-                  </p>
-
-                  <h4 className="font-bold text-white pt-2">Carrier Forwarding Instructions:</h4>
-                  <div className="space-y-2">
-                    {(existingValidationResult.carrierGuides || []).map((cg: any) => (
-                      <div key={cg.carrierName} className="p-3 bg-slate-900 rounded-xl border border-slate-850">
-                        <span className="font-semibold text-slate-200">{cg.carrierName}:</span>
-                        <p className="text-slate-400 mt-1">{cg.instructions}</p>
-                        <p className="mt-1 text-[11px] font-mono text-emerald-300">
-                          Dial code: {cg.enableCode}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleConnectExisting}
-                  disabled={submittingExisting}
-                  className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl transition shadow-md shadow-emerald-500/20 disabled:opacity-50 text-xs"
-                >
-                  {submittingExisting ? 'Connecting...' : 'Confirm Connection & Add Number'}
-                </button>
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
       {/* Connected Phone Numbers List with Provisioning States & Test Calls */}
@@ -972,8 +964,8 @@ export const AIReceptionistPage: React.FC = () => {
                   <span>${(19.00 + selectedNumberForOrder.monthlyCostUsd).toFixed(2)} / month</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-300">
-                  <span>Included Monthly AI Minutes:</span>
-                  <span className="font-semibold text-white">{usage?.includedMinutes || 150} min ({usage?.planTier || 'PRO'} Plan)</span>
+                  <span>Monthly AI Calls Included:</span>
+                  <span className="font-semibold text-white">{usage?.maxMonthlyCalls || maxCalls} calls ({usage?.planTier || 'PRO'} Plan)</span>
                 </div>
               </div>
 
@@ -1133,21 +1125,41 @@ export const AIReceptionistPage: React.FC = () => {
                       )}
                     </td>
                     <td className="px-6 py-4 text-right">
-                      {c.transcript && (
-                        <button
-                          onClick={() =>
-                            setSelectedTranscript({
-                              caller: c.callerPhone || 'Caller',
-                              date: new Date(c.startedAt).toLocaleString(),
-                              text: c.transcript || '',
-                            })
-                          }
-                          className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-750 text-slate-200 transition"
-                        >
-                          <FileText className="w-3.5 h-3.5 text-emerald-400" />
-                          <span>Transcript</span>
-                        </button>
-                      )}
+                      <div className="flex items-center justify-end gap-2">
+                        {/* Recording playback button */}
+                        {(c as any).recordingSyncStatus === 'SYNCED' && (
+                          <button
+                            onClick={() => handlePlayRecording(c.id)}
+                            disabled={recordingLoading === c.id}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-blue-800/60 text-slate-200 transition disabled:opacity-50"
+                            title="Play recording"
+                          >
+                            {recordingLoading === c.id ? (
+                              <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+                            ) : playingRecordingId === c.id ? (
+                              <Pause className="w-3.5 h-3.5 text-blue-400" />
+                            ) : (
+                              <Play className="w-3.5 h-3.5 text-blue-400" />
+                            )}
+                            <span>{playingRecordingId === c.id ? 'Pause' : 'Play'}</span>
+                          </button>
+                        )}
+                        {c.transcript && (
+                          <button
+                            onClick={() =>
+                              setSelectedTranscript({
+                                caller: c.callerPhone || 'Caller',
+                                date: new Date(c.startedAt).toLocaleString(),
+                                text: c.transcript || '',
+                              })
+                            }
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-750 text-slate-200 transition"
+                          >
+                            <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Transcript</span>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1189,6 +1201,41 @@ export const AIReceptionistPage: React.FC = () => {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Hidden Audio Element for Recording Playback */}
+      {recordingUrl && playingRecordingId && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-4 flex items-center gap-4 min-w-80">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Volume2 className="w-4 h-4 text-blue-400" />
+            <span className="text-sm text-white font-medium">Recording</span>
+          </div>
+          <audio
+            ref={audioRef}
+            src={recordingUrl}
+            autoPlay
+            controls
+            className="flex-1 h-8"
+            style={{ accentColor: '#3b82f6' }}
+            onEnded={() => { setPlayingRecordingId(null); setRecordingUrl(null); }}
+            onError={() => { setRecordingError('Recording failed to load. The signed URL may have expired.'); setPlayingRecordingId(null); setRecordingUrl(null); }}
+          />
+          <button
+            onClick={() => { setPlayingRecordingId(null); setRecordingUrl(null); if (audioRef.current) audioRef.current.pause(); }}
+            className="text-slate-400 hover:text-white transition-colors flex-shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+      {recordingError && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-rose-900/90 border border-rose-700 rounded-xl shadow-2xl p-3 flex items-center gap-3">
+          <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0" />
+          <span className="text-sm text-rose-200">{recordingError}</span>
+          <button onClick={() => setRecordingError(null)} className="text-rose-400 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
     </div>
