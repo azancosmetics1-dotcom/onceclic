@@ -48,7 +48,7 @@ export const Terms: React.FC = () => {
             <ul className="list-disc pl-5 space-y-2 text-xs sm:text-sm text-slate-300">
               <li>24/7 interactive website chat assistant powered by large language models.</li>
               <li>Automated appointment scheduling synchronized with your connected calendar.</li>
-              <li>Automated email inquiry drafting and answering.</li>
+              <li>24/7 AI phone receptionist and call management.</li>
               <li>Custom business knowledge base retrieval and FAQ grounding.</li>
               <li>Seamless human handoff triggers when complex or sensitive inquiries arise.</li>
             </ul>

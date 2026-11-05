@@ -37,7 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
     { label: 'Knowledge Base', path: '/app/knowledge', icon: BookOpen },
     { label: 'Appointments', path: '/app/appointments', icon: Calendar },
     { label: 'Conversations', path: '/app/conversations', icon: MessageSquare },
-    { label: 'Email Answering', path: '/app/email', icon: Mail },
+    { label: 'Email Answering', path: '/app/email', icon: Mail, badge: 'SOON' },
     { label: 'Billing & Plan', path: '/app/billing', icon: CreditCard },
     { label: 'Settings', path: '/app/settings', icon: Settings },
   ];

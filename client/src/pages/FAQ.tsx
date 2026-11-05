@@ -28,7 +28,7 @@ export const FAQ: React.FC = () => {
       category: 'General',
       question: 'What does ONCEClic do?',
       answer:
-        'ONCEClic provides 24/7 website chat support grounded on your custom business knowledge base, automates appointment scheduling with live calendar sync, drafts and sends intelligent email responses, and routes complex inquiries to your human team.',
+        'ONCEClic provides 24/7 AI phone reception and website chat support grounded on your custom business knowledge base, automates appointment scheduling with live calendar sync, and routes complex inquiries to your human team.',
     },
     {
       category: 'Pricing & Trial',
@@ -46,7 +46,7 @@ export const FAQ: React.FC = () => {
       category: 'Pricing & Trial',
       question: 'How much does ONCEClic cost?',
       answer:
-        'We offer three transparent monthly tiers: Starter ($19/mo, 50 voice minutes), ONCEClic Pro ($49/mo, 150 voice minutes), and Business ($99/mo, 400 voice minutes). All paid plans include AI website reception, automated calendar bookings, and multi-channel customer intake.',
+        'We offer three transparent monthly tiers: Starter ($19/mo, 1 phone number, 20 AI calls), ONCEClic Pro ($49/mo, up to 3 phone numbers, 50 AI calls), and Business ($99/mo, up to 5 phone numbers, 100 AI calls). All paid plans include 24/7 AI phone reception, embeddable website live chat, and automated calendar bookings.',
     },
     {
       category: 'Pricing & Trial',
@@ -93,7 +93,7 @@ export const FAQ: React.FC = () => {
       category: 'Integrations',
       question: 'What integrations are currently available?',
       answer:
-        'ONCEClic supports Google Calendar (for real-time appointment availability and scheduling), Gmail (for automated email answering), Instagram (for direct message responses), and embeddable website chat widgets.',
+        'ONCEClic currently supports Telnyx phone numbers and Vapi for 24/7 AI phone reception, Google Calendar (for real-time appointment availability and scheduling), and embeddable website live chat widgets. Additional channels like WhatsApp and automated email answering are currently in development and coming soon.',
     },
     {
       category: 'Integrations',

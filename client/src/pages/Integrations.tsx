@@ -191,7 +191,7 @@ export const IntegrationsPage: React.FC = () => {
           <span>Channel & Calendar Integrations</span>
         </h1>
         <p className="text-slate-400 text-xs sm:text-sm mt-1">
-          Connect your website widget, business email, and Google Calendar to empower your AI Receptionist with 24/7 synchronization.
+          Connect your dedicated business phone line, website live chat, and Google Calendar to empower your AI Receptionist with 24/7 synchronization.
         </p>
       </div>
 

@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Navbar } from '../components/Navbar';
 import { Footer } from '../components/Footer';
-import { Bot, MessageSquare, Calendar, Mail, ArrowRight, ShieldCheck, Sparkles, User, Award, Globe, Building2 } from 'lucide-react';
+import { Bot, MessageSquare, Calendar, Phone, ArrowRight, ShieldCheck, Sparkles, User, Award, Globe, Building2 } from 'lucide-react';
 
 export const About: React.FC = () => {
   useEffect(() => {
@@ -35,7 +35,7 @@ export const About: React.FC = () => {
               <strong>ONCEClic</strong> is an intelligent business automation platform that provides small businesses, clinics, salons, consultants, restaurants, and service providers with dedicated 24/7 AI receptionists and automated workflows.
             </p>
             <p>
-              Small businesses lose valuable clients when inbound inquiries arrive after hours or when staff are busy serving in-person customers. ONCEClic bridges this gap by instantly answering customer questions, scheduling appointments in real-time without double-booking, and routing inquiries smoothly across Website Chat, Email, Instagram, and Facebook.
+              Small businesses lose valuable clients when inbound inquiries arrive after hours or when staff are busy serving in-person customers. ONCEClic bridges this gap by instantly answering customer questions, scheduling appointments in real-time without double-booking, and managing calls smoothly across 24/7 AI Phone Reception and Website Live Chat.
             </p>
           </section>
 
@@ -83,11 +83,11 @@ export const About: React.FC = () => {
 
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-2.5">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
-                  <Mail className="w-5 h-5" />
+                  <Phone className="w-5 h-5" />
                 </div>
-                <h3 className="font-bold text-white text-sm">Automated Email &amp; DMs</h3>
+                <h3 className="font-bold text-white text-sm">24/7 AI Phone Reception</h3>
                 <p className="text-xs text-slate-400">
-                  Connects to business email, Instagram, and Facebook to deliver prompt, grounded customer responses.
+                  Dedicated business phone numbers answering inbound calls in natural voice with full calendar booking.
                 </p>
               </div>
             </div>

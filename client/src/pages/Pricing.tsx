@@ -187,15 +187,15 @@ export const Pricing: React.FC = () => {
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>WhatsApp AI Receptionist</span>
+                    <span>24/7 AI Phone Receptionist & Web Chat</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>Automated Email Answering</span>
+                    <span>Google Calendar Real-Time Booking</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
-                    <span>SMS & Email Confirmation Alerts</span>
+                    <span>Call Transcripts & Audio Recordings</span>
                   </li>
                   <li className="flex items-start space-x-2">
                     <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />

@@ -5,7 +5,7 @@ import { Footer } from '../components/Footer';
 import {
   Bot,
   MessageSquare,
-  Mail,
+  Phone,
   Calendar,
   ShieldCheck,
   CheckCircle2,
@@ -105,7 +105,7 @@ export const Home: React.FC = () => {
                   <span>Luna — AI Receptionist</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
                 </h3>
-                <p className="text-xs text-slate-400">Instant Website & Email Assistant</p>
+                <p className="text-xs text-slate-400">Instant Website & Voice Assistant</p>
               </div>
             </div>
             <span className="text-[11px] bg-slate-800 text-emerald-400 px-2.5 py-1 rounded-md font-mono">
@@ -187,14 +187,14 @@ export const Home: React.FC = () => {
               </p>
             </div>
 
-            {/* Feature 3 */}
+            {/* Feature 3: 24/7 AI Phone Receptionist */}
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 hover:border-emerald-500/40 transition group">
               <div className="w-12 h-12 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 mb-6 group-hover:scale-110 transition">
-                <Mail className="w-6 h-6" />
+                <Phone className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-white mb-2">Automated Email Answering</h3>
+              <h3 className="text-lg font-bold text-white mb-2">24/7 AI Phone Receptionist</h3>
               <p className="text-sm text-slate-400 leading-relaxed">
-                Connect your business email. ONCEClic reads inbound customer inquiries and drafts or sends grounded, accurate responses instantly.
+                Dedicated business phone numbers powered by Telnyx & Vapi. Answers inbound calls in natural voice, answers questions, and books appointments.
               </p>
             </div>
 
