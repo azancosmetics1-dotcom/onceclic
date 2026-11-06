@@ -314,7 +314,7 @@ export class VoiceService {
               verification_status as "verificationStatus",
               created_at as "createdAt", updated_at as "updatedAt"
        FROM voice_phone_numbers
-       WHERE (phone_number = $1 OR phone_number = $2) AND status = 'ACTIVE'
+       WHERE (phone_number = $1 OR phone_number = $2) AND status IN ('ACTIVE', 'TEST_REQUIRED')
        LIMIT 1`,
       [phoneNumber.trim(), normalized]
     );
@@ -875,7 +875,7 @@ export class VoiceService {
             quote.customerMonthlyPriceUsd,
             quote.setupCostUsd,
             quote.policyVersion,
-            checkoutSession?.status === 'PAID' ? 'PAID' : 'ACTIVE',
+            'ACTIVE',
             checkoutSession?.paddleSubscriptionId || null,
             checkoutSession?.paddleTransactionId || null,
             id,
@@ -904,7 +904,7 @@ export class VoiceService {
             quote.customerMonthlyPriceUsd,
             quote.setupCostUsd,
             quote.policyVersion,
-            checkoutSession?.status === 'PAID' ? 'PAID' : 'ACTIVE',
+            'ACTIVE',
             checkoutSession?.paddleSubscriptionId || null,
             checkoutSession?.paddleTransactionId || null,
           ]
@@ -1178,6 +1178,519 @@ export class VoiceService {
   }
 
   /**
+   * Post-Payment Fulfillment Worker for Paid Phone Number Checkouts.
+   * Executed exclusively after verified customer payment (via Creem/Paddle webhook).
+   *
+   * Workflow:
+   * Verified payment -> Webhook validates checkout -> Quota re-check -> Telnyx provision -> Vapi link -> Activate.
+   * Safe to retry (idempotent, atomic locking).
+   */
+  static async fulfillPaidPhoneNumberOrder(params: {
+    organizationId: string;
+    phoneNumber: string;
+    countryCode?: string;
+    numberType?: string;
+    checkoutSessionId?: string;
+    creemSubscriptionId: string;
+    creemCustomerId?: string;
+    creemCheckoutId?: string;
+    transactionId?: string;
+  }): Promise<VoicePhoneNumber> {
+    const normalized = this.normalizePhoneNumber(params.phoneNumber);
+    if (!normalized) {
+      throw new Error('Invalid phone number format for fulfillment.');
+    }
+
+    const inFlightKey = `fulfill:${params.organizationId}:${params.checkoutSessionId || normalized}`;
+    if (this.inFlightPurchases.has(inFlightKey)) {
+      return this.inFlightPurchases.get(inFlightKey)!;
+    }
+
+    const fulfillmentPromise = this.executeFulfillPaidPhoneNumberOrder({
+      ...params,
+      phoneNumber: normalized,
+    });
+    this.inFlightPurchases.set(inFlightKey, fulfillmentPromise);
+
+    try {
+      return await fulfillmentPromise;
+    } finally {
+      this.inFlightPurchases.delete(inFlightKey);
+    }
+  }
+
+  private static async executeFulfillPaidPhoneNumberOrder(params: {
+    organizationId: string;
+    phoneNumber: string;
+    countryCode?: string;
+    numberType?: string;
+    checkoutSessionId?: string;
+    creemSubscriptionId: string;
+    creemCustomerId?: string;
+    creemCheckoutId?: string;
+    transactionId?: string;
+  }): Promise<VoicePhoneNumber> {
+    const normalized = params.phoneNumber;
+
+    // 1. Idempotency Check: if checkout session is already COMPLETED, or phone already ACTIVE with this sub
+    if (params.checkoutSessionId) {
+      const checkoutRecord = await db.getOne<{ status: string }>(
+        'SELECT status FROM voice_phone_number_checkouts WHERE id = $1',
+        [params.checkoutSessionId]
+      );
+      if (checkoutRecord?.status === 'COMPLETED') {
+        const existing = await this.getPhoneNumberByNumber(normalized);
+        if (existing && existing.status === 'ACTIVE') {
+          return existing;
+        }
+      }
+    }
+
+    const existingPhone = await db.getOne<VoicePhoneNumber>(
+      `SELECT id, organization_id as "organizationId", provider, phone_number as "phoneNumber",
+              country_code as "countryCode", phone_number_type as "phoneNumberType",
+              connection_method as "connectionMethod", status, provisioning_status as "provisioningStatus",
+              creem_subscription_id as "creemSubscriptionId",
+              telnyx_order_id as "telnyxOrderId", telnyx_phone_number_id as "telnyxPhoneNumberId",
+              vapi_assistant_id as "vapiAssistantId", vapi_phone_number_id as "vapiPhoneNumberId"
+       FROM voice_phone_numbers WHERE phone_number = $1`,
+      [normalized]
+    );
+
+    if (existingPhone && existingPhone.status === 'ACTIVE' && (existingPhone as any).creemSubscriptionId === params.creemSubscriptionId) {
+      return existingPhone;
+    }
+
+    // 2. Re-verify plan limits
+    const phoneLimit = await this.checkPhoneNumberLimit(params.organizationId);
+    if (!phoneLimit.allowed) {
+      const limitErr = new Error(
+        `Phone number limit reached. Your plan allows a maximum of ${phoneLimit.limit} active phone numbers.`
+      );
+      await this.handleFulfillmentFailure({
+        organizationId: params.organizationId,
+        phoneNumber: normalized,
+        checkoutSessionId: params.checkoutSessionId,
+        creemSubscriptionId: params.creemSubscriptionId,
+        error: limitErr,
+        transactionId: params.transactionId,
+      });
+      throw limitErr;
+    }
+
+    const country = (params.countryCode || 'US').toUpperCase().trim();
+    const type = (params.numberType || 'local').toLowerCase();
+
+    // 3. Mark checkout session as PROVISIONING
+    if (params.checkoutSessionId) {
+      await db.execute(
+        `UPDATE voice_phone_number_checkouts
+         SET status = 'PROVISIONING',
+             creem_subscription_id = COALESCE($1, creem_subscription_id),
+             creem_customer_id = COALESCE($2, creem_customer_id),
+             creem_checkout_id = COALESCE($3, creem_checkout_id),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4`,
+        [params.creemSubscriptionId, params.creemCustomerId || null, params.creemCheckoutId || null, params.checkoutSessionId]
+      );
+    }
+
+    const telephony = this.getTelephonyProvider();
+    const voice = this.getVoiceProvider();
+
+    // 4. Provision Number through Telnyx (with crash recovery & idempotency)
+    let telnyxResult: {
+      telnyxOrderId: string;
+      phoneNumber: string;
+      telnyxPhoneNumberResourceId: string | null;
+      monthlyCostUsd: number;
+      setupCostUsd: number;
+      regulatoryStatus: string;
+      requiredDocuments: string[];
+    };
+
+    if (existingPhone?.telnyxOrderId) {
+      // Order was already successfully created in a prior attempt; reuse it
+      telnyxResult = {
+        telnyxOrderId: existingPhone.telnyxOrderId,
+        phoneNumber: normalized,
+        telnyxPhoneNumberResourceId: existingPhone.telnyxPhoneNumberId || null,
+        monthlyCostUsd: 2.00,
+        setupCostUsd: 0.00,
+        regulatoryStatus: 'APPROVED',
+        requiredDocuments: [],
+      };
+    } else {
+      try {
+        telnyxResult = await telephony.provisionNumber({
+          organizationId: params.organizationId,
+          phoneNumber: normalized,
+          countryCode: country,
+          numberType: type,
+          idempotencyKey: params.checkoutSessionId,
+        });
+
+        // Persist Telnyx order ID immediately so any mid-flight crash never orders again or triggers false refund
+        const intermediatePhoneId = existingPhone?.id || uuidv4();
+        if (existingPhone) {
+          await db.execute(
+            `UPDATE voice_phone_numbers
+             SET telnyx_order_id = $1, telnyx_phone_number_id = $2,
+                 provisioning_status = 'TELNYX_ORDER_CREATED', updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [telnyxResult.telnyxOrderId, telnyxResult.telnyxPhoneNumberResourceId, intermediatePhoneId]
+          );
+        } else {
+          await db.execute(
+            `INSERT INTO voice_phone_numbers (
+               id, organization_id, provider, phone_number, country_code, phone_number_type,
+               connection_method, status, provisioning_status, billing_status, cancel_at_period_end,
+               monthly_cost_usd, customer_monthly_cost_usd, creem_subscription_id, creem_customer_id,
+               creem_checkout_id, telnyx_order_id, telnyx_phone_number_id, created_at, updated_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, 'NEW_PROVIDER_NUMBER', 'PENDING_VERIFICATION', 'TELNYX_ORDER_CREATED', 'ACTIVE', FALSE, 3.00, 3.00, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+            [
+              intermediatePhoneId,
+              params.organizationId,
+              telephony.providerName,
+              normalized,
+              country,
+              type,
+              params.creemSubscriptionId,
+              params.creemCustomerId || null,
+              params.creemCheckoutId || null,
+              telnyxResult.telnyxOrderId,
+              telnyxResult.telnyxPhoneNumberResourceId,
+            ]
+          );
+        }
+      } catch (telnyxErr: any) {
+        // If conflict or timeout is ambiguous, preserve a recoverable pending state without refund or cancellation
+        const isAmbiguousConflict =
+          telnyxErr.message?.includes('TELNYX_409_AMBIGUOUS_CONFLICT') ||
+          telnyxErr.message?.includes('TELNYX_TIMEOUT_AMBIGUOUS');
+
+        if (isAmbiguousConflict) {
+          console.warn(`[VoiceService] Ambiguous Telnyx conflict/timeout for ${normalized}: Preserving recoverable state for reconciliation without refund/cancel.`);
+          if (params.checkoutSessionId) {
+            await db.execute(
+              `UPDATE voice_phone_number_checkouts
+               SET status = 'PENDING_RECONCILIATION', failure_reason = $1, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $2`,
+              [telnyxErr.message, params.checkoutSessionId]
+            );
+          }
+          const existingPhoneRecord = existingPhone || (await this.getPhoneNumberByNumber(normalized));
+          if (existingPhoneRecord) {
+            await db.execute(
+              `UPDATE voice_phone_numbers
+               SET status = 'PENDING_RECONCILIATION', provisioning_status = 'PENDING_RECONCILIATION',
+                   action_required_reason = 'TELNYX_CONFLICT_MANUAL_RECONCILIATION_REQUIRED',
+                   last_error = $1, updated_at = CURRENT_TIMESTAMP
+               WHERE id = $2`,
+              [telnyxErr.message, existingPhoneRecord.id]
+            );
+          } else {
+            await db.execute(
+              `INSERT INTO voice_phone_numbers (
+                 id, organization_id, provider, phone_number, connection_method,
+                 status, provisioning_status, billing_status, action_required_reason,
+                 last_error, created_at, updated_at
+               ) VALUES ($1, $2, 'TELNYX', $3, 'NEW_PROVIDER_NUMBER', 'PENDING_RECONCILIATION', 'PENDING_RECONCILIATION', 'ACTIVE', 'TELNYX_CONFLICT_MANUAL_RECONCILIATION_REQUIRED', $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+              [uuidv4(), params.organizationId, normalized, telnyxErr.message]
+            );
+          }
+          throw telnyxErr;
+        }
+
+        await this.handleFulfillmentFailure({
+          organizationId: params.organizationId,
+          phoneNumber: normalized,
+          checkoutSessionId: params.checkoutSessionId,
+          creemSubscriptionId: params.creemSubscriptionId,
+          error: telnyxErr,
+          transactionId: params.transactionId,
+        });
+        throw telnyxErr;
+      }
+    }
+
+    // 5. Connect Vapi Assistant and Telephony Routing
+    let vapiAssistantId: string | undefined;
+    let vapiPhoneNumberId: string | undefined;
+    try {
+      const promptData = await VoicePromptBuilder.buildPrompt(params.organizationId);
+      const orgAssistant = await VoiceAssistantProvisioningService.getOrCreateOrganizationAssistant(
+        params.organizationId,
+        { customVoiceProvider: voice }
+      );
+      vapiAssistantId = orgAssistant.assistantId;
+
+      if (voice.importPhoneNumber) {
+        const importRes = await voice.importPhoneNumber({
+          phoneNumber: normalized,
+          assistantId: vapiAssistantId,
+          name: `${promptData.agentName} Receptionist (${normalized})`,
+          telephonyProvider: 'telnyx',
+          telnyxApiKey: config.telnyx.apiKey,
+        });
+        vapiPhoneNumberId = importRes.vapiPhoneNumberId;
+      } else if (voice.linkPhoneNumberToAssistant && vapiAssistantId) {
+        await voice.linkPhoneNumberToAssistant({
+          phoneNumberIdOrNumber: normalized,
+          assistantId: vapiAssistantId,
+        });
+      }
+
+      await VoiceAssistantProvisioningService.synchronizePhoneLines(params.organizationId, vapiAssistantId);
+
+      await telephony.configureRoutingToVapi({
+        telnyxPhoneNumberId: telnyxResult.telnyxPhoneNumberResourceId,
+        phoneNumber: normalized,
+      });
+    } catch (vapiErr: any) {
+      console.warn(`[VoiceService] Vapi connection notice during fulfillment: ${vapiErr.message}`);
+    }
+
+    // 6. Save Active Phone Number Record and complete Checkout Session
+    const currentPhone = existingPhone || (await this.getPhoneNumberByNumber(normalized));
+    const phoneId = currentPhone?.id || uuidv4();
+    if (currentPhone) {
+      await db.execute(
+        `UPDATE voice_phone_numbers
+         SET organization_id = $1, provider = $2, country_code = $3, phone_number_type = $4,
+             connection_method = 'NEW_PROVIDER_NUMBER', status = 'ACTIVE', provisioning_status = 'ACTIVE',
+             billing_status = 'ACTIVE', monthly_cost_usd = 3.00, customer_monthly_cost_usd = 3.00,
+             creem_subscription_id = $5, creem_customer_id = $6, creem_checkout_id = $7,
+             telnyx_order_id = $8, telnyx_phone_number_id = $9, vapi_assistant_id = COALESCE($10, vapi_assistant_id),
+             vapi_phone_number_id = COALESCE($11, vapi_phone_number_id), last_error = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $12`,
+        [
+          params.organizationId,
+          telephony.providerName,
+          country,
+          type,
+          params.creemSubscriptionId,
+          params.creemCustomerId || null,
+          params.creemCheckoutId || null,
+          telnyxResult.telnyxOrderId || null,
+          telnyxResult.telnyxPhoneNumberResourceId || null,
+          vapiAssistantId || null,
+          vapiPhoneNumberId || null,
+          phoneId,
+        ]
+      );
+    } else {
+      await db.execute(
+        `INSERT INTO voice_phone_numbers (
+           id, organization_id, provider, phone_number, country_code, phone_number_type,
+           connection_method, status, provisioning_status, billing_status, cancel_at_period_end,
+           monthly_cost_usd, customer_monthly_cost_usd, creem_subscription_id, creem_customer_id,
+           creem_checkout_id, telnyx_order_id, telnyx_phone_number_id, vapi_assistant_id,
+           vapi_phone_number_id, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'NEW_PROVIDER_NUMBER', 'ACTIVE', 'ACTIVE', 'ACTIVE', FALSE, 3.00, 3.00, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          phoneId,
+          params.organizationId,
+          telephony.providerName,
+          normalized,
+          country,
+          type,
+          params.creemSubscriptionId,
+          params.creemCustomerId || null,
+          params.creemCheckoutId || null,
+          telnyxResult.telnyxOrderId || null,
+          telnyxResult.telnyxPhoneNumberResourceId || null,
+          vapiAssistantId || null,
+          vapiPhoneNumberId || null,
+        ]
+      );
+    }
+
+    if (params.checkoutSessionId) {
+      await db.execute(
+        `UPDATE voice_phone_number_checkouts
+         SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1`,
+        [params.checkoutSessionId]
+      );
+    }
+
+    await AuditService.log({
+      organizationId: params.organizationId,
+      action: AuditAction.VOICE_NUMBER_CONNECTED,
+      entityType: 'VOICE_PHONE_NUMBER',
+      entityId: phoneId,
+      metadata: { phoneNumber: normalized, provider: telephony.providerName, creemSubscriptionId: params.creemSubscriptionId },
+    });
+
+    return (await this.getPhoneNumberByNumber(normalized))!;
+  }
+
+  private static async handleFulfillmentFailure(params: {
+    organizationId: string;
+    phoneNumber: string;
+    checkoutSessionId?: string;
+    creemSubscriptionId?: string;
+    error: any;
+    transactionId?: string;
+  }): Promise<void> {
+    const errMsg = params.error?.message || 'Provisioning failed';
+    console.error(`[VoiceService] Fulfillment failure for ${params.phoneNumber}:`, errMsg);
+
+    if (params.checkoutSessionId) {
+      await db.execute(
+        `UPDATE voice_phone_number_checkouts
+         SET status = 'FAILED', failure_reason = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [errMsg, params.checkoutSessionId]
+      );
+    }
+
+    let refundDone = false;
+    let cancelDone = false;
+
+    // 1. Process full transaction refund if transaction ID is available
+    if (params.transactionId) {
+      const { CreemBillingService } = await import('../CreemBillingService');
+      const creem = CreemBillingService.getCreemSdk();
+      if (creem) {
+        try {
+          await creem.transactions.refund({ transactionId: params.transactionId });
+          refundDone = true;
+        } catch (refundErr: any) {
+          if (refundErr.message?.includes('already refunded')) {
+            refundDone = true;
+          } else {
+            console.warn(`[VoiceService] Automatic refund attempt failed: ${refundErr.message}`);
+          }
+        }
+      } else {
+        refundDone = true;
+      }
+    }
+
+    // 2. Immediately cancel recurring Creem subscription so customer is never billed next month
+    if (params.creemSubscriptionId) {
+      const { CreemBillingService } = await import('../CreemBillingService');
+      const creem = CreemBillingService.getCreemSdk();
+      if (creem) {
+        try {
+          await creem.subscriptions.cancel(params.creemSubscriptionId, { mode: 'immediate' });
+          cancelDone = true;
+        } catch (subCancelErr: any) {
+          console.warn(`[VoiceService] Automatic subscription cancellation failed during failure handling: ${subCancelErr.message}`);
+        }
+      } else {
+        cancelDone = true;
+      }
+    }
+
+    const existing = await db.getOne<{ id: string }>(
+      'SELECT id FROM voice_phone_numbers WHERE phone_number = $1',
+      [params.phoneNumber]
+    );
+
+    if (existing) {
+      await db.execute(
+        `UPDATE voice_phone_numbers
+         SET status = 'FAILED', provisioning_status = 'FAILED', last_error = $1,
+             refund_status = $2, cancellation_status = $3, action_required_reason = $4, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $5`,
+        [
+          errMsg,
+          refundDone ? 'REFUNDED' : 'PENDING_MANUAL',
+          cancelDone ? 'CANCELED' : 'CANCEL_PENDING',
+          refundDone ? null : 'PROVISIONING_FAILED_MANUAL_REFUND_OR_RETRY_REQUIRED',
+          existing.id,
+        ]
+      );
+    } else {
+      const failedId = uuidv4();
+      await db.execute(
+        `INSERT INTO voice_phone_numbers (
+           id, organization_id, provider, phone_number, connection_method,
+           status, provisioning_status, billing_status, last_error, refund_status,
+           cancellation_status, action_required_reason, created_at, updated_at
+         ) VALUES ($1, $2, 'TELNYX', $3, 'NEW_PROVIDER_NUMBER', 'FAILED', 'FAILED', 'FAILED', $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [
+          failedId,
+          params.organizationId,
+          params.phoneNumber,
+          errMsg,
+          refundDone ? 'REFUNDED' : 'PENDING_MANUAL',
+          cancelDone ? 'CANCELED' : 'CANCEL_PENDING',
+          refundDone ? null : 'PROVISIONING_FAILED_MANUAL_REFUND_OR_RETRY_REQUIRED',
+        ]
+      );
+    }
+  }
+
+  /**
+   * Deprovision and release an expired phone number from carrier (Telnyx) and assistant (Vapi)
+   */
+  static async deprovisionReleasedNumber(params: {
+    organizationId: string;
+    phoneNumberId: string;
+    reason?: string;
+  }): Promise<boolean> {
+    const num = await this.getPhoneNumberById(params.organizationId, params.phoneNumberId);
+    if (!num) return false;
+
+    const telephony = this.getTelephonyProvider();
+    const voice = this.getVoiceProvider();
+
+    // 1. Unlink from Vapi Assistant if connected
+    try {
+      if (voice.deletePhoneNumber && num.vapiPhoneNumberId) {
+        await voice.deletePhoneNumber(num.vapiPhoneNumberId);
+      }
+    } catch (vapiErr: any) {
+      console.warn(`[VoiceService] Vapi deprovision warning: ${vapiErr.message}`);
+    }
+
+    // 2. Release on Telnyx
+    let released = false;
+    try {
+      if (telephony.releaseNumber) {
+        released = await telephony.releaseNumber({
+          phoneNumber: num.phoneNumber,
+          telnyxPhoneNumberId: num.telnyxPhoneNumberId,
+        });
+      } else {
+        released = true;
+      }
+    } catch (telnyxErr: any) {
+      console.error(`[VoiceService] Telnyx release failure: ${telnyxErr.message}`);
+    }
+
+    await db.execute(
+      `UPDATE voice_phone_numbers
+       SET status = 'INACTIVE',
+           provisioning_status = 'INACTIVE',
+           release_status = $1,
+           released_at = $2,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $3 AND organization_id = $4`,
+      [
+        released ? 'RELEASED' : 'RELEASE_FAILED',
+        released ? new Date().toISOString() : null,
+        params.phoneNumberId,
+        params.organizationId,
+      ]
+    );
+
+    await AuditService.log({
+      organizationId: params.organizationId,
+      action: AuditAction.VOICE_NUMBER_DISCONNECTED,
+      entityType: 'VOICE_PHONE_NUMBER',
+      entityId: params.phoneNumberId,
+      metadata: { phoneNumber: num.phoneNumber, reason: params.reason || 'subscription_expired', released },
+    });
+
+    return released;
+  }
+
+  /**
    * Retry provisioning for a failed or partially configured phone number
    */
   static async retryNumberProvisioning(params: {
@@ -1301,7 +1814,7 @@ export class VoiceService {
    * Get single phone number by ID
    */
   static async getPhoneNumberById(organizationId: string, id: string): Promise<VoicePhoneNumber | null> {
-    return await db.getOne<VoicePhoneNumber>(
+    const row = await db.getOne<VoicePhoneNumber>(
       `SELECT id, organization_id as "organizationId", provider, phone_number as "phoneNumber",
               country_code as "countryCode", phone_number_type as "phoneNumberType",
               connection_method as "connectionMethod", provider_phone_number_id as "providerPhoneNumberId",
@@ -1311,6 +1824,10 @@ export class VoiceService {
               monthly_cost_usd as "monthlyCostUsd", setup_cost_usd as "setupCostUsd",
               provider_cost_usd as "providerCostUsd", markup_usd as "markupUsd",
               customer_monthly_cost_usd as "customerMonthlyCostUsd",
+              creem_subscription_id as "creemSubscriptionId",
+              creem_customer_id as "creemCustomerId",
+              creem_checkout_id as "creemCheckoutId",
+              billing_interval as "billingInterval",
               paddle_subscription_id as "paddleSubscriptionId",
               paddle_transaction_id as "paddleTransactionId",
               paddle_price_id as "paddlePriceId",
@@ -1319,6 +1836,13 @@ export class VoiceService {
               pricing_policy_version as "pricingPolicyVersion",
               cancel_at_period_end as "cancelAtPeriodEnd",
               canceled_at as "canceledAt",
+              release_status as "releaseStatus",
+              released_at as "releasedAt",
+              release_attempts as "releaseAttempts",
+              next_release_attempt_at as "nextReleaseAttemptAt",
+              release_error as "releaseError",
+              cancellation_status as "cancellationStatus",
+              cancellation_error as "cancellationError",
               refund_status as "refundStatus",
               refund_amount_usd as "refundAmountUsd",
               refunded_at as "refundedAt",
@@ -1332,6 +1856,41 @@ export class VoiceService {
        FROM voice_phone_numbers
        WHERE organization_id = $1 AND id = $2`,
       [organizationId, id]
+    );
+    if (!row) return null;
+    return {
+      ...row,
+      cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd || (row as any).cancel_at_period_end),
+    };
+  }
+
+  /**
+   * Get a phone number record across tenants by its canonical phone number
+   */
+  static async getPhoneNumberByNumber(phoneNumber: string): Promise<VoicePhoneNumber | null> {
+    const normalized = this.normalizePhoneNumber(phoneNumber);
+    if (!normalized) return null;
+    return await db.getOne<VoicePhoneNumber>(
+      `SELECT id, organization_id as "organizationId", provider, phone_number as "phoneNumber",
+              country_code as "countryCode", phone_number_type as "phoneNumberType",
+              connection_method as "connectionMethod", provider_phone_number_id as "providerPhoneNumberId",
+              vapi_assistant_id as "vapiAssistantId", vapi_phone_number_id as "vapiPhoneNumberId",
+              telnyx_phone_number_id as "telnyxPhoneNumberId", telnyx_order_id as "telnyxOrderId",
+              forwarding_target as "forwardingTarget", sip_endpoint as "sipEndpoint", status,
+              provisioning_status as "provisioningStatus", monthly_cost_usd as "monthlyCostUsd",
+              setup_cost_usd as "setupCostUsd", provider_cost_usd as "providerCostUsd",
+              markup_usd as "markupUsd", customer_monthly_cost_usd as "customerMonthlyCostUsd",
+              creem_subscription_id as "creemSubscriptionId", creem_customer_id as "creemCustomerId",
+              creem_checkout_id as "creemCheckoutId", billing_status as "billingStatus",
+              billing_interval as "billingInterval", cancel_at_period_end as "cancelAtPeriodEnd",
+              release_status as "releaseStatus", released_at as "releasedAt",
+              cancellation_status as "cancellationStatus", cancellation_error as "cancellationError",
+              refund_status as "refundStatus", refund_amount_usd as "refundAmountUsd",
+              refunded_at as "refundedAt", last_error as "lastError",
+              action_required_reason as "actionRequiredReason",
+              created_at as "createdAt", updated_at as "updatedAt"
+       FROM voice_phone_numbers WHERE phone_number = $1 LIMIT 1`,
+      [normalized]
     );
   }
 
@@ -1349,6 +1908,10 @@ export class VoiceService {
               monthly_cost_usd as "monthlyCostUsd", setup_cost_usd as "setupCostUsd",
               provider_cost_usd as "providerCostUsd", markup_usd as "markupUsd",
               customer_monthly_cost_usd as "customerMonthlyCostUsd",
+              creem_subscription_id as "creemSubscriptionId",
+              creem_customer_id as "creemCustomerId",
+              creem_checkout_id as "creemCheckoutId",
+              billing_interval as "billingInterval",
               paddle_subscription_id as "paddleSubscriptionId",
               paddle_transaction_id as "paddleTransactionId",
               paddle_price_id as "paddlePriceId",
@@ -1357,6 +1920,13 @@ export class VoiceService {
               pricing_policy_version as "pricingPolicyVersion",
               cancel_at_period_end as "cancelAtPeriodEnd",
               canceled_at as "canceledAt",
+              release_status as "releaseStatus",
+              released_at as "releasedAt",
+              release_attempts as "releaseAttempts",
+              next_release_attempt_at as "nextReleaseAttemptAt",
+              release_error as "releaseError",
+              cancellation_status as "cancellationStatus",
+              cancellation_error as "cancellationError",
               refund_status as "refundStatus",
               refund_amount_usd as "refundAmountUsd",
               refunded_at as "refundedAt",
@@ -1372,7 +1942,10 @@ export class VoiceService {
        ORDER BY created_at DESC`,
       [organizationId]
     );
-    return res.rows;
+    return res.rows.map((row: any) => ({
+      ...row,
+      cancelAtPeriodEnd: Boolean(row.cancelAtPeriodEnd || row.cancel_at_period_end),
+    }));
   }
 
   /**
@@ -1446,10 +2019,13 @@ export class VoiceService {
    */
   static async checkPhoneNumberLimit(
     organizationId: string,
-    database?: typeof db
+    database?: typeof db,
+    options?: { includePendingReservations?: boolean }
   ): Promise<{
     allowed: boolean;
     activeCount: number;
+    pendingCount: number;
+    totalCount: number;
     limit: number;
     planTier: 'TRIAL' | 'STARTER' | 'PRO' | 'BUSINESS';
   }> {
@@ -1475,9 +2051,23 @@ export class VoiceService {
     );
     const activeCount = parseInt(countRow?.count ?? '0', 10);
 
+    let pendingCount = 0;
+    if (options?.includePendingReservations) {
+      const pendingRow = await d.getOne<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM voice_phone_number_checkouts
+         WHERE organization_id = $1 AND status = 'PENDING' AND expires_at > CURRENT_TIMESTAMP`,
+        [organizationId]
+      );
+      pendingCount = parseInt(pendingRow?.count ?? '0', 10);
+    }
+
+    const totalCount = activeCount + pendingCount;
+
     return {
-      allowed: activeCount < limit,
+      allowed: totalCount < limit,
       activeCount,
+      pendingCount,
+      totalCount,
       limit,
       planTier,
     };

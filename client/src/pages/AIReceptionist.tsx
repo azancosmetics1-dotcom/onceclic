@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import {
   CustomerVoiceConfig,
@@ -41,6 +42,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '../components/Badge';
 export const AIReceptionistPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [config, setConfig] = useState<CustomerVoiceConfig | null>(null);
   const [calls, setCalls] = useState<VoiceCallRecord[]>([]);
   const [analytics, setAnalytics] = useState<VoiceAnalyticsSummary | null>(null);
@@ -48,6 +50,9 @@ export const AIReceptionistPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [pollingPostCheckout, setPollingPostCheckout] = useState(false);
+  const [postCheckoutMsg, setPostCheckoutMsg] = useState<string | null>(null);
+  const [cancellingNumberId, setCancellingNumberId] = useState<string | null>(null);
 
   // Setup Form State
   // Note: "Connect Existing Number" has been removed — only new Telnyx numbers supported.
@@ -129,6 +134,52 @@ export const AIReceptionistPage: React.FC = () => {
     loadData();
   }, []);
 
+  // Post-checkout polling when customer returns from Creem checkout
+  useEffect(() => {
+    const checkoutStatus = searchParams.get('checkout');
+    const checkoutPhone = searchParams.get('phone');
+    if (checkoutStatus === 'success' && checkoutPhone) {
+      setPollingPostCheckout(true);
+      setPostCheckoutMsg(`Payment confirmed for ${checkoutPhone}! Verifying subscription and setting up your business number...`);
+
+      let attempts = 0;
+      const interval = setInterval(async () => {
+        attempts++;
+        try {
+          const statusRes = await api.getVoiceStatus();
+          if (statusRes) {
+            setConfig(statusRes);
+            const matchingPhone = (statusRes.phoneNumbers || []).find(
+              (n) => n.phoneNumber === checkoutPhone || n.phoneNumber.includes(checkoutPhone.replace(/\D/g, ''))
+            );
+            if (matchingPhone && matchingPhone.status === 'ACTIVE') {
+              clearInterval(interval);
+              setPollingPostCheckout(false);
+              setSuccessMsg(`Phone number ${matchingPhone.phoneNumber} is now active and ready for AI calls!`);
+              setPostCheckoutMsg(null);
+              searchParams.delete('checkout');
+              searchParams.delete('phone');
+              searchParams.delete('checkoutId');
+              setSearchParams(searchParams);
+              loadData();
+              return;
+            }
+          }
+        } catch {
+          // Continue polling on transient errors
+        }
+
+        if (attempts >= 12) {
+          clearInterval(interval);
+          setPollingPostCheckout(false);
+          setPostCheckoutMsg(`Number provisioning is completing on carrier networks. Please refresh shortly.`);
+        }
+      }, 2500);
+
+      return () => clearInterval(interval);
+    }
+  }, [searchParams]);
+
   // Update available number types when country changes
   const activeCountryInfo = countries.find((c) => c.countryCode === selectedCountry) || countries[0];
   useEffect(() => {
@@ -166,41 +217,67 @@ export const AIReceptionistPage: React.FC = () => {
     setShowOrderConfirmModal(true);
   };
 
-  // Execute server-side order with explicit confirmation & idempotency key
+  // Initiate independent Creem recurring checkout session ($3/month)
   const handleConfirmOrder = async () => {
     if (!selectedNumberForOrder) return;
 
     try {
       setOrderingNumber(true);
       setError(null);
-      setOrderProgressState('PROVISIONING');
+      setOrderProgressState('INITIATING_CHECKOUT');
 
       const idempotencyKey = `ord_${selectedCountry}_${selectedNumberForOrder.phoneNumber}_${Date.now()}`;
 
-      await api.orderNewVoiceNumber({
+      const res = await api.createVoiceNumberCheckoutSession({
         phoneNumber: selectedNumberForOrder.phoneNumber,
         countryCode: selectedNumberForOrder.countryCode,
         numberType: selectedNumberForOrder.numberType,
-        idempotencyKey,
-        confirmPurchase: true,
-        expectedMonthlyCostUsd: selectedNumberForOrder.monthlyCostUsd,
+        expectedMonthlyCostUsd: 3.00,
         expectedSetupCostUsd: selectedNumberForOrder.setupCostUsd,
+        idempotencyKey,
       });
 
-      setOrderProgressState('CONNECTING');
-      await new Promise((r) => setTimeout(r, 600));
+      const checkoutData = res?.data || res;
+      const checkoutUrl = checkoutData?.checkoutUrl;
 
-      setOrderProgressState('TEST_REQUIRED');
-      setSuccessMsg(`Phone number ${selectedNumberForOrder.phoneNumber} provisioned! Run a test call below to activate your AI receptionist.`);
+      if (checkoutUrl) {
+        setOrderProgressState('REDIRECTING');
+        setShowOrderConfirmModal(false);
+        // Redirect customer to Creem secure checkout
+        window.location.href = checkoutUrl;
+        return;
+      }
+
+      setSuccessMsg(`Checkout session created. Please proceed to payment.`);
       setShowOrderConfirmModal(false);
       setSelectedNumberForOrder(null);
       setAvailableNumbers([]);
       await loadData();
     } catch (err: any) {
-      setError(err.message || 'Phone number provisioning failed.');
+      setError(err.message || 'Phone number checkout initiation failed.');
       setOrderProgressState('FAILED');
     } finally {
       setOrderingNumber(false);
+    }
+  };
+
+  // Cancel individual phone number subscription without touching main plan
+  const handleCancelSubscription = async (id: string, phoneStr: string) => {
+    if (!window.confirm(`Are you sure you want to cancel the recurring subscription for ${phoneStr}? The number will remain active until the end of your billing cycle. Your main subscription will NOT be cancelled.`)) {
+      return;
+    }
+
+    try {
+      setCancellingNumberId(id);
+      setError(null);
+      const res = await api.cancelVoiceNumberRental(id);
+      const data = res?.data || res;
+      setSuccessMsg(data?.message || `Subscription for ${phoneStr} scheduled for cancellation at period end.`);
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to cancel phone number subscription.');
+    } finally {
+      setCancellingNumberId(null);
     }
   };
 
@@ -366,6 +443,23 @@ export const AIReceptionistPage: React.FC = () => {
       </div>
 
       {/* Alerts */}
+      {pollingPostCheckout && (
+        <div className="p-4 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-start space-x-3 text-sky-300">
+          <RefreshCw className="w-5 h-5 shrink-0 mt-0.5 animate-spin" />
+          <div className="text-sm">
+            <p className="font-semibold">{postCheckoutMsg}</p>
+            <p className="text-xs text-slate-400 mt-1">Please wait while our telephony network assigns your AI assistant.</p>
+          </div>
+        </div>
+      )}
+
+      {!pollingPostCheckout && postCheckoutMsg && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start space-x-3 text-amber-300">
+          <Info className="w-5 h-5 shrink-0 mt-0.5" />
+          <div className="text-sm">{postCheckoutMsg}</div>
+        </div>
+      )}
+
       {error && (
         <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start space-x-3 text-rose-300">
           <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
@@ -721,10 +815,13 @@ export const AIReceptionistPage: React.FC = () => {
                         <p className="font-mono font-bold text-white text-base">{num.nationalFormat}</p>
                         <div className="flex items-center space-x-2 mt-1">
                           <span className="text-xs text-emerald-400 font-semibold">
-                            ${num.monthlyCostUsd.toFixed(2)}/mo
+                            $3.00/mo
                           </span>
                           <span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded border border-slate-800">
                             {num.numberType}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            (separate subscription)
                           </span>
                         </div>
                       </div>
@@ -801,18 +898,39 @@ export const AIReceptionistPage: React.FC = () => {
                               FAILED
                             </span>
                           )}
+                          {num.billingStatus === 'PAST_DUE' && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                              PAST DUE (Grace Period)
+                            </span>
+                          )}
+                          {num.cancelAtPeriodEnd && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/30">
+                              CANCELING AT PERIOD END
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center space-x-3 text-xs text-slate-400 mt-1">
                           <span>Method: {num.connectionMethod?.replace(/_/g, ' ')}</span>
                           {num.countryCode && <span>&bull; Country: {num.countryCode}</span>}
                           {num.monthlyCostUsd !== undefined && num.monthlyCostUsd > 0 && (
-                            <span>&bull; ${num.monthlyCostUsd.toFixed(2)}/mo</span>
+                            <span>&bull; ${num.monthlyCostUsd.toFixed(2)}/mo (Creem)</span>
                           )}
                         </div>
                       </div>
                     </div>
 
                     <div className="flex items-center space-x-2">
+                      {/* Cancel Subscription button for active numbers */}
+                      {isActive && !num.cancelAtPeriodEnd && (
+                        <button
+                          onClick={() => handleCancelSubscription(num.id, num.phoneNumber)}
+                          disabled={cancellingNumberId === num.id}
+                          className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition disabled:opacity-50"
+                          title="Cancel recurring phone number rental"
+                        >
+                          {cancellingNumberId === num.id ? 'Canceling...' : 'Cancel Subscription'}
+                        </button>
+                      )}
                       {/* Retry Button if FAILED */}
                       {isFailed && (
                         <button
@@ -938,16 +1056,20 @@ export const AIReceptionistPage: React.FC = () => {
                   <span className="font-mono text-emerald-400">{selectedNumberForOrder.phoneNumber}</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-300 pt-2 border-t border-slate-900">
-                  <span>Actual Telnyx Provider Cost:</span>
-                  <span className="font-semibold text-slate-300">${(selectedNumberForOrder.providerCostUsd ?? (selectedNumberForOrder.monthlyCostUsd - 1)).toFixed(2)} / month</span>
+                  <span>Current Subscription Plan:</span>
+                  <span className="font-semibold text-white">{usage?.planTier || 'PRO'} Plan</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-300">
-                  <span>ONCEClic Number Markup:</span>
-                  <span className="font-semibold text-emerald-400">+$1.00 / month (fixed)</span>
+                  <span>Plan Phone Number Limit:</span>
+                  <span className="font-semibold text-slate-300">Maximum {maxPhones} active number{maxPhones === 1 ? '' : 's'}</span>
                 </div>
-                <div className="flex justify-between items-center text-slate-200 font-bold bg-slate-900/60 p-2 rounded-lg">
-                  <span>Customer Phone Number Price:</span>
-                  <span className="text-emerald-400">${selectedNumberForOrder.monthlyCostUsd.toFixed(2)} / month</span>
+                <div className="flex justify-between items-center text-slate-300">
+                  <span>Currently Active Numbers:</span>
+                  <span className="font-semibold text-slate-300">{activePhones} / {maxPhones} active</span>
+                </div>
+                <div className="flex justify-between items-center text-slate-200 font-bold bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
+                  <span>Phone Number Recurring Fee:</span>
+                  <span className="text-emerald-400 font-mono text-sm">$3.00 / month</span>
                 </div>
                 {selectedNumberForOrder.setupCostUsd > 0 && (
                   <div className="flex justify-between items-center text-slate-300">
@@ -955,18 +1077,6 @@ export const AIReceptionistPage: React.FC = () => {
                     <span className="font-bold text-white">${selectedNumberForOrder.setupCostUsd.toFixed(2)}</span>
                   </div>
                 )}
-                <div className="flex justify-between items-center text-slate-400 text-[11px] pt-1 border-t border-slate-900">
-                  <span>ONCEClic Pro Plan (Separate):</span>
-                  <span>$19.00 / month</span>
-                </div>
-                <div className="flex justify-between items-center text-white font-bold text-xs">
-                  <span>Combined Recurring Total:</span>
-                  <span>${(19.00 + selectedNumberForOrder.monthlyCostUsd).toFixed(2)} / month</span>
-                </div>
-                <div className="flex justify-between items-center text-slate-300">
-                  <span>Monthly AI Calls Included:</span>
-                  <span className="font-semibold text-white">{usage?.maxMonthlyCalls || maxCalls} calls ({usage?.planTier || 'PRO'} Plan)</span>
-                </div>
               </div>
 
               {selectedNumberForOrder.requiresDocuments && (
@@ -981,9 +1091,12 @@ export const AIReceptionistPage: React.FC = () => {
                 </div>
               )}
 
-              <p className="text-slate-400 text-[11px] leading-relaxed">
-                Phone-number rental is billed separately from the $19.00/month ONCEClic Pro subscription. Applicable taxes and payment processing are calculated at checkout.
-              </p>
+              <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/25 rounded-xl text-emerald-300 text-[11px] leading-relaxed space-y-1">
+                <p className="font-semibold">Independent Subscription Notice:</p>
+                <p>
+                  This phone number has its own recurring subscription of <strong>$3.00 USD/month</strong> via Creem. It is billed independently from your main ONCEClic plan. Canceling or changing your main subscription will never automatically cancel or release your phone number.
+                </p>
+              </div>
             </div>
 
             <div className="flex justify-end space-x-3 pt-2">
@@ -999,15 +1112,15 @@ export const AIReceptionistPage: React.FC = () => {
                 type="button"
                 onClick={handleConfirmOrder}
                 disabled={orderingNumber}
-                className="px-5 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl transition shadow-md shadow-emerald-500/20 disabled:opacity-50 flex items-center space-x-1.5"
+                className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-xl transition shadow-md shadow-emerald-500/20 disabled:opacity-50 flex items-center space-x-1.5"
               >
                 {orderingNumber ? (
                   <>
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>{orderProgressState || 'Provisioning...'}</span>
+                    <span>{orderProgressState === 'REDIRECTING' ? 'Redirecting to Creem Checkout...' : 'Preparing Checkout...'}</span>
                   </>
                 ) : (
-                  <span>Confirm & Provision (${selectedNumberForOrder.monthlyCostUsd.toFixed(2)}/mo)</span>
+                  <span>Proceed to Checkout — $3/month</span>
                 )}
               </button>
             </div>

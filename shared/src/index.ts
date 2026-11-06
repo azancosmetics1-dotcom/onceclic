@@ -1403,6 +1403,12 @@ export interface PhoneNumberCheckoutSession {
   status: 'PENDING' | 'AUTHORIZED' | 'PAID' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
   paddleTransactionId?: string;
   paddleSubscriptionId?: string;
+  creemCheckoutId?: string;
+  creemSubscriptionId?: string;
+  creemCustomerId?: string;
+  creemProductId?: string;
+  reservationId?: string;
+  checkoutUrl?: string;
   expiresAt: string;
   createdAt: string;
 }
@@ -1432,11 +1438,22 @@ export interface VoicePhoneNumber {
   paddleSubscriptionId?: string;
   paddleTransactionId?: string;
   paddlePriceId?: string;
-  billingStatus?: 'UNPAID' | 'AUTHORIZED' | 'PAID' | 'PAYMENT_FAILED' | 'CANCELED' | 'ACTIVE' | string;
+  creemSubscriptionId?: string;
+  creemCustomerId?: string;
+  creemCheckoutId?: string;
+  billingInterval?: 'monthly' | string;
+  billingStatus?: 'UNPAID' | 'AUTHORIZED' | 'PAID' | 'PAYMENT_FAILED' | 'PAST_DUE' | 'CANCELED' | 'ACTIVE' | string;
   billingCurrency?: string;
   pricingPolicyVersion?: string;
   cancelAtPeriodEnd?: boolean;
   canceledAt?: string;
+  releaseStatus?: 'NOT_RELEASED' | 'RELEASE_PENDING' | 'RELEASED' | 'RELEASE_FAILED' | 'RELEASE_FAILED_MANUAL_ATTENTION' | string;
+  releasedAt?: string;
+  releaseAttempts?: number;
+  nextReleaseAttemptAt?: string;
+  releaseError?: string;
+  cancellationStatus?: 'NONE' | 'SCHEDULED' | 'CANCELED' | 'FAILED' | string;
+  cancellationError?: string;
   refundStatus?: string;
   refundAmountUsd?: number;
   refundedAt?: string;

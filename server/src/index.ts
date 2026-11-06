@@ -233,6 +233,10 @@ export async function startServer() {
     // Start Voice Recording Sync Worker (60s poll)
     const { VoiceRecordingSyncWorker } = require('./services/voice/VoiceRecordingSyncWorker');
     VoiceRecordingSyncWorker.startPolling(60000);
+
+    // Start Durable Phone Deprovisioning Worker (60s poll)
+    const { PhoneDeprovisioningWorker } = require('./services/voice/PhoneDeprovisioningWorker');
+    PhoneDeprovisioningWorker.startPolling(60000);
   }
 
   return { app, server };

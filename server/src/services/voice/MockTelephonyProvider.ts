@@ -20,6 +20,12 @@ export class MockTelephonyProvider implements ITelephonyProvider {
 
   // Simulated failure flags for test purposes
   public simulateProvisionFailure: boolean = false;
+  public simulate409Conflict: boolean = false;
+  public simulateConflictBelongsToSameOrg: boolean = true;
+  public simulateAmbiguousConflict: boolean = false;
+  public simulateNetworkTimeout: boolean = false;
+  public simulateReleaseFailure: boolean = false;
+  public releaseCallCount: number = 0;
   /** Simulates Telnyx SIP routing PATCH failure (non-throwing — returns success=false) */
   public simulateVapiRoutingFailure: boolean = false;
   /** Simulates SIP routing throwing an unrecoverable error */
@@ -149,6 +155,45 @@ export class MockTelephonyProvider implements ITelephonyProvider {
       throw new Error('Simulated Telnyx telephony provisioning failure: Number unavailable or carrier timeout.');
     }
 
+    if (this.simulateNetworkTimeout) {
+      if (this.simulateAmbiguousConflict) {
+        throw new Error('TELNYX_TIMEOUT_AMBIGUOUS: Number order status ambiguous after network timeout.');
+      } else if (this.simulateConflictBelongsToSameOrg) {
+        const ts = Date.now();
+        const rand = Math.floor(Math.random() * 10000);
+        return {
+          telnyxOrderId: `recovered_order_timeout_${ts}_${rand}`,
+          phoneNumber: params.phoneNumber,
+          telnyxPhoneNumberResourceId: `recovered_ptn_timeout_${ts}_${rand}`,
+          monthlyCostUsd: 2.00,
+          setupCostUsd: 0.00,
+          regulatoryStatus: 'APPROVED',
+          requiredDocuments: [],
+        };
+      }
+      throw new Error('TELNYX_TIMEOUT_AMBIGUOUS: Number order status ambiguous after network timeout.');
+    }
+
+    if (this.simulate409Conflict) {
+      if (this.simulateAmbiguousConflict) {
+        throw new Error('TELNYX_409_AMBIGUOUS_CONFLICT: Telnyx reported a 409 conflict, but ownership could not be verified in inventory.');
+      } else if (this.simulateConflictBelongsToSameOrg) {
+        const ts = Date.now();
+        const rand = Math.floor(Math.random() * 10000);
+        return {
+          telnyxOrderId: `recovered_order_409_${ts}_${rand}`,
+          phoneNumber: params.phoneNumber,
+          telnyxPhoneNumberResourceId: `recovered_ptn_409_${ts}_${rand}`,
+          monthlyCostUsd: 2.00,
+          setupCostUsd: 0.00,
+          regulatoryStatus: 'APPROVED',
+          requiredDocuments: [],
+        };
+      } else {
+        throw new Error(`TELNYX_409_FOREIGN_OWNER: The requested phone number ${params.phoneNumber} was already assigned to another party on Telnyx.`);
+      }
+    }
+
     // Idempotency check: if request was already executed, return cached order
     if (params.idempotencyKey && this.idempotencyCache.has(params.idempotencyKey)) {
       return this.idempotencyCache.get(params.idempotencyKey);
@@ -203,6 +248,51 @@ export class MockTelephonyProvider implements ITelephonyProvider {
     }
 
     return result;
+  }
+
+  async releaseNumber(params: {
+    phoneNumber: string;
+    telnyxPhoneNumberId?: string | null;
+  }): Promise<boolean> {
+    this.releaseCallCount++;
+    if (this.simulateReleaseFailure) {
+      return false;
+    }
+    this.provisionedNumbers.delete(params.phoneNumber);
+    return true;
+  }
+
+  async queryExistingNumber(params: {
+    phoneNumber: string;
+    organizationId?: string;
+  }): Promise<{
+    found: boolean;
+    telnyxPhoneNumberResourceId?: string | null;
+    customerReference?: string;
+    status?: string;
+    belongsToOrganization?: boolean;
+  }> {
+    if (this.simulateAmbiguousConflict) {
+      return { found: false };
+    }
+    if (this.simulate409Conflict) {
+      const belongs = this.simulateConflictBelongsToSameOrg;
+      return {
+        found: true,
+        telnyxPhoneNumberResourceId: `ptn_existing_${params.phoneNumber.replace(/\D/g, '')}`,
+        customerReference: belongs && params.organizationId ? `org_${params.organizationId}` : 'org_other_tenant',
+        status: 'active',
+        belongsToOrganization: belongs,
+      };
+    }
+    const isProv = this.provisionedNumbers.has(params.phoneNumber);
+    return {
+      found: isProv,
+      telnyxPhoneNumberResourceId: isProv ? this.provisionedNumbers.get(params.phoneNumber)?.telnyxPhoneNumberResourceId : null,
+      customerReference: params.organizationId ? `org_${params.organizationId}` : undefined,
+      status: isProv ? 'active' : 'unassigned',
+      belongsToOrganization: isProv,
+    };
   }
 
   async verifyExistingNumberOwnership(params: {

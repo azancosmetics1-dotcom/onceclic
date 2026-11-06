@@ -215,18 +215,44 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
       throw new Error(`Unsupported country for telephony provisioning: ${country}`);
     }
 
-    const response = await SafeNetworkClient.fetch('https://api.telnyx.com/v2/number_orders', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
-        ...(params.idempotencyKey ? { 'Idempotency-Key': params.idempotencyKey } : {}),
-      },
-      body: JSON.stringify({
-        phone_numbers: [{ phone_number: params.phoneNumber }],
-        customer_reference: `org_${params.organizationId}`,
-      }),
-    });
+    const type = (params.numberType || 'local').toLowerCase();
+
+    let response: any;
+    try {
+      response = await SafeNetworkClient.fetch('https://api.telnyx.com/v2/number_orders', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+          ...(params.idempotencyKey ? { 'Idempotency-Key': params.idempotencyKey } : {}),
+        },
+        body: JSON.stringify({
+          phone_numbers: [{ phone_number: params.phoneNumber }],
+          customer_reference: `org_${params.organizationId}`,
+        }),
+      });
+    } catch (networkErr: any) {
+      // Ambiguous network failure or timeout: query Telnyx inventory before failing
+      console.warn(`[TelnyxTelephony] Network error during number order for ${params.phoneNumber}: ${networkErr.message}. Checking inventory for existing order...`);
+      const existing = await this.queryExistingNumber({
+        phoneNumber: params.phoneNumber,
+        organizationId: params.organizationId,
+      });
+
+      if (existing.found && existing.belongsToOrganization) {
+        console.log(`[TelnyxTelephony] Successfully recovered phone number ${params.phoneNumber} after network timeout.`);
+        return {
+          telnyxOrderId: existing.telnyxPhoneNumberResourceId || `recovered_timeout_${Date.now()}`,
+          phoneNumber: params.phoneNumber,
+          telnyxPhoneNumberResourceId: existing.telnyxPhoneNumberResourceId || null,
+          monthlyCostUsd: countryConfig.monthlyCostUsd[type] || 2.00,
+          setupCostUsd: countryConfig.setupCostUsd[type] || 0.00,
+          regulatoryStatus: (countryConfig.regulatoryLevel === 'NONE' ? 'NOT_REQUIRED' : 'APPROVED') as any,
+          requiredDocuments: countryConfig.requiredDocuments,
+        };
+      }
+      throw new Error(`TELNYX_TIMEOUT_AMBIGUOUS: Number order status ambiguous after network error: ${networkErr.message}`);
+    }
 
     if (!response.ok) {
       const err = await response.json().catch(() => ({}));
@@ -238,7 +264,29 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
         throw new Error('Telnyx account balance is insufficient to complete number purchase. Order rejected.');
       }
       if (response.status === 409 || detail?.toLowerCase().includes('unavailable') || detail?.toLowerCase().includes('already')) {
-        throw new Error(`The requested phone number ${params.phoneNumber} is no longer available or was already ordered.`);
+        // Query Telnyx inventory to determine exact ownership
+        console.warn(`[TelnyxTelephony] Telnyx returned 409 conflict for ${params.phoneNumber}. Verifying organization ownership...`);
+        const existing = await this.queryExistingNumber({
+          phoneNumber: params.phoneNumber,
+          organizationId: params.organizationId,
+        });
+
+        if (existing.found && existing.belongsToOrganization) {
+          console.log(`[TelnyxTelephony] Successfully recovered existing phone number ${params.phoneNumber} belonging to organization ${params.organizationId}.`);
+          return {
+            telnyxOrderId: existing.telnyxPhoneNumberResourceId || `recovered_409_${Date.now()}`,
+            phoneNumber: params.phoneNumber,
+            telnyxPhoneNumberResourceId: existing.telnyxPhoneNumberResourceId || null,
+            monthlyCostUsd: countryConfig.monthlyCostUsd[type] || 2.00,
+            setupCostUsd: countryConfig.setupCostUsd[type] || 0.00,
+            regulatoryStatus: (countryConfig.regulatoryLevel === 'NONE' ? 'NOT_REQUIRED' : 'APPROVED') as any,
+            requiredDocuments: countryConfig.requiredDocuments,
+          };
+        } else if (existing.found && !existing.belongsToOrganization) {
+          throw new Error(`TELNYX_409_FOREIGN_OWNER: The requested phone number ${params.phoneNumber} was already assigned to another party on Telnyx.`);
+        } else {
+          throw new Error(`TELNYX_409_AMBIGUOUS_CONFLICT: Telnyx reported a 409 conflict for ${params.phoneNumber}, but ownership could not be verified in inventory.`);
+        }
       }
       throw new Error(`Telnyx number order failed: ${detail}`);
     }
@@ -271,7 +319,6 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
       telnyxPhoneNumberResourceId = null;
     }
 
-    const type = (params.numberType || 'local').toLowerCase();
     const monthlyCost = countryConfig.monthlyCostUsd[type] || 2.00;
     const setupCost = countryConfig.setupCostUsd[type] || 0.00;
 
@@ -325,6 +372,59 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
     }
 
     return String(record.id);
+  }
+
+  /**
+   * Query Telnyx inventory to locate an existing phone number and verify organization ownership.
+   */
+  async queryExistingNumber(params: {
+    phoneNumber: string;
+    organizationId?: string;
+  }): Promise<{
+    found: boolean;
+    telnyxPhoneNumberResourceId?: string | null;
+    customerReference?: string;
+    status?: string;
+    belongsToOrganization?: boolean;
+  }> {
+    const query = new URLSearchParams();
+    query.set('filter[phone_number]', params.phoneNumber);
+    query.set('page[size]', '1');
+
+    try {
+      const res = await SafeNetworkClient.fetch(`https://api.telnyx.com/v2/phone_numbers?${query.toString()}`, {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        return { found: false };
+      }
+
+      const data: any = await res.json();
+      const record = (data.data || [])[0];
+      if (!record || !record.id) {
+        return { found: false };
+      }
+
+      const expectedRef = params.organizationId ? `org_${params.organizationId}` : undefined;
+      const actualRef = record.customer_reference || undefined;
+      const belongsToOrganization = Boolean(
+        expectedRef && (actualRef === expectedRef || record.tags?.includes(expectedRef))
+      );
+
+      return {
+        found: true,
+        telnyxPhoneNumberResourceId: String(record.id),
+        customerReference: actualRef,
+        status: record.status,
+        belongsToOrganization,
+      };
+    } catch {
+      return { found: false };
+    }
   }
 
   async verifyExistingNumberOwnership(params: {
@@ -422,5 +522,39 @@ export class TelnyxTelephonyProvider implements ITelephonyProvider {
     }
 
     return { success: true, telnyxPhoneNumberResourceId: resourceId };
+  }
+
+  /**
+   * Release / Delete an active phone number on Telnyx
+   */
+  async releaseNumber(params: {
+    phoneNumber: string;
+    telnyxPhoneNumberId?: string | null;
+  }): Promise<boolean> {
+    if (!config.telnyx.apiKey || config.telnyx.apiKey.includes('placeholder')) {
+      return false;
+    }
+    let resourceId = params.telnyxPhoneNumberId;
+    if (!resourceId) {
+      resourceId = await this.resolvePhoneNumberResourceId(params.phoneNumber);
+    }
+    if (!resourceId) {
+      console.warn(`[TelnyxTelephonyProvider] Cannot release ${params.phoneNumber}: resource ID not found.`);
+      return false;
+    }
+
+    try {
+      const res = await fetch(`https://api.telnyx.com/v2/phone_numbers/${resourceId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${config.telnyx.apiKey}`,
+          Accept: 'application/json',
+        },
+      });
+      return res.ok || res.status === 404;
+    } catch (err: any) {
+      console.error(`[TelnyxTelephonyProvider] Error releasing phone number ${params.phoneNumber}: ${err.message}`);
+      return false;
+    }
   }
 }

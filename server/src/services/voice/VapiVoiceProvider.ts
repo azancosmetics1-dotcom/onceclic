@@ -399,6 +399,24 @@ export class VapiVoiceProvider implements IVoiceProvider {
   }
 
   /**
+   * Delete or unlink a phone number from Vapi
+   */
+  async deletePhoneNumber(phoneNumberId: string): Promise<boolean> {
+    if (!phoneNumberId) return false;
+    try {
+      const res = await SafeNetworkClient.fetch(`https://api.vapi.ai/phone-number/${phoneNumberId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+      });
+      return res.ok || res.status === 404;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Terminate active Vapi call on provider side (enforcing 120s / 2-minute duration limit)
    */
   async terminateCall(callId: string): Promise<boolean> {

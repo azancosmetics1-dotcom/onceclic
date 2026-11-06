@@ -76,6 +76,8 @@ export const config = {
     environment: creemEnvironment,
     isConfigured: !!process.env.CREEM_API_KEY && !process.env.CREEM_API_KEY.includes('placeholder') && !process.env.CREEM_API_KEY.includes('your_'),
     isWebhookConfigured: !!process.env.CREEM_WEBHOOK_SECRET && !process.env.CREEM_WEBHOOK_SECRET.includes('placeholder') && !process.env.CREEM_WEBHOOK_SECRET.includes('your_'),
+    phoneNumberProductId: cleanCreemProductId(process.env.CREEM_PHONE_NUMBER_PRODUCT_ID),
+    phoneNumberMonthlyPriceUsd: 3,
     plans: {
       STARTER: {
         id: 'STARTER' as const,

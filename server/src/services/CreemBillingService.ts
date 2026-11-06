@@ -92,10 +92,22 @@ export class CreemBillingService {
     };
   }
 
+  private static sdkOverride: Creem | null = null;
+
+  /**
+   * Set or mock the Creem SDK client (useful for unit/integration testing).
+   */
+  static setCreemSdk(client: any): void {
+    this.sdkOverride = client;
+  }
+
   /**
    * Get an initialized Creem SDK client or null if not configured.
    */
   static getCreemSdk(): Creem | null {
+    if (this.sdkOverride) {
+      return this.sdkOverride;
+    }
     if (!config.creem.apiKey || config.creem.apiKey.includes('placeholder')) {
       return null;
     }
@@ -435,7 +447,77 @@ export class CreemBillingService {
       });
     }
 
-    // Event Handling
+    // =========================================================================
+    // DEDICATED PHONE NUMBER WEBHOOK DISAMBIGUATION
+    // Completely isolates $3/mo phone number events from base plan software billing.
+    // Prevents overwriting organization main-plan subscriptions table.
+    // =========================================================================
+    const rawProductId = object?.product?.id || object?.product_id || (typeof object?.product === 'string' ? object.product : null);
+    const productId = rawProductId ? String(rawProductId).trim() : null;
+
+    let isPhoneNumberEvent =
+      metadata?.type === 'PHONE_NUMBER' ||
+      metadata?.type === 'phone_number' ||
+      Boolean(config.creem.phoneNumberProductId && productId === config.creem.phoneNumberProductId);
+
+    if (!isPhoneNumberEvent && creemSubId) {
+      const phoneSub = await db.getOne<{ id: string; organization_id: string }>(
+        'SELECT id, organization_id FROM voice_phone_numbers WHERE creem_subscription_id = $1 LIMIT 1',
+        [creemSubId]
+      );
+      if (phoneSub) {
+        isPhoneNumberEvent = true;
+        if (!organizationId) organizationId = phoneSub.organization_id;
+      } else {
+        const checkoutSub = await db.getOne<{ id: string; organization_id: string }>(
+          'SELECT id, organization_id FROM voice_phone_number_checkouts WHERE creem_subscription_id = $1 LIMIT 1',
+          [creemSubId]
+        );
+        if (checkoutSub) {
+          isPhoneNumberEvent = true;
+          if (!organizationId) organizationId = checkoutSub.organization_id;
+        }
+      }
+    }
+
+    if (!isPhoneNumberEvent && creemCheckoutId) {
+      const checkoutRecord = await db.getOne<{ id: string; organization_id: string }>(
+        'SELECT id, organization_id FROM voice_phone_number_checkouts WHERE creem_checkout_id = $1 LIMIT 1',
+        [creemCheckoutId]
+      );
+      if (checkoutRecord) {
+        isPhoneNumberEvent = true;
+        if (!organizationId) organizationId = checkoutRecord.organization_id;
+      }
+    }
+
+    if (!isPhoneNumberEvent) {
+      const checkoutSessionId = metadata?.checkoutSessionId || metadata?.checkout_session_id || metadata?.checkoutId;
+      if (checkoutSessionId) {
+        const checkoutRecord = await db.getOne<{ id: string; organization_id: string }>(
+          'SELECT id, organization_id FROM voice_phone_number_checkouts WHERE id = $1 LIMIT 1',
+          [checkoutSessionId]
+        );
+        if (checkoutRecord) {
+          isPhoneNumberEvent = true;
+          if (!organizationId) organizationId = checkoutRecord.organization_id;
+        }
+      }
+    }
+
+    if (isPhoneNumberEvent) {
+      return this.handlePhoneNumberWebhookEvent({
+        event,
+        organizationId,
+        creemSubId,
+        creemCustomerId,
+        creemCheckoutId,
+        productId,
+        metadata,
+      });
+    }
+
+    // Event Handling for Core Plan Subscriptions
     switch (eventType) {
       case 'checkout.completed': {
         const subData = object?.subscription;
@@ -453,19 +535,8 @@ export class CreemBillingService {
         }
 
         if (!matchedTier) {
-          console.warn(`[Creem Webhook] Unknown or unmapped product_id "${productId}". Refusing to activate paid plan.`);
-          if (organizationId) {
-            await db.execute(
-              `UPDATE subscriptions
-               SET creem_customer_id = COALESCE($1, creem_customer_id),
-                   creem_subscription_id = COALESCE($2, creem_subscription_id),
-                   creem_checkout_id = COALESCE($3, creem_checkout_id),
-                   creem_product_id = $4,
-                   updated_at = CURRENT_TIMESTAMP
-               WHERE organization_id = $5`,
-              [creemCustomerId, subId, creemCheckoutId, productId, organizationId]
-            );
-          }
+          // Fail-closed security isolation: unmapped product IDs must NEVER mutate the main subscriptions table!
+          console.warn(`[Creem Webhook Security Notice] Unknown or unmapped product_id "${productId}". Main plan subscription preserved untouched.`);
           break;
         }
 
@@ -591,7 +662,7 @@ export class CreemBillingService {
              SET status = $1,
                  cancel_at_period_end = TRUE,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE creem_subscription_id = $2 OR organization_id = $3`,
+             WHERE creem_subscription_id = $2 OR (organization_id = $3 AND (creem_subscription_id IS NULL OR creem_subscription_id = $2))`,
             [SubscriptionStatus.CANCELED, creemSubId, organizationId]
           );
 
@@ -613,7 +684,7 @@ export class CreemBillingService {
             `UPDATE subscriptions
              SET status = $1,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE creem_subscription_id = $2 OR organization_id = $3`,
+             WHERE creem_subscription_id = $2 OR (organization_id = $3 AND (creem_subscription_id IS NULL OR creem_subscription_id = $2))`,
             [SubscriptionStatus.PAST_DUE, creemSubId, organizationId]
           );
 
@@ -636,7 +707,7 @@ export class CreemBillingService {
             `UPDATE subscriptions
              SET status = $1,
                  updated_at = CURRENT_TIMESTAMP
-             WHERE creem_subscription_id = $2 OR organization_id = $3`,
+             WHERE creem_subscription_id = $2 OR (organization_id = $3 AND (creem_subscription_id IS NULL OR creem_subscription_id = $2))`,
             [SubscriptionStatus.EXPIRED, creemSubId, organizationId]
           );
 
@@ -866,5 +937,191 @@ export class CreemBillingService {
     }
 
     throw new Error('No active subscription found for this organization.');
+  }
+
+  /**
+   * Handle incoming verified Creem webhook events for independent phone number recurring rentals.
+   * Completely isolated from core software plan subscriptions!
+   */
+  private static async handlePhoneNumberWebhookEvent(params: {
+    event: { id: string; eventType: string; created_at?: number | string; object: any };
+    organizationId?: string;
+    creemSubId: string | null;
+    creemCustomerId: string | null;
+    creemCheckoutId: string | null;
+    productId: string | null;
+    metadata: any;
+  }): Promise<{ success: boolean; message: string }> {
+    const { event, creemSubId, creemCustomerId, creemCheckoutId, metadata } = params;
+    let organizationId = params.organizationId;
+    const { eventType, object } = event;
+
+    console.log(`[Creem Phone Webhook] Processing phone number event: ${eventType}`, {
+      creemSubId,
+      creemCheckoutId,
+      organizationId,
+      phoneNumber: metadata?.phoneNumber || metadata?.phone_number,
+    });
+
+    switch (eventType) {
+      case 'checkout.completed': {
+        const subData = object?.subscription;
+        const subId = (typeof subData === 'object' ? subData?.id : subData) || creemSubId;
+        const customerId = object?.customer?.id || creemCustomerId;
+        const checkoutSessionId = metadata?.checkoutSessionId || metadata?.checkout_session_id || metadata?.checkoutId;
+        const phoneNumber = metadata?.phoneNumber || metadata?.phone_number;
+        const transactionId =
+          object?.order?.transaction ||
+          (typeof object?.order === 'object' && object?.order?.transaction_id) ||
+          object?.transaction?.id ||
+          object?.transaction_id ||
+          (object?.object === 'transaction' ? object.id : undefined);
+
+        // Find matching checkout record in voice_phone_number_checkouts
+        let checkoutRecord: any = null;
+        if (checkoutSessionId) {
+          checkoutRecord = await db.getOne<any>(
+            'SELECT * FROM voice_phone_number_checkouts WHERE id = $1',
+            [checkoutSessionId]
+          );
+        }
+        if (!checkoutRecord && creemCheckoutId) {
+          checkoutRecord = await db.getOne<any>(
+            'SELECT * FROM voice_phone_number_checkouts WHERE creem_checkout_id = $1',
+            [creemCheckoutId]
+          );
+        }
+        if (!checkoutRecord && phoneNumber && organizationId) {
+          checkoutRecord = await db.getOne<any>(
+            `SELECT * FROM voice_phone_number_checkouts
+             WHERE organization_id = $1 AND phone_number = $2 AND status IN ('PENDING', 'PAID')
+             ORDER BY created_at DESC LIMIT 1`,
+            [organizationId, phoneNumber]
+          );
+        }
+
+        if (checkoutRecord) {
+          organizationId = checkoutRecord.organization_id;
+          await db.execute(
+            `UPDATE voice_phone_number_checkouts
+             SET status = 'PAID',
+                 creem_subscription_id = COALESCE($1, creem_subscription_id),
+                 creem_customer_id = COALESCE($2, creem_customer_id),
+                 creem_checkout_id = COALESCE($3, creem_checkout_id),
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $4`,
+            [subId, customerId, creemCheckoutId, checkoutRecord.id]
+          );
+        }
+
+        if (organizationId && (phoneNumber || checkoutRecord?.phone_number)) {
+          const numberToProvision = phoneNumber || checkoutRecord.phone_number;
+          const { VoiceService } = await import('./voice/VoiceService');
+
+          await VoiceService.fulfillPaidPhoneNumberOrder({
+            organizationId,
+            phoneNumber: numberToProvision,
+            countryCode: metadata?.countryCode || checkoutRecord?.country_code || 'US',
+            numberType: metadata?.numberType || checkoutRecord?.number_type || 'local',
+            checkoutSessionId: checkoutRecord?.id || checkoutSessionId,
+            creemSubscriptionId: subId || '',
+            creemCustomerId: customerId || undefined,
+            creemCheckoutId: creemCheckoutId || undefined,
+            transactionId,
+          });
+        }
+        break;
+      }
+
+      case 'subscription.active':
+      case 'subscription.paid': {
+        const subId = object?.id || creemSubId;
+        if (subId) {
+          await db.execute(
+            `UPDATE voice_phone_numbers
+             SET billing_status = 'ACTIVE',
+                 cancel_at_period_end = FALSE,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE creem_subscription_id = $1`,
+            [subId]
+          );
+        }
+        break;
+      }
+
+      case 'subscription.canceled':
+      case 'subscription.expired': {
+        const subId = object?.id || creemSubId;
+        if (subId) {
+          const phoneRow = await db.getOne<{ id: string; organization_id: string; phone_number: string }>(
+            'SELECT id, organization_id, phone_number FROM voice_phone_numbers WHERE creem_subscription_id = $1',
+            [subId]
+          );
+
+          await db.execute(
+            `UPDATE voice_phone_numbers
+             SET status = 'INACTIVE',
+                 provisioning_status = 'INACTIVE',
+                 billing_status = 'CANCELED',
+                 canceled_at = CURRENT_TIMESTAMP,
+                 cancel_at_period_end = TRUE,
+                 release_status = 'RELEASE_PENDING',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE creem_subscription_id = $1`,
+            [subId]
+          );
+
+          if (phoneRow) {
+            try {
+              const { VoiceService } = await import('./voice/VoiceService');
+              await VoiceService.deprovisionReleasedNumber({
+                organizationId: phoneRow.organization_id,
+                phoneNumberId: phoneRow.id,
+                reason: 'subscription_expired',
+              });
+            } catch (deprovErr: any) {
+              console.error(`[Creem Phone Webhook] Deprovision worker notice: ${deprovErr.message}`);
+            }
+          }
+        }
+        break;
+      }
+
+      case 'subscription.past_due':
+      case 'subscription.payment_failed': {
+        const subId = object?.id || creemSubId;
+        if (subId) {
+          await db.execute(
+            `UPDATE voice_phone_numbers
+             SET billing_status = 'PAST_DUE',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE creem_subscription_id = $1`,
+            [subId]
+          );
+        }
+        break;
+      }
+
+      case 'subscription.paused':
+      case 'subscription.resumed': {
+        const subId = object?.id || creemSubId;
+        const newBillingStatus = eventType === 'subscription.paused' ? 'PAUSED' : 'ACTIVE';
+        if (subId) {
+          await db.execute(
+            `UPDATE voice_phone_numbers
+             SET billing_status = $1,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE creem_subscription_id = $2`,
+            [newBillingStatus, subId]
+          );
+        }
+        break;
+      }
+
+      default:
+        console.log(`[Creem Phone Webhook] Unhandled phone event type: ${eventType}`);
+    }
+
+    return { success: true, message: `Handled phone number recurring billing event: ${eventType}` };
   }
 }

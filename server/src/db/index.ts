@@ -233,6 +233,12 @@ class EmbeddedDatabase implements IDatabase {
         }
         return { rows: [], rowCount: 0 };
       }
+
+      // Handle PostgreSQL advisory lock virtual query
+      if (/pg_advisory_xact_lock/i.test(cleanSql)) {
+        return { rows: [{ pg_advisory_xact_lock: null }] as any, rowCount: 1 };
+      }
+
       return this.handleSelect<T>(cleanSql, params);
     }
 
@@ -439,18 +445,22 @@ class EmbeddedDatabase implements IDatabase {
       const projectedRows = rows.map(r => {
         const projected: any = {};
         colDefs.forEach(def => {
-          const aliasMatch = def.match(/(?:[a-zA-Z0-9_.]+\.)?([a-zA-Z0-9_]+)\s+AS\s+["']?([a-zA-Z0-9_]+)["']?/i);
+          const aliasMatch = def.match(/(?:(.+?)\s+AS\s+["']?([a-zA-Z0-9_]+)["']?)/i);
           if (aliasMatch) {
-            const rawCol = aliasMatch[1].toLowerCase();
-            const alias = aliasMatch[2];
-            if (r[alias] !== undefined) {
-              projected[alias] = r[alias];
-            } else {
-              projected[alias] = r[rawCol] !== undefined ? r[rawCol] : null;
+            let expr = aliasMatch[1].trim().toLowerCase();
+            if (expr.startsWith('coalesce(') && expr.endsWith(')')) {
+              expr = expr.substring(9, expr.length - 1).split(',')[0].trim();
             }
-            projected[rawCol] = r[rawCol] !== undefined ? r[rawCol] : null;
+            const rawCol = expr.replace(/^[a-zA-Z0-9_.]+\./, '').trim();
+            const alias = aliasMatch[2];
+            const val = r[alias] !== undefined ? r[alias] : (r[rawCol] !== undefined ? r[rawCol] : null);
+            projected[alias] = val;
+            projected[rawCol] = val;
           } else {
             let rawCol = def.replace(/^[a-zA-Z0-9_.]+\./, '').trim().toLowerCase();
+            if (rawCol.startsWith('coalesce(') && rawCol.endsWith(')')) {
+              rawCol = rawCol.substring(9, rawCol.length - 1).split(',')[0].trim();
+            }
             projected[rawCol] = r[rawCol] !== undefined ? r[rawCol] : null;
           }
         });
@@ -765,29 +775,90 @@ class EmbeddedDatabase implements IDatabase {
     return { rows: [], rowCount: deletedCount };
   }
 
+  private splitTopLevelClause(clause: string, delimiter: 'OR' | 'AND'): string[] {
+    const result: string[] = [];
+    let current = '';
+    let depth = 0;
+    let inQuotes = false;
+    const regex = new RegExp(`^\\s+${delimiter}\\s+`, 'i');
+
+    for (let i = 0; i < clause.length; i++) {
+      const ch = clause[i];
+      if (ch === "'" && (i === 0 || clause[i - 1] !== '\\')) {
+        inQuotes = !inQuotes;
+      }
+      if (!inQuotes) {
+        if (ch === '(') depth++;
+        else if (ch === ')') depth--;
+
+        if (depth === 0) {
+          const rest = clause.slice(i);
+          const match = rest.match(regex);
+          if (match) {
+            result.push(current.trim());
+            current = '';
+            i += match[0].length - 1;
+            continue;
+          }
+        }
+      }
+      current += ch;
+    }
+    if (current.trim()) result.push(current.trim());
+    return result;
+  }
+
+  private stripOuterParens(str: string): string {
+    let s = str.trim();
+    while (s.startsWith('(') && s.endsWith(')')) {
+      let depth = 0;
+      let balanced = true;
+      for (let i = 0; i < s.length - 1; i++) {
+        if (s[i] === '(') depth++;
+        else if (s[i] === ')') depth--;
+        if (depth === 0) {
+          balanced = false;
+          break;
+        }
+      }
+      if (balanced) {
+        s = s.slice(1, -1).trim();
+      } else {
+        break;
+      }
+    }
+    return s;
+  }
+
+  private evaluateCondition(clause: string, row: any, params: any[]): boolean {
+    const cleanClause = this.stripOuterParens(clause);
+
+    // 1. Check top-level OR clauses
+    const orBranches = this.splitTopLevelClause(cleanClause, 'OR');
+    if (orBranches.length > 1) {
+      return orBranches.some(branch => this.evaluateCondition(branch, row, params));
+    }
+
+    // 2. Check top-level AND clauses
+    const andBranches = this.splitTopLevelClause(cleanClause, 'AND');
+    if (andBranches.length > 1) {
+      return andBranches.every(branch => this.evaluateCondition(branch, row, params));
+    }
+
+    // 3. Leaf condition
+    return this.evaluateSingleCondition(cleanClause, row, params);
+  }
+
   private evaluateWhere(sql: string, row: any, params: any[]): boolean {
     const whereMatch = sql.match(/WHERE\s+(.+?)(?:\s+ORDER BY|\s+LIMIT|\s+GROUP BY|$)/i);
     if (!whereMatch) return true;
 
     const whereClause = whereMatch[1].trim();
-
-    // Check if there are top-level OR clauses (outside parentheses or simple OR)
-    const orBranches = whereClause.split(/\s+OR\s+/i);
-    if (orBranches.length > 1) {
-      return orBranches.some(branch => this.evaluateAndConditions(branch.replace(/^\(|\)$/g, '').trim(), row, params));
-    }
-
-    return this.evaluateAndConditions(whereClause, row, params);
+    return this.evaluateCondition(whereClause, row, params);
   }
 
   private evaluateAndConditions(clause: string, row: any, params: any[]): boolean {
-    const conditions = clause.split(/\s+AND\s+/i);
-    for (const cond of conditions) {
-      if (!this.evaluateSingleCondition(cond.trim(), row, params)) {
-        return false;
-      }
-    }
-    return true;
+    return this.evaluateCondition(clause, row, params);
   }
 
   private evaluateSingleCondition(cond: string, row: any, params: any[]): boolean {
@@ -804,11 +875,26 @@ class EmbeddedDatabase implements IDatabase {
       return allowedValues.includes(rowVal);
     }
 
-    const eqMatch = cond.match(/([a-zA-Z0-9_.()]+)\s*(=|!=|<>|LIKE|ILIKE|>=|<=|>|<|IS)\s*(.+)/i);
+    const eqMatch = cond.match(/^\s*(.+?)\s*(=|!=|<>|\bLIKE\b|\bILIKE\b|>=|<=|>|<|\bIS\b)\s*(.+)$/i);
     if (!eqMatch) return true;
 
     let col = eqMatch[1].trim().toLowerCase();
     let isLowerCol = false;
+    let coalesceDefault: any = undefined;
+    if (col.startsWith('coalesce(') && col.endsWith(')')) {
+      const parts = col.substring(9, col.length - 1).split(',');
+      col = parts[0].trim();
+      if (parts.length > 1) {
+        const rawDef = parts[1].trim().replace(/'/g, '');
+        if (/^\d+(\.\d+)?$/.test(rawDef)) {
+          coalesceDefault = Number(rawDef);
+        } else if (rawDef.toUpperCase() === 'NULL') {
+          coalesceDefault = null;
+        } else {
+          coalesceDefault = rawDef;
+        }
+      }
+    }
     if (col.startsWith('lower(') && col.endsWith(')')) {
       isLowerCol = true;
       col = col.substring(6, col.length - 1).trim();
@@ -836,6 +922,9 @@ class EmbeddedDatabase implements IDatabase {
     }
 
     let rowVal = row[col];
+    if ((rowVal === null || rowVal === undefined) && coalesceDefault !== undefined) {
+      rowVal = coalesceDefault;
+    }
     if (isLowerCol && typeof rowVal === 'string') {
       rowVal = rowVal.toLowerCase();
     }

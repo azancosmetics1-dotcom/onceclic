@@ -104,6 +104,8 @@ router.post('/numbers/checkout-session', requirePermission('voice:manage'), asyn
       expectedMonthlyCostUsd: expectedMonthlyCostUsd !== undefined ? Number(expectedMonthlyCostUsd) : undefined,
       expectedSetupCostUsd: expectedSetupCostUsd !== undefined ? Number(expectedSetupCostUsd) : undefined,
       idempotencyKey: idempotencyKey || (req.headers['idempotency-key'] as string | undefined),
+      userEmail: req.user?.email,
+      userName: req.user?.fullName,
     });
 
     res.status(201).json({ success: true, data: session });
@@ -306,9 +308,9 @@ router.delete('/numbers/:id', requirePermission('voice:manage'), async (req: Req
 });
 
 /**
- * Cancel recurring phone number rental (without touching Pro subscription)
+ * Cancel recurring phone number rental subscription (without touching main software plan)
  */
-router.post('/numbers/:id/cancel-rental', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
+router.post(['/numbers/:id/cancel-rental', '/numbers/:id/cancel-subscription'], requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
   try {
     const result = await PhoneNumberBillingService.cancelPhoneNumberRental(req.organizationId!, req.params.id);
     res.json({ success: result.success, data: result });

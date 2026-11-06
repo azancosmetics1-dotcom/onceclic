@@ -119,6 +119,10 @@ export class MockVoiceProvider implements IVoiceProvider {
     return true;
   }
 
+  async deletePhoneNumber(_phoneNumberId: string): Promise<boolean> {
+    return true;
+  }
+
   async importPhoneNumber(params: {
     phoneNumber: string;
     assistantId?: string;

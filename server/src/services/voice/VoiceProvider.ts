@@ -72,6 +72,8 @@ export interface IVoiceProvider {
 
   linkPhoneNumberToAssistant?(params: { phoneNumberIdOrNumber: string; assistantId: string }): Promise<boolean>;
 
+  deletePhoneNumber?(phoneNumberId: string): Promise<boolean>;
+
   simulateTestCall?(params: { organizationId: string; phoneNumber: string; assistantId?: string }): Promise<{
     success: boolean;
     durationSeconds: number;
@@ -140,6 +142,22 @@ export interface ITelephonyProvider {
     phoneNumber: string;
     vapiSipUri?: string;
   }): Promise<{ success: boolean; telnyxPhoneNumberResourceId: string | null }>;
+
+  releaseNumber?(params: {
+    phoneNumber: string;
+    telnyxPhoneNumberId?: string | null;
+  }): Promise<boolean>;
+
+  queryExistingNumber?(params: {
+    phoneNumber: string;
+    organizationId?: string;
+  }): Promise<{
+    found: boolean;
+    telnyxPhoneNumberResourceId?: string | null;
+    customerReference?: string;
+    status?: string;
+    belongsToOrganization?: boolean;
+  }>;
 
   verifyWebhookSignature?(params: {
     rawBody: string | Buffer;
