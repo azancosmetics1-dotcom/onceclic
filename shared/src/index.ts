@@ -847,7 +847,7 @@ export interface PlanDetails {
 export const SUBSCRIPTION_PLANS: Record<PlanTier, PlanDetails> = {
   TRIAL: {
     id: 'TRIAL',
-    name: '7-Day Free Trial',
+    name: '14-Day Free Trial',
     priceUsd: 0,
     billingPeriod: 'month',
     voiceMinutes: 15,
