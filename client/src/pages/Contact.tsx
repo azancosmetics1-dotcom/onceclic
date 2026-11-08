@@ -82,7 +82,7 @@ export const Contact: React.FC = () => {
             <div className="pt-6 border-t border-slate-800/80 space-y-2">
               <div className="flex items-center space-x-2 text-xs text-slate-400">
                 <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>7-Day Free Trial &bull; No Credit Card Required</span>
+                <span>14-Day Free Trial &bull; No Credit Card Required</span>
               </div>
               <div className="flex items-center space-x-2 text-xs text-slate-400">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />

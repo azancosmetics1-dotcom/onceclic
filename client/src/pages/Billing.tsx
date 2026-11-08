@@ -232,7 +232,7 @@ export const BillingPage: React.FC = () => {
           <div className="space-y-4 min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
               <h2 className="text-xl sm:text-2xl font-black text-white">
-                {isTrial && !hasPaidSubscriptionId ? '7-Day Free Trial' : `${activePlanMeta.name} Plan`}
+                {isTrial && !hasPaidSubscriptionId ? '14-Day Free Trial' : `${activePlanMeta.name} Plan`}
               </h2>
               {isCancelScheduled ? (
                 <Badge variant="warning">Canceling at Period End</Badge>
@@ -260,12 +260,12 @@ export const BillingPage: React.FC = () => {
                   {isTrial && !hasPaidSubscriptionId ? '$0' : `$${activePlanMeta.priceUsd}`}
                 </span>
                 <span className="text-xs sm:text-sm font-medium text-slate-400">
-                  {isTrial && !hasPaidSubscriptionId ? 'during 7-day trial' : '/ month recurring'}
+                  {isTrial && !hasPaidSubscriptionId ? 'during 14-day trial' : '/ month recurring'}
                 </span>
               </div>
               <p className="text-xs font-semibold text-emerald-400">
                 {isTrial && !hasPaidSubscriptionId
-                  ? `7-Day Free Trial • ${activePlanMeta.maxMonthlyCalls ?? 5} AI Calls • No credit card required`
+                  ? `14-Day Free Trial • ${activePlanMeta.maxMonthlyCalls ?? 5} AI Calls • No credit card required`
                   : `${activePlanMeta.name} • ${activePlanMeta.maxMonthlyCalls ?? 50} AI Calls/month • Cancel anytime`}
               </p>
             </div>

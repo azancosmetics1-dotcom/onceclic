@@ -23,11 +23,11 @@ export async function runPaddlePricingTests() {
   }
   console.log('  ✓ 2. $0 trial configuration verified ($0 trial price)');
 
-  // 3. 7-day duration
-  if (config.billing.trialPeriodDays !== 7) {
-    throw new Error(`Expected trial period to be 7 days, got ${config.billing.trialPeriodDays}`);
+  // 3. 14-day duration
+  if (config.billing.trialPeriodDays !== 14) {
+    throw new Error(`Expected trial period to be 14 days, got ${config.billing.trialPeriodDays}`);
   }
-  console.log('  ✓ 3. 7-day trial duration verified (7 days)');
+  console.log('  ✓ 3. 14-day trial duration verified (14 days)');
 
   // 4. No card required during trial
   const auth = await AuthService.register({

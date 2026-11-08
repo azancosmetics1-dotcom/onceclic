@@ -32,15 +32,15 @@ export const FAQ: React.FC = () => {
     },
     {
       category: 'Pricing & Trial',
-      question: 'What is the 7-day free trial?',
+      question: 'What is the 14-day free trial?',
       answer:
-        'All new accounts receive full access to ONCEClic for 7 days at $0 cost. You can train your knowledge base, test the live website receptionist, connect your calendar, and experience automated booking during your trial period.',
+        'All new accounts receive full access to ONCEClic for 14 days at $0 cost. You can train your knowledge base, test the live website receptionist, connect your calendar, and experience automated booking during your trial period.',
     },
     {
       category: 'Pricing & Trial',
       question: 'Do I need a credit card to start the free trial?',
       answer:
-        'No. No credit card or payment information is required to start your 7-day free trial. You can create an account and start configuring your AI receptionist in minutes.',
+        'No. No credit card or payment information is required to start your 14-day free trial. You can create an account and start configuring your AI receptionist in minutes.',
     },
     {
       category: 'Pricing & Trial',
@@ -52,7 +52,7 @@ export const FAQ: React.FC = () => {
       category: 'Pricing & Trial',
       question: 'What happens when my free trial ends?',
       answer:
-        'When your 7-day trial ends, you are never automatically charged. You can choose whether to upgrade to Starter ($19/mo), Pro ($49/mo), or Business ($99/mo) via our secure checkout. If you choose not to upgrade, your settings and knowledge base remain safely preserved in your account.',
+        'When your 14-day trial ends, you are never automatically charged. You can choose whether to upgrade to Starter ($19/mo), Pro ($49/mo), or Business ($99/mo) via our secure checkout. If you choose not to upgrade, your settings and knowledge base remain safely preserved in your account.',
     },
     {
       category: 'Billing & Merchant of Record',
@@ -117,7 +117,7 @@ export const FAQ: React.FC = () => {
             Frequently Asked Questions
           </h1>
           <p className="text-base text-slate-300 mt-3 max-w-2xl">
-            Everything you need to know about ONCEClic, the 7-day free trial, billing, and integrations.
+            Everything you need to know about ONCEClic, the 14-day free trial, billing, and integrations.
           </p>
         </div>
 
@@ -173,7 +173,7 @@ export const FAQ: React.FC = () => {
               to="/signup"
               className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition flex items-center space-x-2"
             >
-              <span>Start 7-Day Free Trial</span>
+              <span>Start 14-Day Free Trial</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>

@@ -145,7 +145,7 @@ export async function runLegacyAccountChatAndComingSoonTests() {
       'Hi! What are your opening hours?'
     );
 
-    if (!newMsgRes.success || !newMsgRes.data.aiMessage) {
+    if (!newMsgRes.success || !newMsgRes.data || !newMsgRes.data.aiMessage) {
       throw new Error(`New account website chat failed: ${JSON.stringify(newMsgRes)}`);
     }
     console.log('  ✓ 1. Newly created eligible account can use Website Chat successfully');
@@ -240,7 +240,7 @@ export async function runLegacyAccountChatAndComingSoonTests() {
       'Do you have secret parking behind the building?'
     );
 
-    if (!missingDataMsgRes.success || !missingDataMsgRes.data.aiMessage?.content.includes("don't have that information")) {
+    if (!missingDataMsgRes.success || !missingDataMsgRes.data || !missingDataMsgRes.data.aiMessage?.content.includes("don't have that information")) {
       throw new Error(`Missing information was not handled honestly: ${JSON.stringify(missingDataMsgRes)}`);
     }
     console.log('  ✓ 5. Missing business information handled honestly without inventing facts');

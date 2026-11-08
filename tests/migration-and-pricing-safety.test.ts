@@ -114,7 +114,7 @@ export async function runMigrationAndPricingSafetyTests(): Promise<void> {
 
   const customerBilling = toCustomerBillingConfig(config);
   assert.strictEqual(customerBilling.monthlyPriceUsd, 19, 'Core customer billing is $19/mo');
-  assert.strictEqual(customerBilling.trialPeriodDays, 7, 'Trial period is 7 days');
+  assert.strictEqual(customerBilling.trialPeriodDays, 14, 'Trial period is 14 days');
   assert.strictEqual(customerBilling.trialPriceUsd, 0, 'Trial price is $0');
   assert.ok(!JSON.stringify(customerBilling).includes('0.50'), 'Internal AI budgets NOT leaked');
   assert.ok(!JSON.stringify(customerBilling).includes('10.00'), 'Internal Pro AI budgets NOT leaked');

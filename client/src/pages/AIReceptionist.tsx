@@ -53,6 +53,7 @@ export const AIReceptionistPage: React.FC = () => {
   const [pollingPostCheckout, setPollingPostCheckout] = useState(false);
   const [postCheckoutMsg, setPostCheckoutMsg] = useState<string | null>(null);
   const [cancellingNumberId, setCancellingNumberId] = useState<string | null>(null);
+  const [renewingNumberId, setRenewingNumberId] = useState<string | null>(null);
 
   // Setup Form State
   // Note: "Connect Existing Number" has been removed — only new Telnyx numbers supported.
@@ -217,7 +218,7 @@ export const AIReceptionistPage: React.FC = () => {
     setShowOrderConfirmModal(true);
   };
 
-  // Initiate independent Creem recurring checkout session ($3/month)
+  // Initiate independent Creem checkout session ($3 one-time for trial or $3/mo recurring)
   const handleConfirmOrder = async () => {
     if (!selectedNumberForOrder) return;
 
@@ -227,6 +228,8 @@ export const AIReceptionistPage: React.FC = () => {
       setOrderProgressState('INITIATING_CHECKOUT');
 
       const idempotencyKey = `ord_${selectedCountry}_${selectedNumberForOrder.phoneNumber}_${Date.now()}`;
+      const isTrial = usage?.planTier === 'TRIAL';
+      const checkoutType = isTrial ? 'TRIAL_ONE_TIME' : 'RECURRING';
 
       const res = await api.createVoiceNumberCheckoutSession({
         phoneNumber: selectedNumberForOrder.phoneNumber,
@@ -235,6 +238,7 @@ export const AIReceptionistPage: React.FC = () => {
         expectedMonthlyCostUsd: 3.00,
         expectedSetupCostUsd: selectedNumberForOrder.setupCostUsd,
         idempotencyKey,
+        checkoutType,
       });
 
       const checkoutData = res?.data || res;
@@ -258,6 +262,40 @@ export const AIReceptionistPage: React.FC = () => {
       setOrderProgressState('FAILED');
     } finally {
       setOrderingNumber(false);
+    }
+  };
+
+  // Initiate manual renewal checkout for a temporary or retained phone number ($3/month recurring)
+  const handleRenewNumber = async (num: VoicePhoneNumber) => {
+    try {
+      setRenewingNumberId(num.id);
+      setError(null);
+      const idempotencyKey = `renew_${num.phoneNumber}_${Date.now()}`;
+
+      const res = await api.createVoiceNumberCheckoutSession({
+        phoneNumber: num.phoneNumber,
+        countryCode: num.countryCode || 'US',
+        numberType: num.phoneNumberType || 'local',
+        expectedMonthlyCostUsd: 3.00,
+        idempotencyKey,
+        checkoutType: 'RENEWAL',
+        targetPhoneNumberId: num.id,
+      });
+
+      const checkoutData = res?.data || res;
+      const checkoutUrl = checkoutData?.checkoutUrl;
+
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
+        return;
+      }
+
+      setSuccessMsg('Renewal checkout created. Please proceed to payment.');
+      await loadData();
+    } catch (err: any) {
+      setError(err.message || 'Failed to initiate phone number renewal.');
+    } finally {
+      setRenewingNumberId(null);
     }
   };
 
@@ -860,6 +898,9 @@ export const AIReceptionistPage: React.FC = () => {
               const isActionRequired = provStatus === VoiceProvisioningStatus.ACTION_REQUIRED;
               const isProvisioning = provStatus === VoiceProvisioningStatus.PROVISIONING || provStatus === VoiceProvisioningStatus.CONNECTING;
               const isFailed = provStatus === VoiceProvisioningStatus.FAILED;
+              const isReleaseInProgress = num.status === 'RELEASE_IN_PROGRESS' || num.releaseStatus === 'RELEASE_IN_PROGRESS';
+              const isReleased = num.status === 'RELEASED' || num.releaseStatus === 'RELEASED';
+              const isReleaseFailedManual = num.status === 'RELEASE_FAILED_MANUAL_ATTENTION' || num.releaseStatus === 'RELEASE_FAILED_MANUAL_ATTENTION';
 
               return (
                 <div key={num.id} className="py-4 space-y-4">
@@ -908,18 +949,67 @@ export const AIReceptionistPage: React.FC = () => {
                               CANCELING AT PERIOD END
                             </span>
                           )}
+                          {num.isTrialNumber && !num.renewedToSubscriptionId && num.rentalEndsAt && new Date(num.rentalEndsAt) > new Date() && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">
+                              14-DAY TEMPORARY RENTAL
+                            </span>
+                          )}
+                          {isReleaseInProgress && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30">
+                              RELEASE IN PROGRESS
+                            </span>
+                          )}
+                          {isReleased && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/30">
+                              RELEASED
+                            </span>
+                          )}
+                          {isReleaseFailedManual && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                              RELEASE FAILED (Attention Required)
+                            </span>
+                          )}
+                          {!isReleaseInProgress && !isReleased && !isReleaseFailedManual && (num.isRetained || num.status === 'SUSPENDED' || num.billingStatus === 'SUSPENDED_GRACE_PERIOD') && (
+                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/30">
+                              SUSPENDED (30-Day Retention Grace Period)
+                            </span>
+                          )}
                         </div>
-                        <div className="flex items-center space-x-3 text-xs text-slate-400 mt-1">
+                        <div className="flex items-center space-x-3 text-xs text-slate-400 mt-1 flex-wrap gap-y-1">
                           <span>Method: {num.connectionMethod?.replace(/_/g, ' ')}</span>
                           {num.countryCode && <span>&bull; Country: {num.countryCode}</span>}
-                          {num.monthlyCostUsd !== undefined && num.monthlyCostUsd > 0 && (
+                          {num.monthlyCostUsd !== undefined && num.monthlyCostUsd > 0 && !num.isTrialNumber && (
                             <span>&bull; ${num.monthlyCostUsd.toFixed(2)}/mo (Creem)</span>
+                          )}
+                          {num.isTrialNumber && !num.renewedToSubscriptionId && num.rentalEndsAt && (
+                            <span className="text-indigo-300">&bull; 14-day rental ends: {new Date(num.rentalEndsAt).toLocaleDateString()}</span>
+                          )}
+                          {(num.isRetained || num.status === 'SUSPENDED') && num.retentionEndsAt && !isReleased && !isReleaseInProgress && (
+                            <span className="text-rose-400 font-semibold">&bull; Retention deadline: {new Date(num.retentionEndsAt).toLocaleDateString()}</span>
                           )}
                         </div>
                       </div>
                     </div>
 
                     <div className="flex items-center space-x-2">
+                      {/* Manual Renewal button for temporary numbers and suspended/retained numbers */}
+                      {!isReleaseInProgress && !isReleased && !isReleaseFailedManual && (num.isTrialNumber || num.isRetained || num.status === 'SUSPENDED') && (
+                        <button
+                          onClick={() => handleRenewNumber(num)}
+                          disabled={renewingNumberId === num.id}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-500 hover:bg-emerald-400 text-slate-950 transition shadow-md shadow-emerald-500/20 disabled:opacity-50 flex items-center space-x-1"
+                          title="Manually renew this phone number for $3/month"
+                        >
+                          {renewingNumberId === num.id ? (
+                            <>
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" />
+                              <span>Renewing...</span>
+                            </>
+                          ) : (
+                            <span>Renew for $3/month</span>
+                          )}
+                        </button>
+                      )}
                       {/* Cancel Subscription button for active numbers */}
                       {isActive && !num.cancelAtPeriodEnd && (
                         <button
@@ -1068,8 +1158,10 @@ export const AIReceptionistPage: React.FC = () => {
                   <span className="font-semibold text-slate-300">{activePhones} / {maxPhones} active</span>
                 </div>
                 <div className="flex justify-between items-center text-slate-200 font-bold bg-slate-900/60 p-2.5 rounded-lg border border-slate-800">
-                  <span>Phone Number Recurring Fee:</span>
-                  <span className="text-emerald-400 font-mono text-sm">$3.00 / month</span>
+                  <span>{usage?.planTier === 'TRIAL' ? '14-Day Phone Rental Fee:' : 'Phone Number Recurring Fee:'}</span>
+                  <span className="text-emerald-400 font-mono text-sm">
+                    {usage?.planTier === 'TRIAL' ? '$3.00 One-Time (14 Days)' : '$3.00 / month'}
+                  </span>
                 </div>
                 {selectedNumberForOrder.setupCostUsd > 0 && (
                   <div className="flex justify-between items-center text-slate-300">
@@ -1092,9 +1184,15 @@ export const AIReceptionistPage: React.FC = () => {
               )}
 
               <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/25 rounded-xl text-emerald-300 text-[11px] leading-relaxed space-y-1">
-                <p className="font-semibold">Independent Subscription Notice:</p>
+                <p className="font-semibold">
+                  {usage?.planTier === 'TRIAL'
+                    ? '14-Day Temporary Rental Notice:'
+                    : 'Independent Subscription Notice:'}
+                </p>
                 <p>
-                  This phone number has its own recurring subscription of <strong>$3.00 USD/month</strong> via Creem. It is billed independently from your main ONCEClic plan. Canceling or changing your main subscription will never automatically cancel or release your phone number.
+                  {usage?.planTier === 'TRIAL'
+                    ? 'This is a 14-day temporary rental billed as a one-time non-recurring charge of $3.00 USD via Creem. It does NOT automatically renew. When the 14 days end, service is suspended, and you have a 30-day retention grace period to manually renew for $3/month before the number is released.'
+                    : 'This phone number has its own recurring subscription of $3.00 USD/month via Creem. It is billed independently from your main ONCEClic plan. Canceling or changing your main subscription will never automatically cancel or release your phone number.'}
                 </p>
               </div>
             </div>
@@ -1120,7 +1218,11 @@ export const AIReceptionistPage: React.FC = () => {
                     <span>{orderProgressState === 'REDIRECTING' ? 'Redirecting to Creem Checkout...' : 'Preparing Checkout...'}</span>
                   </>
                 ) : (
-                  <span>Proceed to Checkout — $3/month</span>
+                  <span>
+                    {usage?.planTier === 'TRIAL'
+                      ? 'Proceed to Checkout — $3 (14 Days)'
+                      : 'Proceed to Checkout — $3/month'}
+                  </span>
                 )}
               </button>
             </div>

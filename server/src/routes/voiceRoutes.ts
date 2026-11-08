@@ -91,7 +91,16 @@ router.post('/numbers/quote', requirePermission('voice:read'), async (req: Reque
  */
 router.post('/numbers/checkout-session', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
   try {
-    const { phoneNumber, countryCode, numberType, expectedMonthlyCostUsd, expectedSetupCostUsd, idempotencyKey } = req.body;
+    const {
+      phoneNumber,
+      countryCode,
+      numberType,
+      expectedMonthlyCostUsd,
+      expectedSetupCostUsd,
+      idempotencyKey,
+      checkoutType,
+      targetPhoneNumberId,
+    } = req.body;
     if (!phoneNumber) {
       return res.status(400).json({ success: false, error: 'Phone number is required.' });
     }
@@ -106,6 +115,8 @@ router.post('/numbers/checkout-session', requirePermission('voice:manage'), asyn
       idempotencyKey: idempotencyKey || (req.headers['idempotency-key'] as string | undefined),
       userEmail: req.user?.email,
       userName: req.user?.fullName,
+      checkoutType,
+      targetPhoneNumberId,
     });
 
     res.status(201).json({ success: true, data: session });
@@ -365,7 +376,10 @@ router.post('/numbers/:id/test-call', requirePermission('voice:manage'), async (
     });
 
     res.json({ success: result.success, data: result });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message?.includes('suspended or inactive') || err.message?.includes('renew your rental')) {
+      return res.status(403).json({ success: false, error: err.message });
+    }
     next(err);
   }
 });
@@ -377,7 +391,10 @@ router.post('/numbers/:id/test', requirePermission('voice:manage'), async (req: 
   try {
     const result = await VoiceService.testNumberConnection(req.organizationId!, req.params.id);
     res.json({ success: result.success, data: result });
-  } catch (err) {
+  } catch (err: any) {
+    if (err.message?.includes('suspended or inactive') || err.message?.includes('renew your rental')) {
+      return res.status(403).json({ success: false, error: err.message });
+    }
     next(err);
   }
 });

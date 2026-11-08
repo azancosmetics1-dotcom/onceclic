@@ -11,6 +11,16 @@ import { VapiVoiceProvider } from '../server/src/services/voice/VapiVoiceProvide
 import { TelnyxTelephonyProvider } from '../server/src/services/voice/TelnyxTelephonyProvider';
 import { RetellVoiceProvider } from '../server/src/services/voice/RetellVoiceProvider';
 
+class HttpError extends Error {
+  status?: number;
+  statusCode?: number;
+}
+
+function mockJsonResponse<T>(data: T): SafeNetworkResponse['json'] {
+  const serialized = JSON.stringify(data ?? {});
+  return async () => JSON.parse(serialized);
+}
+
 export async function runVoiceProvisioningAndNetworkTests() {
   console.log('--- Running Voice Provisioning, Concurrency, and Network Security (Prompt 2 Remediation) Tests ---');
 
@@ -370,8 +380,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
       }
       return db.execute(sql, params);
     },
-    getOne: (sql: string, params: any[]) => db.getOne(sql, params),
-    getAll: (sql: string, params: any[]) => db.getAll(sql, params),
+    getOne: (sql: string, params?: any[]) => db.getOne(sql, params),
   };
 
   // Must surface the error when audit logging fails
@@ -539,7 +548,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
   await createTestOrg(org9c, 'Org 9c Definitive Rejection');
   const unauthorizedProvider = {
     createOrUpdateAssistant: async () => {
-      const err = new Error('Vapi API error: 401 Unauthorized. Invalid API credentials.');
+      const err = new HttpError('Vapi API error: 401 Unauthorized. Invalid API credentials.');
       err.status = 401;
       throw err;
     },
@@ -564,7 +573,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
   await createTestOrg(org9d, 'Org 9d Misleading 502 Error');
   const misleading502Provider = {
     createOrUpdateAssistant: async () => {
-      const err = new Error('502 Bad Gateway: prompt error 400 words exceed standard limit');
+      const err = new HttpError('502 Bad Gateway: prompt error 400 words exceed standard limit');
       err.status = 502; // Numeric status is 502 server error
       throw err;
     },
@@ -589,7 +598,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
   await createTestOrg(org9e, 'Org 9e Structured 422 Error');
   const unprocessableProvider = {
     createOrUpdateAssistant: async () => {
-      const err = new Error('Unprocessable Entity: invalid parameter');
+      const err = new HttpError('Unprocessable Entity: invalid parameter');
       err.statusCode = 422; // Using statusCode property
       throw err;
     },
@@ -614,7 +623,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
   await createTestOrg(org9f, 'Org 9f Rate Limit 429');
   const rateLimitProvider = {
     createOrUpdateAssistant: async () => {
-      const err = new Error('Rate limit exceeded');
+      const err = new HttpError('Rate limit exceeded');
       err.status = 429;
       throw err;
     },
@@ -639,7 +648,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
   await createTestOrg(org9g, 'Org 9g Unmapped 418 Error');
   const teapotProvider = {
     createOrUpdateAssistant: async () => {
-      const err = new Error("I'm a teapot");
+      const err = new HttpError("I'm a teapot");
       err.status = 418;
       throw err;
     },
@@ -856,7 +865,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
         headers: { location: 'https://vapi-public.s3.amazonaws.com/step2' },
         buffer: async () => Buffer.from(''),
         text: async () => '',
-        json: async () => ({}),
+        json: mockJsonResponse({}),
       };
     }
     if (url.toString() === 'https://vapi-public.s3.amazonaws.com/step2') {
@@ -867,7 +876,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
         headers: { location: 'https://storage.googleapis.com/final' },
         buffer: async () => Buffer.from(''),
         text: async () => '',
-        json: async () => ({}),
+        json: mockJsonResponse({}),
       };
     }
     return {
@@ -877,7 +886,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
       headers: { 'content-type': 'application/json' },
       buffer: async () => Buffer.from(JSON.stringify({ success: true })),
       text: async () => JSON.stringify({ success: true }),
-      json: async () => ({ success: true }),
+      json: mockJsonResponse({ success: true }),
     };
   };
 
@@ -901,7 +910,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
           headers: { location: 'https://evil-attacker.com/steal' },
           buffer: async () => Buffer.from(''),
           text: async () => '',
-          json: async () => ({}),
+          json: mockJsonResponse({}),
         }),
       });
     },
@@ -921,7 +930,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
           headers: { location: 'https://169.254.169.254/latest/meta-data' },
           buffer: async () => Buffer.from(''),
           text: async () => '',
-          json: async () => ({}),
+          json: mockJsonResponse({}),
         }),
       });
     },
@@ -941,7 +950,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
           headers: { location: 'https://api.vapi.ai:8080/internal' },
           buffer: async () => Buffer.from(''),
           text: async () => '',
-          json: async () => ({}),
+          json: mockJsonResponse({}),
         }),
       });
     },
@@ -961,7 +970,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
           headers: { location: 'http://api.vapi.ai/plain' },
           buffer: async () => Buffer.from(''),
           text: async () => '',
-          json: async () => ({}),
+          json: mockJsonResponse({}),
         }),
       });
     },
@@ -982,7 +991,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
           headers: { location: `https://api.vapi.ai/loop?step=${Date.now()}` },
           buffer: async () => Buffer.from(''),
           text: async () => '',
-          json: async () => ({}),
+          json: mockJsonResponse({}),
         }),
       });
     },
@@ -1034,7 +1043,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
           headers: {},
           buffer: async () => Buffer.from(''),
           text: async () => '',
-          json: async () => ({ id: 'asst_intercepted_123' }),
+          json: mockJsonResponse({ id: 'asst_intercepted_123' }),
         };
       }
       if (url.includes('/phone-number/')) {
@@ -1045,7 +1054,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
           headers: {},
           buffer: async () => Buffer.from(''),
           text: async () => '',
-          json: async () => ({ success: true }),
+          json: mockJsonResponse({ success: true }),
         };
       }
       if (url.includes('/phone-number')) {
@@ -1056,7 +1065,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
           headers: {},
           buffer: async () => Buffer.from(''),
           text: async () => '',
-          json: async () => ({ id: 'vapi_pn_intercepted', number: '+15551234567' }),
+          json: mockJsonResponse({ id: 'vapi_pn_intercepted', number: '+15551234567' }),
         };
       }
       if (url.includes('/stop')) {
@@ -1067,7 +1076,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
           headers: {},
           buffer: async () => Buffer.from(''),
           text: async () => '',
-          json: async () => ({ success: true }),
+          json: mockJsonResponse({ success: true }),
         };
       }
       return {
@@ -1077,7 +1086,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
         headers: {},
         buffer: async () => Buffer.from(''),
         text: async () => '',
-        json: async () => ({}),
+        json: mockJsonResponse({}),
       };
     };
 
@@ -1185,7 +1194,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
         headers: {},
         buffer: async () => Buffer.from(''),
         text: async () => '',
-        json: async () => ({ data: [] }),
+        json: mockJsonResponse({ data: [] }),
       };
     };
 
@@ -1215,7 +1224,7 @@ export async function runVoiceProvisioningAndNetworkTests() {
         headers: {},
         buffer: async () => Buffer.from(''),
         text: async () => '',
-        json: async () => ({ phone_number: '+14155550000', phone_number_id: 'retell_pn_123' }),
+        json: mockJsonResponse({ phone_number: '+14155550000', phone_number_id: 'retell_pn_123' }),
       };
     };
 

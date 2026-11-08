@@ -73,7 +73,7 @@ export class AIBudgetService {
         budgetUsd: 0,
         spentUsd,
         remainingUsd: 0,
-        reason: 'No subscription found. Please start your 7-day free trial or choose an ONCEClic plan starting from $19/month.',
+        reason: 'No subscription found. Please start your 14-day free trial or choose an ONCEClic plan starting from $19/month.',
       };
     }
 
@@ -106,7 +106,7 @@ export class AIBudgetService {
       };
     }
 
-    // 2. Check 7-Day Free Trial
+    // 2. Check 14-Day Free Trial
     if (status === SubscriptionStatus.TRIALING) {
       const trialEnds = new Date(sub.trial_ends_at || sub.trialEndsAt || 0);
 
@@ -124,7 +124,7 @@ export class AIBudgetService {
           budgetUsd: config.billing.trialAiBudgetUsd,
           spentUsd,
           remainingUsd: 0,
-          reason: 'Your 7-day free trial has expired. Upgrade to a paid plan starting from $19/month to continue using your AI receptionist.',
+          reason: 'Your 14-day free trial has expired. Upgrade to a paid plan starting from $19/month to continue using your AI receptionist.',
         };
       }
 

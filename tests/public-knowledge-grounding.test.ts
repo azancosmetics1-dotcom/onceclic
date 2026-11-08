@@ -44,8 +44,8 @@ async function testPublicKnowledgeGrounding() {
   if (!prompt.includes('$19 USD / month')) {
     throw new Error('System prompt missing $19/mo pricing information.');
   }
-  if (!prompt.includes('7-Day Free Trial')) {
-    throw new Error('System prompt missing 7-day trial information.');
+  if (!prompt.includes('14-Day Free Trial')) {
+    throw new Error('System prompt missing 14-day trial information.');
   }
   if (!prompt.includes('14-Day Refund Guarantee')) {
     throw new Error('System prompt missing 14-day refund policy.');

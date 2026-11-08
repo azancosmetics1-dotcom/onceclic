@@ -630,6 +630,8 @@ class ApiClient {
     expectedMonthlyCostUsd?: number;
     expectedSetupCostUsd?: number;
     idempotencyKey?: string;
+    checkoutType?: 'RECURRING' | 'TRIAL_ONE_TIME' | 'RENEWAL';
+    targetPhoneNumberId?: string;
   }): Promise<any> {
     return this.request('/voice/numbers/checkout-session', {
       method: 'POST',

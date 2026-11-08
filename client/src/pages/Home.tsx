@@ -77,7 +77,7 @@ export const Home: React.FC = () => {
             to="/signup"
             className="w-full sm:w-auto px-8 py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-base transition duration-200 shadow-xl shadow-emerald-500/25 flex items-center justify-center space-x-2"
           >
-            <span>Start 7-Day Free Trial</span>
+            <span>Start 14-Day Free Trial</span>
             <ArrowRight className="w-4 h-4" />
           </Link>
           <Link
@@ -90,7 +90,7 @@ export const Home: React.FC = () => {
 
         <p className="mt-3 text-xs text-slate-400 flex items-center justify-center space-x-1.5">
           <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>7-Day Free Trial &bull; $0 &bull; No credit card required</span>
+          <span>14-Day Free Trial &bull; $0 &bull; No credit card required</span>
         </p>
 
         {/* Interactive Live Demo Preview Box */}
@@ -243,7 +243,7 @@ export const Home: React.FC = () => {
             Ready to give your business a 24/7 AI Receptionist?
           </h2>
           <p className="mt-4 text-base text-slate-300 max-w-xl mx-auto">
-            Start your 7-day free trial with no credit card required. Experience ONCEClic and upgrade from $19/month when you're ready.
+            Start your 14-day free trial with no credit card required. Experience ONCEClic and upgrade from $19/month when you're ready.
           </p>
 
           <div className="mt-8 flex justify-center">
@@ -251,7 +251,7 @@ export const Home: React.FC = () => {
               to="/signup"
               className="px-8 py-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-base transition shadow-lg shadow-emerald-500/25 flex items-center space-x-2"
             >
-              <span>Start 7-Day Free Trial</span>
+              <span>Start 14-Day Free Trial</span>
               <ArrowRight className="w-4 h-4" />
             </Link>
           </div>

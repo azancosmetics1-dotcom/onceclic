@@ -202,6 +202,18 @@ async function runAllTests() {
     await runVoicePlanLimitsTests();
     console.log('');
 
+    const { runPhoneRenewalVsReleaseRaceTests } = await import('./phone-renewal-vs-release-race.test');
+    await runPhoneRenewalVsReleaseRaceTests();
+    console.log('');
+
+    const { runCreemRefundReconciliationTests } = await import('./creem-refund-reconciliation.test');
+    await runCreemRefundReconciliationTests();
+    console.log('');
+
+    const { runPostgresConcurrencyIntegrationTests } = await import('./postgres-concurrency.integration.test');
+    await runPostgresConcurrencyIntegrationTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

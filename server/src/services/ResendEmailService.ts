@@ -892,7 +892,7 @@ export class ResendEmailService {
           Hi ${name},
         </p>
         <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
-          Your ONCEClic 7-day free trial ends in 2 days.
+          Your ONCEClic 14-day free trial ends in 2 days.
         </p>
         <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
           Your trial is still active, and you can continue testing your ONCEClic AI receptionist and business automation features.
@@ -935,7 +935,7 @@ export class ResendEmailService {
 </html>
     `.trim();
 
-    const text = `Hi ${name},\n\nYour ONCEClic 7-day free trial ends in 2 days.\n\nYour trial is still active, and you can continue testing your ONCEClic AI receptionist and business automation features.\n\nWhen your trial ends, your trial access will expire and no automatic payment will be taken.\n\nIf you want to continue using ONCEClic after the trial, you can upgrade to a paid plan starting from $19/month (Starter) up to $99/month (Business).\n\nUpgrade your plan: ${upgradeUrl}\n\nYour upgrade requires payment through Paddle. No payment is taken automatically when the free trial ends.\n\nThanks,\nONCEClic`;
+    const text = `Hi ${name},\n\nYour ONCEClic 14-day free trial ends in 2 days.\n\nYour trial is still active, and you can continue testing your ONCEClic AI receptionist and business automation features.\n\nWhen your trial ends, your trial access will expire and no automatic payment will be taken.\n\nIf you want to continue using ONCEClic after the trial, you can upgrade to a paid plan starting from $19/month (Starter) up to $99/month (Business).\n\nUpgrade your plan: ${upgradeUrl}\n\nYour upgrade requires payment through Paddle. No payment is taken automatically when the free trial ends.\n\nThanks,\nONCEClic`;
 
     const result = await this.sendEmail({
       to: params.toEmail,
@@ -999,7 +999,7 @@ export class ResendEmailService {
           Hi ${name},
         </p>
         <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
-          Your ONCEClic 7-day free trial has ended.
+          Your ONCEClic 14-day free trial has ended.
         </p>
         <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.6; color: #cbd5e1;">
           Your trial access has now expired.
@@ -1042,7 +1042,7 @@ export class ResendEmailService {
 </html>
     `.trim();
 
-    const text = `Hi ${name},\n\nYour ONCEClic 7-day free trial has ended.\n\nYour trial access has now expired.\n\nNo automatic payment was taken.\n\nIf you would like to continue using ONCEClic, choose a plan starting from $19/month:\n\nStarter — $19/month (50 voice minutes)\nPro — $49/month (150 voice minutes)\nBusiness — $99/month (400 voice minutes)\n\nUpgrade your plan: ${upgradeUrl}\n\nYou can upgrade securely through Paddle.\n\nThanks,\nONCEClic`;
+    const text = `Hi ${name},\n\nYour ONCEClic 14-day free trial has ended.\n\nYour trial access has now expired.\n\nNo automatic payment was taken.\n\nIf you would like to continue using ONCEClic, choose a plan starting from $19/month:\n\nStarter — $19/month (50 voice minutes)\nPro — $49/month (150 voice minutes)\nBusiness — $99/month (400 voice minutes)\n\nUpgrade your plan: ${upgradeUrl}\n\nYou can upgrade securely through Paddle.\n\nThanks,\nONCEClic`;
 
     const result = await this.sendEmail({
       to: params.toEmail,

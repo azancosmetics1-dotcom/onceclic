@@ -46,6 +46,8 @@ export class PhoneNumberBillingService {
     idempotencyKey?: string;
     userEmail?: string;
     userName?: string;
+    checkoutType?: 'RECURRING' | 'TRIAL_ONE_TIME' | 'RENEWAL';
+    targetPhoneNumberId?: string;
   }): Promise<PhoneNumberCheckoutSession & { checkoutPayload: any; checkoutUrl?: string }> {
     const orgLockKey = `res_lock_${params.organizationId}`;
 
@@ -78,6 +80,8 @@ export class PhoneNumberBillingService {
     idempotencyKey?: string;
     userEmail?: string;
     userName?: string;
+    checkoutType?: 'RECURRING' | 'TRIAL_ONE_TIME' | 'RENEWAL';
+    targetPhoneNumberId?: string;
   }): Promise<PhoneNumberCheckoutSession & { checkoutPayload: any; checkoutUrl?: string }> {
     const { VoiceService } = await import('./VoiceService');
 
@@ -103,23 +107,15 @@ export class PhoneNumberBillingService {
         throw new Error('An active subscription or valid trial is required to purchase and rent a business phone number.');
       }
 
-      // 2. Atomic phone number quota reservation check (counts active + unexpired pending reservations)
-      const quotaCheck = await VoiceService.checkPhoneNumberLimit(params.organizationId, tx, {
-        includePendingReservations: true,
-      });
+      const isTrial = sub.status === SubscriptionStatus.TRIALING;
+      const effectiveCheckoutType: 'RECURRING' | 'TRIAL_ONE_TIME' | 'RENEWAL' =
+        params.checkoutType === 'RENEWAL'
+          ? 'RENEWAL'
+          : isTrial
+          ? 'TRIAL_ONE_TIME'
+          : (params.checkoutType || 'RECURRING');
 
-      if (!quotaCheck.allowed) {
-        const planName = quotaCheck.planTier === 'TRIAL' ? 'Free Trial'
-          : quotaCheck.planTier === 'STARTER' ? 'Starter ($19/mo)'
-          : quotaCheck.planTier === 'PRO' ? 'Pro ($49/mo)'
-          : 'Business ($99/mo)';
-        throw new Error(
-          `Phone number limit reached. Your ${planName} plan allows a maximum of ${quotaCheck.limit} active phone number${quotaCheck.limit === 1 ? '' : 's'}. ` +
-          `You currently have ${quotaCheck.activeCount} active and ${quotaCheck.pendingCount} pending reservation${quotaCheck.pendingCount === 1 ? '' : 's'}. Please upgrade your plan to add more numbers.`
-        );
-      }
-
-      // 3. Format and validate phone number
+      // 2. Format and validate phone number
       const normalized = VoiceService.normalizePhoneNumber(params.phoneNumber);
       if (!normalized || normalized.length < 7) {
         throw new Error('Invalid phone number format.');
@@ -129,19 +125,65 @@ export class PhoneNumberBillingService {
       const type = (params.numberType || 'local').toLowerCase();
 
       // Check if phone number is already owned by another tenant
-      const existingNum = await tx.getOne<{ id: string; organization_id: string; status: string; provisioning_status: string }>(
-        'SELECT id, organization_id, status, provisioning_status FROM voice_phone_numbers WHERE phone_number = $1',
+      const existingNum = await tx.getOne<{ id: string; organization_id: string; status: string; provisioning_status: string; is_trial_number?: boolean; is_retained?: boolean; rental_ends_at?: string; retention_ends_at?: string }>(
+        'SELECT id, organization_id, status, provisioning_status, is_trial_number, is_retained, rental_ends_at, retention_ends_at FROM voice_phone_numbers WHERE phone_number = $1',
         [normalized]
       );
       if (existingNum && existingNum.organization_id !== params.organizationId) {
         throw new Error('This phone number is already registered to another organization.');
       }
-      if (existingNum && (existingNum.status === 'ACTIVE' || existingNum.provisioning_status === 'ACTIVE')) {
-        throw new Error('This phone number has already been provisioned for your organization.');
+
+      let targetPhoneRecord: any = null;
+      if (effectiveCheckoutType === 'RENEWAL') {
+        if (params.targetPhoneNumberId) {
+          targetPhoneRecord = await tx.getOne<any>(
+            'SELECT * FROM voice_phone_numbers WHERE id = $1 AND organization_id = $2',
+            [params.targetPhoneNumberId, params.organizationId]
+          );
+        } else if (existingNum) {
+          targetPhoneRecord = existingNum;
+        }
+
+        if (!targetPhoneRecord) {
+          throw new Error('The phone number selected for renewal does not exist or does not belong to your organization.');
+        }
+
+        if (
+          targetPhoneRecord.release_status === 'RELEASE_IN_PROGRESS' ||
+          targetPhoneRecord.release_status === 'RELEASED' ||
+          targetPhoneRecord.release_status === 'RELEASE_FAILED_MANUAL_ATTENTION' ||
+          targetPhoneRecord.status === 'RELEASED' ||
+          targetPhoneRecord.status === 'RELEASE_IN_PROGRESS'
+        ) {
+          throw new Error('This phone number is currently being released or has already been released. Renewal is no longer possible.');
+        }
+      } else {
+        if (existingNum && (existingNum.status === 'ACTIVE' || existingNum.provisioning_status === 'ACTIVE')) {
+          throw new Error('This phone number has already been provisioned for your organization.');
+        }
+
+        // Atomic phone number quota reservation check (counts active + unexpired pending reservations)
+        const quotaCheck = await VoiceService.checkPhoneNumberLimit(params.organizationId, tx, {
+          includePendingReservations: true,
+        });
+
+        if (!quotaCheck.allowed) {
+          const planName = quotaCheck.planTier === 'TRIAL' ? 'Free Trial'
+            : quotaCheck.planTier === 'STARTER' ? 'Starter ($19/mo)'
+            : quotaCheck.planTier === 'PRO' ? 'Pro ($49/mo)'
+            : 'Business ($99/mo)';
+          throw new Error(
+            `Phone number limit reached. Your ${planName} plan allows a maximum of ${quotaCheck.limit} active phone number${quotaCheck.limit === 1 ? '' : 's'}. ` +
+            `You currently have ${quotaCheck.activeCount} active and ${quotaCheck.pendingCount} pending reservation${quotaCheck.pendingCount === 1 ? '' : 's'}. Please upgrade your plan to add more numbers.`
+          );
+        }
       }
 
       // 4. Validate Creem Dedicated Phone Number Product configuration
-      const productId = config.creem.phoneNumberProductId;
+      const productId = effectiveCheckoutType === 'TRIAL_ONE_TIME'
+        ? config.creem.phoneTrialProductId
+        : config.creem.phoneNumberProductId;
+
       const isProductIdValid = Boolean(
         productId &&
         !productId.includes('placeholder') &&
@@ -150,17 +192,26 @@ export class PhoneNumberBillingService {
       );
 
       if (!isProductIdValid && process.env.NODE_ENV !== 'test') {
-        console.warn('[PhoneNumberBilling] Phone number checkout attempted but CREEM_PHONE_NUMBER_PRODUCT_ID is missing or not configured on the server.');
-        throw new Error('Dedicated phone number checkout is currently unavailable. Please contact support or check back later.');
+        if (effectiveCheckoutType === 'TRIAL_ONE_TIME') {
+          console.warn('[PhoneNumberBilling] Phone number checkout attempted but CREEM_PHONE_TRIAL_PRODUCT_ID is missing or not configured on the server.');
+          throw new Error('Temporary phone number checkout is currently unavailable. Please contact support or check back later.');
+        } else {
+          console.warn('[PhoneNumberBilling] Phone number checkout attempted but CREEM_PHONE_NUMBER_PRODUCT_ID is missing or not configured on the server.');
+          throw new Error('Dedicated phone number checkout is currently unavailable. Please contact support or check back later.');
+        }
       }
 
       // Safety guard: Test/sandbox product IDs cannot be used in production environment
       if (config.creem.environment === 'prod' && (productId?.toLowerCase().includes('test') || productId?.toLowerCase().includes('sandbox'))) {
-        console.warn('[PhoneNumberBilling] Test phone number product ID cannot be used in production environment.');
-        throw new Error('Dedicated phone number checkout is currently unavailable. Please contact support or check back later.');
+        console.warn(`[PhoneNumberBilling] Test phone product ID (${productId}) cannot be used in production environment.`);
+        throw new Error(
+          effectiveCheckoutType === 'TRIAL_ONE_TIME'
+            ? 'Temporary phone number checkout is currently unavailable. Please contact support or check back later.'
+            : 'Dedicated phone number checkout is currently unavailable. Please contact support or check back later.'
+        );
       }
 
-      // 5. Authoritative Pricing ($3.00/month recurring)
+      // 5. Authoritative Pricing ($3.00 flat)
       const quote = PhoneNumberPricingService.getAuthoritativePricing({
         countryCode: country,
         numberType: type,
@@ -185,7 +236,8 @@ export class PhoneNumberBillingService {
                   paddle_transaction_id as "paddleTransactionId", paddle_subscription_id as "paddleSubscriptionId",
                   creem_checkout_id as "creemCheckoutId", creem_subscription_id as "creemSubscriptionId",
                   creem_customer_id as "creemCustomerId", creem_product_id as "creemProductId",
-                  reservation_id as "reservationId",
+                  reservation_id as "reservationId", checkout_type as "checkoutType",
+                  target_phone_number_id as "targetPhoneNumberId",
                   expires_at as "expiresAt", created_at as "createdAt"
            FROM voice_phone_number_checkouts
            WHERE organization_id = $1 AND idempotency_key = $2 AND status IN ('PENDING', 'AUTHORIZED', 'PAID')
@@ -194,7 +246,7 @@ export class PhoneNumberBillingService {
           [params.organizationId, params.idempotencyKey]
         );
         if (existing) {
-          return { existingCheckout: existing, normalized, country, type, quote, productId, sub };
+          return { existingCheckout: existing, normalized, country, type, quote, productId, sub, effectiveCheckoutType, targetPhoneRecord };
         }
       }
 
@@ -202,15 +254,15 @@ export class PhoneNumberBillingService {
       const checkoutId = `pnc_${uuidv4().replace(/-/g, '')}`;
       const reservationId = `res_${uuidv4().replace(/-/g, '')}`;
       const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 min reservation expiry
-      const customerMonthlyCostUsd = 3.00; // Flat $3/month independent recurring fee
+      const customerMonthlyCostUsd = 3.00; // Flat $3 fee
 
       await tx.execute(
         `INSERT INTO voice_phone_number_checkouts (
            id, organization_id, phone_number, country_code, number_type,
            provider_cost_usd, markup_usd, customer_monthly_cost_usd, setup_cost_usd,
            currency, pricing_policy_version, status, idempotency_key, expires_at,
-           creem_product_id, reservation_id, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDING', $12, $13, $14, $15, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+           creem_product_id, reservation_id, checkout_type, target_phone_number_id, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'PENDING', $12, $13, $14, $15, $16, $17, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         [
           checkoutId,
           params.organizationId,
@@ -227,6 +279,8 @@ export class PhoneNumberBillingService {
           expiresAt,
           productId || null,
           reservationId,
+          effectiveCheckoutType,
+          targetPhoneRecord?.id || null,
         ]
       );
 
@@ -241,6 +295,8 @@ export class PhoneNumberBillingService {
         quote,
         productId,
         sub,
+        effectiveCheckoutType,
+        targetPhoneRecord,
       };
     });
 
@@ -257,13 +313,19 @@ export class PhoneNumberBillingService {
           checkoutId: existing.id,
           reservationId: existing.reservationId,
           creemCheckoutId: existing.creemCheckoutId,
+          checkoutType: existing.checkoutType,
+          targetPhoneNumberId: existing.targetPhoneNumberId,
           customerMonthlyCostUsd: Number(existing.customerMonthlyCostUsd),
           customData: {
-            type: 'PHONE_NUMBER',
+            type: existing.checkoutType === 'TRIAL_ONE_TIME' ? 'PHONE_NUMBER_TRIAL'
+                : existing.checkoutType === 'RENEWAL' ? 'PHONE_NUMBER_RENEWAL'
+                : 'PHONE_NUMBER',
             organization_id: params.organizationId,
             phone_number: res.normalized,
             checkout_id: existing.id,
             reservation_id: existing.reservationId,
+            checkout_type: existing.checkoutType,
+            target_phone_number_id: existing.targetPhoneNumberId,
           },
         },
       };
@@ -279,6 +341,8 @@ export class PhoneNumberBillingService {
     const quote = res.quote;
     const productId = res.productId;
     const sub = res.sub;
+    const effectiveCheckoutType = res.effectiveCheckoutType;
+    const targetPhoneRecord = res.targetPhoneRecord;
 
     // 8. Create independent Creem checkout session
     const creem = CreemBillingService.getCreemSdk();
@@ -318,7 +382,11 @@ export class PhoneNumberBillingService {
           },
           successUrl,
           metadata: {
-            type: 'PHONE_NUMBER',
+            type: effectiveCheckoutType === 'TRIAL_ONE_TIME' ? 'PHONE_NUMBER_TRIAL'
+                : effectiveCheckoutType === 'RENEWAL' ? 'PHONE_NUMBER_RENEWAL'
+                : 'PHONE_NUMBER',
+            checkoutType: effectiveCheckoutType,
+            targetPhoneNumberId: targetPhoneRecord?.id || undefined,
             organizationId: params.organizationId,
             phoneNumber: normalized,
             countryCode: country,
@@ -372,10 +440,19 @@ export class PhoneNumberBillingService {
       creemCheckoutId,
       creemProductId: productId || undefined,
       reservationId,
+      checkoutType: effectiveCheckoutType,
+      targetPhoneNumberId: targetPhoneRecord?.id,
       checkoutUrl,
       expiresAt,
       createdAt: new Date().toISOString(),
     };
+
+    const separateFromPlanNotice =
+      effectiveCheckoutType === 'TRIAL_ONE_TIME'
+        ? 'Temporary phone-number rental is billed as a one-time non-recurring payment of $3.00 USD for a 14-day rental via Creem. It does not automatically renew.'
+        : effectiveCheckoutType === 'RENEWAL'
+        ? 'Phone-number renewal is billed as an independent recurring subscription of $3.00/month via Creem, completely separate from your main ONCEClic subscription.'
+        : 'Phone-number rental is billed as an independent recurring subscription of $3.00/month via Creem, completely separate from your main ONCEClic subscription.';
 
     const checkoutPayload = {
       checkoutId,
@@ -383,14 +460,20 @@ export class PhoneNumberBillingService {
       creemCheckoutId,
       customerMonthlyCostUsd,
       setupCostUsd: quote.setupCostUsd,
-      separateFromPlanNotice: 'Phone-number rental is billed as an independent recurring subscription of $3.00/month via Creem, completely separate from your main ONCEClic subscription.',
+      checkoutType: effectiveCheckoutType,
+      targetPhoneNumberId: targetPhoneRecord?.id,
+      separateFromPlanNotice,
       taxNotice: 'Applicable sales tax or VAT is calculated by Creem at checkout based on your billing address.',
       customData: {
-        type: 'PHONE_NUMBER',
+        type: effectiveCheckoutType === 'TRIAL_ONE_TIME' ? 'PHONE_NUMBER_TRIAL'
+            : effectiveCheckoutType === 'RENEWAL' ? 'PHONE_NUMBER_RENEWAL'
+            : 'PHONE_NUMBER',
         organization_id: params.organizationId,
         phone_number: normalized,
         checkout_id: checkoutId,
         reservation_id: reservationId,
+        checkout_type: effectiveCheckoutType,
+        target_phone_number_id: targetPhoneRecord?.id,
       },
     };
 

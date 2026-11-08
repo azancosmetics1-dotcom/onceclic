@@ -92,7 +92,7 @@ export class TrialNotificationService {
           const timeRemainingMs = trialEndMs - nowMs;
           const twoDaysMs = 2 * 24 * 60 * 60 * 1000; // Exactly 48 hours
 
-          // 1. Expiration Evaluation: Trial reached or exceeded 7 days
+          // 1. Expiration Evaluation: Trial reached or exceeded 14 days
           if (nowMs >= trialEndMs) {
             if (sub.status === SubscriptionStatus.TRIALING) {
               await db.execute(

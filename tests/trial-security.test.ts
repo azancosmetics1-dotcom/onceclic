@@ -14,7 +14,7 @@ export async function runTrialSecurityTests() {
   // 1. New email can receive trial
   const eligibility1 = await TrialService.checkEligibility(baseEmail);
   if (!eligibility1.eligible || eligibility1.hasUsedTrial) {
-    throw new Error('New email should be eligible for 7-day free trial.');
+    throw new Error('New email should be eligible for 14-day free trial.');
   }
 
   const auth1 = await AuthService.register({
@@ -38,7 +38,7 @@ export async function runTrialSecurityTests() {
   if (sub1.subscription?.status !== SubscriptionStatus.TRIALING) {
     throw new Error(`Expected status TRIALING on first trial redemption, got ${sub1.subscription?.status}`);
   }
-  console.log('  ✓ 1. New email can receive 7-day free trial');
+  console.log('  ✓ 1. New email can receive 14-day free trial');
 
   // 2. Same email cannot receive second trial
   const eligibility2 = await TrialService.checkEligibility(baseEmail);

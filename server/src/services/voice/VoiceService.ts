@@ -1195,6 +1195,9 @@ export class VoiceService {
     creemCustomerId?: string;
     creemCheckoutId?: string;
     transactionId?: string;
+    isTrialNumber?: boolean;
+    checkoutType?: 'RECURRING' | 'TRIAL_ONE_TIME' | 'RENEWAL';
+    targetPhoneNumberId?: string;
   }): Promise<VoicePhoneNumber> {
     const normalized = this.normalizePhoneNumber(params.phoneNumber);
     if (!normalized) {
@@ -1229,8 +1232,103 @@ export class VoiceService {
     creemCustomerId?: string;
     creemCheckoutId?: string;
     transactionId?: string;
+    isTrialNumber?: boolean;
+    checkoutType?: 'RECURRING' | 'TRIAL_ONE_TIME' | 'RENEWAL';
+    targetPhoneNumberId?: string;
   }): Promise<VoicePhoneNumber> {
     const normalized = params.phoneNumber;
+
+    // 0. Resolve checkoutType & targetPhoneNumberId
+    let effectiveCheckoutType = params.checkoutType;
+    let targetPhoneId = params.targetPhoneNumberId;
+    if (params.checkoutSessionId && !effectiveCheckoutType) {
+      const chk = await db.getOne<{ checkout_type: string; target_phone_number_id: string }>(
+        'SELECT checkout_type, target_phone_number_id FROM voice_phone_number_checkouts WHERE id = $1',
+        [params.checkoutSessionId]
+      );
+      if (chk) {
+        effectiveCheckoutType = chk.checkout_type as any;
+        targetPhoneId = targetPhoneId || chk.target_phone_number_id;
+      }
+    }
+
+    // 0b. Special handling for RENEWAL of an existing trial/retained number
+    if (effectiveCheckoutType === 'RENEWAL') {
+      let existingPhoneRecord = targetPhoneId
+        ? await this.getPhoneNumberById(params.organizationId, targetPhoneId)
+        : await this.getPhoneNumberByNumber(normalized);
+
+      if (existingPhoneRecord) {
+        // Atomic conditional update: ONLY succeeds if the number has NOT crossed into RELEASE_IN_PROGRESS or RELEASED
+        const updated = await db.execute(
+          `UPDATE voice_phone_numbers
+           SET status = 'ACTIVE',
+               provisioning_status = 'ACTIVE',
+               billing_status = 'ACTIVE',
+               billing_interval = 'monthly',
+               creem_subscription_id = $1,
+               creem_customer_id = COALESCE($2, creem_customer_id),
+               creem_checkout_id = COALESCE($3, creem_checkout_id),
+               renewed_to_subscription_id = $1,
+               is_retained = FALSE,
+               rental_ends_at = NULL,
+               retention_ends_at = NULL,
+               release_status = 'NOT_RELEASED',
+               release_worker_id = NULL,
+               release_locked_until = NULL,
+               next_release_attempt_at = NULL,
+               release_error = NULL,
+               cancel_at_period_end = FALSE,
+               last_error = NULL,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $4
+             AND organization_id = $5
+             AND (release_status IS NULL OR release_status NOT IN ('RELEASE_IN_PROGRESS', 'RELEASED', 'RELEASE_FAILED_MANUAL_ATTENTION'))`,
+          [
+            params.creemSubscriptionId,
+            params.creemCustomerId || null,
+            params.creemCheckoutId || null,
+            existingPhoneRecord.id,
+            params.organizationId,
+          ]
+        );
+
+        if (updated > 0) {
+          if (params.checkoutSessionId) {
+            await db.execute(
+              `UPDATE voice_phone_number_checkouts
+               SET status = 'COMPLETED',
+                   creem_subscription_id = COALESCE($1, creem_subscription_id),
+                   creem_customer_id = COALESCE($2, creem_customer_id),
+                   creem_checkout_id = COALESCE($3, creem_checkout_id),
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $4`,
+              [params.creemSubscriptionId, params.creemCustomerId || null, params.creemCheckoutId || null, params.checkoutSessionId]
+            );
+          }
+
+          await AuditService.log({
+            organizationId: params.organizationId,
+            action: AuditAction.VOICE_NUMBER_CONNECTED,
+            entityType: 'VOICE_PHONE_NUMBER',
+            entityId: existingPhoneRecord.id,
+            metadata: { phoneNumber: normalized, renewal: true, creemSubscriptionId: params.creemSubscriptionId },
+          });
+
+          return (await this.getPhoneNumberById(params.organizationId, existingPhoneRecord.id))!;
+        }
+
+        // Release boundary was already crossed (RELEASE_IN_PROGRESS, RELEASED, or RELEASE_FAILED_MANUAL_ATTENTION)
+        console.warn(`[VoiceService] Renewal payment arrived for ${normalized} after release boundary was crossed (id: ${existingPhoneRecord.id}). Rejecting reactivation and initiating refund.`);
+        const raceError = new Error('Renewal payment was received, but phone number deprovisioning was already in progress or completed. Automatic refund initiated.');
+        await this.handleFulfillmentFailure({
+          ...params,
+          error: raceError,
+        });
+
+        throw raceError;
+      }
+    }
 
     // 1. Idempotency Check: if checkout session is already COMPLETED, or phone already ACTIVE with this sub
     if (params.checkoutSessionId) {
@@ -1257,7 +1355,7 @@ export class VoiceService {
       [normalized]
     );
 
-    if (existingPhone && existingPhone.status === 'ACTIVE' && (existingPhone as any).creemSubscriptionId === params.creemSubscriptionId) {
+    if (existingPhone && existingPhone.status === 'ACTIVE' && (existingPhone as any).creemSubscriptionId === params.creemSubscriptionId && params.creemSubscriptionId) {
       return existingPhone;
     }
 
@@ -1291,7 +1389,7 @@ export class VoiceService {
              creem_checkout_id = COALESCE($3, creem_checkout_id),
              updated_at = CURRENT_TIMESTAMP
          WHERE id = $4`,
-        [params.creemSubscriptionId, params.creemCustomerId || null, params.creemCheckoutId || null, params.checkoutSessionId]
+        [params.creemSubscriptionId || null, params.creemCustomerId || null, params.creemCheckoutId || null, params.checkoutSessionId]
       );
     }
 
@@ -1355,7 +1453,7 @@ export class VoiceService {
               normalized,
               country,
               type,
-              params.creemSubscriptionId,
+              params.creemSubscriptionId || null,
               params.creemCustomerId || null,
               params.creemCheckoutId || null,
               telnyxResult.telnyxOrderId,
@@ -1454,22 +1552,40 @@ export class VoiceService {
     // 6. Save Active Phone Number Record and complete Checkout Session
     const currentPhone = existingPhone || (await this.getPhoneNumberByNumber(normalized));
     const phoneId = currentPhone?.id || uuidv4();
+
+    const isTrialNum = Boolean(effectiveCheckoutType === 'TRIAL_ONE_TIME' || params.isTrialNumber);
+    const nowMs = Date.now();
+    const rentalStartedAt = isTrialNum ? new Date(nowMs).toISOString() : null;
+    const rentalEndsAt = isTrialNum ? new Date(nowMs + 14 * 24 * 60 * 60 * 1000).toISOString() : null;
+    const retentionEndsAt = isTrialNum ? new Date(nowMs + (14 + 30) * 24 * 60 * 60 * 1000).toISOString() : null;
+    const billingInterval = isTrialNum ? 'one_time' : 'monthly';
+    const billingStatus = isTrialNum ? 'TRIAL_ACTIVE' : 'ACTIVE';
+    const creemSubToPersist = isTrialNum ? null : (params.creemSubscriptionId || null);
+
     if (currentPhone) {
       await db.execute(
         `UPDATE voice_phone_numbers
          SET organization_id = $1, provider = $2, country_code = $3, phone_number_type = $4,
              connection_method = 'NEW_PROVIDER_NUMBER', status = 'ACTIVE', provisioning_status = 'ACTIVE',
-             billing_status = 'ACTIVE', monthly_cost_usd = 3.00, customer_monthly_cost_usd = 3.00,
-             creem_subscription_id = $5, creem_customer_id = $6, creem_checkout_id = $7,
-             telnyx_order_id = $8, telnyx_phone_number_id = $9, vapi_assistant_id = COALESCE($10, vapi_assistant_id),
-             vapi_phone_number_id = COALESCE($11, vapi_phone_number_id), last_error = NULL, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $12`,
+             billing_status = $5, billing_interval = $6, is_trial_number = $7,
+             rental_started_at = $8, rental_ends_at = $9, retention_ends_at = $10, is_retained = FALSE,
+             monthly_cost_usd = 3.00, customer_monthly_cost_usd = 3.00,
+             creem_subscription_id = $11, creem_customer_id = $12, creem_checkout_id = $13,
+             telnyx_order_id = $14, telnyx_phone_number_id = $15, vapi_assistant_id = COALESCE($16, vapi_assistant_id),
+             vapi_phone_number_id = COALESCE($17, vapi_phone_number_id), last_error = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $18`,
         [
           params.organizationId,
           telephony.providerName,
           country,
           type,
-          params.creemSubscriptionId,
+          billingStatus,
+          billingInterval,
+          isTrialNum,
+          rentalStartedAt,
+          rentalEndsAt,
+          retentionEndsAt,
+          creemSubToPersist,
           params.creemCustomerId || null,
           params.creemCheckoutId || null,
           telnyxResult.telnyxOrderId || null,
@@ -1483,11 +1599,13 @@ export class VoiceService {
       await db.execute(
         `INSERT INTO voice_phone_numbers (
            id, organization_id, provider, phone_number, country_code, phone_number_type,
-           connection_method, status, provisioning_status, billing_status, cancel_at_period_end,
-           monthly_cost_usd, customer_monthly_cost_usd, creem_subscription_id, creem_customer_id,
-           creem_checkout_id, telnyx_order_id, telnyx_phone_number_id, vapi_assistant_id,
+           connection_method, status, provisioning_status, billing_status, billing_interval,
+           is_trial_number, rental_started_at, rental_ends_at, retention_ends_at, is_retained,
+           cancel_at_period_end, monthly_cost_usd, customer_monthly_cost_usd,
+           creem_subscription_id, creem_customer_id, creem_checkout_id,
+           telnyx_order_id, telnyx_phone_number_id, vapi_assistant_id,
            vapi_phone_number_id, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, 'NEW_PROVIDER_NUMBER', 'ACTIVE', 'ACTIVE', 'ACTIVE', FALSE, 3.00, 3.00, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'NEW_PROVIDER_NUMBER', 'ACTIVE', 'ACTIVE', $7, $8, $9, $10, $11, $12, FALSE, FALSE, 3.00, 3.00, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         [
           phoneId,
           params.organizationId,
@@ -1495,7 +1613,13 @@ export class VoiceService {
           normalized,
           country,
           type,
-          params.creemSubscriptionId,
+          billingStatus,
+          billingInterval,
+          isTrialNum,
+          rentalStartedAt,
+          rentalEndsAt,
+          retentionEndsAt,
+          creemSubToPersist,
           params.creemCustomerId || null,
           params.creemCheckoutId || null,
           telnyxResult.telnyxOrderId || null,
@@ -1520,7 +1644,7 @@ export class VoiceService {
       action: AuditAction.VOICE_NUMBER_CONNECTED,
       entityType: 'VOICE_PHONE_NUMBER',
       entityId: phoneId,
-      metadata: { phoneNumber: normalized, provider: telephony.providerName, creemSubscriptionId: params.creemSubscriptionId },
+      metadata: { phoneNumber: normalized, provider: telephony.providerName, creemSubscriptionId: creemSubToPersist, isTrialNumber: isTrialNum },
     });
 
     return (await this.getPhoneNumberByNumber(normalized))!;
@@ -1546,7 +1670,8 @@ export class VoiceService {
       );
     }
 
-    let refundDone = false;
+    let refundStatus: 'REFUNDED' | 'REFUND_PENDING' | 'MANUAL_REFUND_REQUIRED' = 'MANUAL_REFUND_REQUIRED';
+    let refundId: string | null = null;
     let cancelDone = false;
 
     // 1. Process full transaction refund if transaction ID is available
@@ -1555,17 +1680,31 @@ export class VoiceService {
       const creem = CreemBillingService.getCreemSdk();
       if (creem) {
         try {
-          await creem.transactions.refund({ transactionId: params.transactionId });
-          refundDone = true;
+          const refundRes = await creem.transactions.refund({ transactionId: params.transactionId });
+          refundId = (refundRes as any)?.id || null;
+          if (refundRes?.status === 'succeeded') {
+            refundStatus = 'REFUNDED';
+          } else if (refundRes?.status === 'pending' || (refundRes as any)?.status === undefined) {
+            // Asynchronously acknowledged by payment provider
+            refundStatus = 'REFUND_PENDING';
+          } else if (refundRes?.status === 'failed') {
+            refundStatus = 'MANUAL_REFUND_REQUIRED';
+            console.warn(`[VoiceService] Creem refund returned status failed for txn ${params.transactionId}`);
+          } else {
+            refundStatus = 'MANUAL_REFUND_REQUIRED';
+            console.warn(`[VoiceService] Creem refund returned unexpected status: ${refundRes?.status}`);
+          }
         } catch (refundErr: any) {
           if (refundErr.message?.includes('already refunded')) {
-            refundDone = true;
+            refundStatus = 'REFUNDED';
           } else {
+            refundStatus = 'MANUAL_REFUND_REQUIRED';
             console.warn(`[VoiceService] Automatic refund attempt failed: ${refundErr.message}`);
           }
         }
       } else {
-        refundDone = true;
+        // Test / mock mode default: simulate asynchronous provider pending
+        refundStatus = 'REFUND_PENDING';
       }
     }
 
@@ -1585,6 +1724,19 @@ export class VoiceService {
       }
     }
 
+    if (params.checkoutSessionId) {
+      await db.execute(
+        `UPDATE voice_phone_number_checkouts
+         SET status = $1,
+             refund_status = $1,
+             refund_id = COALESCE($2, refund_id),
+             failure_reason = $3,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4`,
+        [refundStatus, refundId, errMsg, params.checkoutSessionId]
+      );
+    }
+
     const existing = await db.getOne<{ id: string }>(
       'SELECT id FROM voice_phone_numbers WHERE phone_number = $1',
       [params.phoneNumber]
@@ -1594,13 +1746,14 @@ export class VoiceService {
       await db.execute(
         `UPDATE voice_phone_numbers
          SET status = 'FAILED', provisioning_status = 'FAILED', last_error = $1,
-             refund_status = $2, cancellation_status = $3, action_required_reason = $4, updated_at = CURRENT_TIMESTAMP
+             refund_status = $2, billing_status = $2, cancellation_status = $3,
+             action_required_reason = $4, updated_at = CURRENT_TIMESTAMP
          WHERE id = $5`,
         [
           errMsg,
-          refundDone ? 'REFUNDED' : 'PENDING_MANUAL',
+          refundStatus,
           cancelDone ? 'CANCELED' : 'CANCEL_PENDING',
-          refundDone ? null : 'PROVISIONING_FAILED_MANUAL_REFUND_OR_RETRY_REQUIRED',
+          refundStatus === 'MANUAL_REFUND_REQUIRED' ? 'PROVISIONING_FAILED_MANUAL_REFUND_OR_RETRY_REQUIRED' : null,
           existing.id,
         ]
       );
@@ -1611,15 +1764,15 @@ export class VoiceService {
            id, organization_id, provider, phone_number, connection_method,
            status, provisioning_status, billing_status, last_error, refund_status,
            cancellation_status, action_required_reason, created_at, updated_at
-         ) VALUES ($1, $2, 'TELNYX', $3, 'NEW_PROVIDER_NUMBER', 'FAILED', 'FAILED', 'FAILED', $4, $5, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+         ) VALUES ($1, $2, 'TELNYX', $3, 'NEW_PROVIDER_NUMBER', 'FAILED', 'FAILED', $4, $5, $4, $6, $7, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         [
           failedId,
           params.organizationId,
           params.phoneNumber,
+          refundStatus,
           errMsg,
-          refundDone ? 'REFUNDED' : 'PENDING_MANUAL',
           cancelDone ? 'CANCELED' : 'CANCEL_PENDING',
-          refundDone ? null : 'PROVISIONING_FAILED_MANUAL_REFUND_OR_RETRY_REQUIRED',
+          refundStatus === 'MANUAL_REFUND_REQUIRED' ? 'PROVISIONING_FAILED_MANUAL_REFUND_OR_RETRY_REQUIRED' : null,
         ]
       );
     }
@@ -1735,6 +1888,26 @@ export class VoiceService {
       throw new Error('Phone number not found.');
     }
 
+    // Reject test calls for numbers that are suspended, retained, past-due, or cancelled
+    if (
+      num.status === 'SUSPENDED' ||
+      (num as any).isRetained ||
+      (num as any).is_retained ||
+      num.billingStatus === 'SUSPENDED_GRACE_PERIOD' ||
+      num.billingStatus === 'PAST_DUE' ||
+      num.billingStatus === 'CANCELED' ||
+      num.status === 'INACTIVE' ||
+      num.status === 'RELEASE_PENDING' ||
+      num.status === 'RELEASE_IN_PROGRESS' ||
+      num.status === 'RELEASED' ||
+      (num as any).releaseStatus === 'RELEASE_PENDING' ||
+      (num as any).releaseStatus === 'RELEASE_IN_PROGRESS' ||
+      (num as any).releaseStatus === 'RELEASE_FAILED_MANUAL_ATTENTION' ||
+      (num as any).releaseStatus === 'RELEASED'
+    ) {
+      throw new Error('This phone number is currently suspended or inactive. Please renew your rental for $3/month to restore active service.');
+    }
+
     const voice = this.getVoiceProvider();
 
     // Safety guard: Simulated mock test calls cannot activate live-mode numbers in production
@@ -1775,15 +1948,17 @@ export class VoiceService {
         throw new Error('Test call failed to connect or AI voice did not answer.');
       }
 
-      await db.execute(
-        `UPDATE voice_phone_numbers
-         SET status = 'ACTIVE',
-             provisioning_status = 'ACTIVE',
-             last_error = NULL,
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $1 AND organization_id = $2`,
-        [params.phoneNumberId, params.organizationId]
-      );
+      if (num.status === 'TEST_REQUIRED') {
+        await db.execute(
+          `UPDATE voice_phone_numbers
+           SET status = 'ACTIVE',
+               provisioning_status = 'ACTIVE',
+               last_error = NULL,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $1 AND organization_id = $2`,
+          [params.phoneNumberId, params.organizationId]
+        );
+      }
 
       return {
         success: true,
@@ -1852,6 +2027,15 @@ export class VoiceService {
               verification_status as "verificationStatus",
               verification_attempts as "verificationAttempts",
               verification_expires_at as "verificationExpiresAt",
+              is_trial_number as "isTrialNumber",
+              rental_started_at as "rentalStartedAt",
+              rental_ends_at as "rentalEndsAt",
+              retention_ends_at as "retentionEndsAt",
+              is_retained as "isRetained",
+              renewed_to_subscription_id as "renewedToSubscriptionId",
+              retention_warning_sent_at as "retentionWarningSentAt",
+              release_worker_id as "releaseWorkerId",
+              release_locked_until as "releaseLockedUntil",
               created_at as "createdAt", updated_at as "updatedAt"
        FROM voice_phone_numbers
        WHERE organization_id = $1 AND id = $2`,
@@ -1888,6 +2072,15 @@ export class VoiceService {
               refund_status as "refundStatus", refund_amount_usd as "refundAmountUsd",
               refunded_at as "refundedAt", last_error as "lastError",
               action_required_reason as "actionRequiredReason",
+              is_trial_number as "isTrialNumber",
+              rental_started_at as "rentalStartedAt",
+              rental_ends_at as "rentalEndsAt",
+              retention_ends_at as "retentionEndsAt",
+              is_retained as "isRetained",
+              renewed_to_subscription_id as "renewedToSubscriptionId",
+              retention_warning_sent_at as "retentionWarningSentAt",
+              release_worker_id as "releaseWorkerId",
+              release_locked_until as "releaseLockedUntil",
               created_at as "createdAt", updated_at as "updatedAt"
        FROM voice_phone_numbers WHERE phone_number = $1 LIMIT 1`,
       [normalized]
@@ -1936,6 +2129,15 @@ export class VoiceService {
               verification_status as "verificationStatus",
               verification_attempts as "verificationAttempts",
               verification_expires_at as "verificationExpiresAt",
+              is_trial_number as "isTrialNumber",
+              rental_started_at as "rentalStartedAt",
+              rental_ends_at as "rentalEndsAt",
+              retention_ends_at as "retentionEndsAt",
+              is_retained as "isRetained",
+              renewed_to_subscription_id as "renewedToSubscriptionId",
+              retention_warning_sent_at as "retentionWarningSentAt",
+              release_worker_id as "releaseWorkerId",
+              release_locked_until as "releaseLockedUntil",
               created_at as "createdAt", updated_at as "updatedAt"
        FROM voice_phone_numbers
        WHERE organization_id = $1
@@ -2211,10 +2413,30 @@ export class VoiceService {
       throw new Error('Phone number not found.');
     }
 
+    // Reject connection tests for numbers that are suspended, retained, past-due, or cancelled
+    if (
+      num.status === 'SUSPENDED' ||
+      (num as any).isRetained ||
+      (num as any).is_retained ||
+      num.billingStatus === 'SUSPENDED_GRACE_PERIOD' ||
+      num.billingStatus === 'PAST_DUE' ||
+      num.billingStatus === 'CANCELED' ||
+      num.status === 'INACTIVE' ||
+      num.status === 'RELEASE_PENDING' ||
+      num.status === 'RELEASE_IN_PROGRESS' ||
+      num.status === 'RELEASED' ||
+      (num as any).releaseStatus === 'RELEASE_PENDING' ||
+      (num as any).releaseStatus === 'RELEASE_IN_PROGRESS' ||
+      (num as any).releaseStatus === 'RELEASE_FAILED_MANUAL_ATTENTION' ||
+      (num as any).releaseStatus === 'RELEASED'
+    ) {
+      throw new Error('This phone number is currently suspended or inactive. Please renew your rental for $3/month to restore active service.');
+    }
+
     const isValid = !!num.phoneNumber && num.phoneNumber.length >= 7;
     const status = isValid ? 'CONNECTED' : 'FAILED';
 
-    if (isValid && num.status !== 'ACTIVE') {
+    if (isValid && num.status === 'TEST_REQUIRED') {
       await db.execute(
         `UPDATE voice_phone_numbers SET status = 'ACTIVE', provisioning_status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP WHERE id = $1 AND organization_id = $2`,
         [id, organizationId]

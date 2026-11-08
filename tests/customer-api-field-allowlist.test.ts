@@ -127,7 +127,7 @@ export async function runCustomerApiFieldAllowlistTests() {
     eligible: true,
     normalizedEmail: 'test@example.com',
     hasUsedTrial: false,
-    message: 'Eligible for 7-day free trial (no credit card required).',
+    message: 'Eligible for 14-day free trial (no credit card required).',
     pricePerMonthUsd: 19,
   });
   assertNoForbiddenFields(safeEligibility, 'trialEligibility');

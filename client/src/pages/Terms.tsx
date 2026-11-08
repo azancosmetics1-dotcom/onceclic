@@ -67,7 +67,7 @@ export const Terms: React.FC = () => {
             <h2 className="text-lg font-bold text-white">4. Free Trial, Subscriptions & Billing</h2>
             <div className="space-y-3 text-xs sm:text-sm">
               <p>
-                <strong>7-Day Free Trial:</strong> All new users receive access to a 7-day free trial ($0.00). No credit card or payment information is required to start the trial. The trial is application-managed and will not automatically charge you.
+                <strong>14-Day Free Trial:</strong> All new users receive access to a 14-day free trial ($0.00). No credit card or payment information is required to start the trial. The trial is application-managed and will not automatically charge you.
               </p>
               <p>
                 <strong>Paid Subscription Tiers:</strong> Following or during the trial, you may choose to upgrade to one of our monthly subscription tiers: <strong>Starter ($19 USD/month)</strong>, <strong>Pro ($49 USD/month)</strong>, or <strong>Business ($99 USD/month)</strong>.

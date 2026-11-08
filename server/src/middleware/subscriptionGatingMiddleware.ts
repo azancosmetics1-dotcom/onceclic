@@ -17,7 +17,7 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
     if (!sub) {
       return res.status(402).json({
         success: false,
-        error: 'Subscription not found for this organization. Please start your 7-day free trial.',
+        error: 'Subscription not found for this organization. Please start your 14-day free trial.',
         code: 'SUBSCRIPTION_REQUIRED',
       });
     }
@@ -43,7 +43,7 @@ export async function requireActiveSubscription(req: Request, res: Response, nex
         ]);
         return res.status(402).json({
           success: false,
-          error: 'Your 7-day free trial has expired. Please upgrade to a paid plan starting from $19/month to continue using AI features.',
+          error: 'Your 14-day free trial has expired. Please upgrade to a paid plan starting from $19/month to continue using AI features.',
           code: 'TRIAL_EXPIRED',
         });
       }

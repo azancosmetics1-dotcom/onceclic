@@ -78,6 +78,10 @@ export const config = {
     isWebhookConfigured: !!process.env.CREEM_WEBHOOK_SECRET && !process.env.CREEM_WEBHOOK_SECRET.includes('placeholder') && !process.env.CREEM_WEBHOOK_SECRET.includes('your_'),
     phoneNumberProductId: cleanCreemProductId(process.env.CREEM_PHONE_NUMBER_PRODUCT_ID),
     phoneNumberMonthlyPriceUsd: 3,
+    phoneTrialProductId: cleanCreemProductId(process.env.CREEM_PHONE_TRIAL_PRODUCT_ID),
+    phoneTrialOneTimePriceUsd: 3,
+    phoneTrialRentalDays: 14,
+    phoneRetentionDays: 30,
     plans: {
       STARTER: {
         id: 'STARTER' as const,
@@ -173,7 +177,7 @@ export const config = {
   billing: {
     planName: 'ONCEClic Pro',
     monthlyPriceUsd: 19,
-    trialPeriodDays: 7,
+    trialPeriodDays: 14,
     trialPriceUsd: 0,
     trialAiBudgetUsd: parseFloat(process.env.TRIAL_AI_BUDGET_USD || '0.50'),
     proAiBudgetUsd: parseFloat(process.env.PRO_AI_BUDGET_USD || '10.00'),

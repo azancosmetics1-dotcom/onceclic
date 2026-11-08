@@ -63,7 +63,7 @@ export const Footer: React.FC = () => {
               </li>
               <li>
                 <Link to="/signup" className="hover:text-emerald-400 transition font-medium">
-                  Start 7-Day Free Trial
+                  Start 14-Day Free Trial
                 </Link>
               </li>
               <li>

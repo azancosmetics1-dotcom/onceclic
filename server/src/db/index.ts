@@ -80,8 +80,8 @@ class PostgresDatabase implements IDatabase {
         withTransaction: () => {
           throw new Error('Nested transactions not supported');
         },
-        runMigrations: async () => {},
-        close: async () => {},
+        runMigrations: async () => { },
+        close: async () => { },
       };
 
       const result = await callback(txDb);
@@ -862,6 +862,19 @@ class EmbeddedDatabase implements IDatabase {
   }
 
   private evaluateSingleCondition(cond: string, row: any, params: any[]): boolean {
+    // Check NOT IN condition e.g. release_status NOT IN ('RELEASE_PENDING', 'RELEASED')
+    const notInMatch = cond.match(/([a-zA-Z0-9_.()]+)\s+NOT\s+IN\s*\(([^)]+)\)/i);
+    if (notInMatch) {
+      let col = notInMatch[1].trim().toLowerCase();
+      if (col.startsWith('lower(') && col.endsWith(')')) {
+        col = col.substring(6, col.length - 1).trim();
+      }
+      if (col.includes('.')) col = col.split('.')[1];
+      const disallowedValues = notInMatch[2].split(',').map(v => v.trim().replace(/'/g, ''));
+      const rowVal = String(row[col] ?? '');
+      return !disallowedValues.includes(rowVal);
+    }
+
     // Check IN condition e.g. status IN ('CONFIRMED', 'REQUESTED')
     const inMatch = cond.match(/([a-zA-Z0-9_.()]+)\s+IN\s*\(([^)]+)\)/i);
     if (inMatch) {
@@ -875,7 +888,7 @@ class EmbeddedDatabase implements IDatabase {
       return allowedValues.includes(rowVal);
     }
 
-    const eqMatch = cond.match(/^\s*(.+?)\s*(=|!=|<>|\bLIKE\b|\bILIKE\b|>=|<=|>|<|\bIS\b)\s*(.+)$/i);
+    const eqMatch = cond.match(/^\s*(.+?)\s*(=|!=|<>|\bLIKE\b|\bILIKE\b|>=|<=|>|<|\bIS NOT\b|\bIS\b)\s*(.+)$/i);
     if (!eqMatch) return true;
 
     let col = eqMatch[1].trim().toLowerCase();
@@ -943,8 +956,12 @@ class EmbeddedDatabase implements IDatabase {
       }
       return rowVal != targetVal;
     } else if (op === 'IS') {
+      if (targetValStr.toUpperCase() === 'NOT NULL') return rowVal !== null && rowVal !== undefined;
       if (targetVal === null) return rowVal === null || rowVal === undefined;
       return rowVal === targetVal;
+    } else if (op === 'IS NOT') {
+      if (targetVal === null || targetValStr.toUpperCase() === 'NULL') return rowVal !== null && rowVal !== undefined;
+      return rowVal !== targetVal;
     } else if (op === 'LIKE' || op === 'ILIKE') {
       const pattern = String(targetVal).replace(/%/g, '.*');
       const regex = new RegExp(pattern, op === 'ILIKE' ? 'i' : '');

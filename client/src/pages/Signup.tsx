@@ -74,7 +74,7 @@ export const Signup: React.FC = () => {
             ONCE<span className="text-emerald-400">Clic</span>
           </span>
         </Link>
-        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Start your 7-day free trial</h2>
+        <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Start your 14-day free trial</h2>
         <p className="mt-2 text-xs text-slate-400">
           Already have an account?{' '}
           <Link to="/login" className="font-semibold text-emerald-400 hover:text-emerald-300">
@@ -97,7 +97,7 @@ export const Signup: React.FC = () => {
               </span>
             </div>
             <span className="text-[11px] font-semibold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-              7-Day Cardless Trial
+              14-Day Cardless Trial
             </span>
           </div>
 
@@ -220,7 +220,7 @@ export const Signup: React.FC = () => {
             <div className="pt-2 space-y-1.5 text-slate-400 text-[11px]">
               <div className="flex items-center space-x-1.5">
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span>7-Day Free Trial &bull; No credit card required</span>
+                <span>14-Day Free Trial &bull; No credit card required</span>
               </div>
               <div className="flex items-center space-x-1.5">
                 <Check className="w-3.5 h-3.5 text-emerald-400" />

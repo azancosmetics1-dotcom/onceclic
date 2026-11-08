@@ -203,7 +203,7 @@ export const Onboarding: React.FC = () => {
 
       const comprehensiveKnowledge = `${businessKnowledge.trim()}\n\nAddress: ${address.trim() || 'Not specified'}\nOpening Hours: ${openingHoursStr}\nServices: ${serviceName || ind.defaultServiceName} (${parsedPrice > 0 ? `$${parsedPrice}` : 'Free'})\nAdditional Details: ${additionalNotes.trim() || 'None'}`;
 
-      // 3. Atomically complete onboarding: validates industry + knowledge, indexes knowledge chunks, starts 7-day free trial
+      // 3. Atomically complete onboarding: validates industry + knowledge, indexes knowledge chunks, starts 14-day free trial
       await api.completeOnboarding({
         industry: ind.title,
         businessKnowledge: comprehensiveKnowledge,
@@ -588,7 +588,7 @@ export const Onboarding: React.FC = () => {
           </div>
         )}
 
-        {/* STEP 4: 7-DAY FREE TRIAL ACTIVATION */}
+        {/* STEP 4: 14-DAY FREE TRIAL ACTIVATION */}
         {currentStep === 4 && selectedIndustry && (
           <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6 text-center">
             <div className="w-16 h-16 rounded-3xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 mx-auto">
@@ -596,7 +596,7 @@ export const Onboarding: React.FC = () => {
             </div>
 
             <div className="space-y-2 max-w-md mx-auto">
-              <h2 className="text-2xl sm:text-3xl font-black text-white">Start Your 7-Day Free Trial</h2>
+              <h2 className="text-2xl sm:text-3xl font-black text-white">Start Your 14-Day Free Trial</h2>
               <div className="inline-flex items-baseline space-x-2">
                 <span className="text-3xl font-black text-emerald-400">$0</span>
                 <span className="text-xs text-slate-400 font-semibold uppercase tracking-wider">

@@ -87,7 +87,7 @@ export const Login: React.FC = () => {
         <p className="mt-2 text-xs text-slate-400">
           Or{' '}
           <Link to="/signup" className="font-semibold text-emerald-400 hover:text-emerald-300">
-            start your 7-day free trial
+            start your 14-day free trial
           </Link>
         </p>
       </div>

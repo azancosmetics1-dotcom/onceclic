@@ -11,12 +11,12 @@ export const Pricing: React.FC = () => {
 
   const faqs = [
     {
-      q: 'How does the 7-day free trial work?',
-      a: 'Start your 7-day free trial with no credit card required. Your trial is $0 for 7 days with limited AI usage. When the trial ends, choose whether to upgrade to Starter ($19/mo), Pro ($49/mo), or Business ($99/mo).',
+      q: 'How does the 14-day free trial work?',
+      a: 'Start your 14-day free trial with no credit card required. Your trial is $0 for 14 days with limited AI usage. When the trial ends, choose whether to upgrade to Starter ($19/mo), Pro ($49/mo), or Business ($99/mo).',
     },
     {
       q: 'Is a credit card required to start the trial?',
-      a: 'No. You do not need to enter a credit card or payment method to start your 7-day free trial.',
+      a: 'No. You do not need to enter a credit card or payment method to start your 14-day free trial.',
     },
     {
       q: 'What happens when my trial expires?',
@@ -53,7 +53,7 @@ export const Pricing: React.FC = () => {
         <div className="text-center max-w-3xl mx-auto mb-16">
           <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-4">
             <Sparkles className="w-3.5 h-3.5" />
-            <span>7-Day Free Trial &bull; $0 &bull; No Credit Card Required</span>
+            <span>14-Day Free Trial &bull; $0 &bull; No Credit Card Required</span>
           </div>
           <h1 className="text-4xl sm:text-6xl font-black text-white tracking-tight">
             Simple, transparent pricing.
@@ -98,7 +98,7 @@ export const Pricing: React.FC = () => {
                 to="/signup?plan=starter"
                 className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-center block transition text-sm mb-6 border border-slate-700"
               >
-                Start 7-Day Free Trial
+                Start 14-Day Free Trial
               </Link>
 
               <div className="border-t border-slate-800 pt-5">
@@ -171,7 +171,7 @@ export const Pricing: React.FC = () => {
                 to="/signup?plan=pro"
                 className="w-full py-3.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-center block transition text-sm mb-6 shadow-md shadow-emerald-500/20"
               >
-                Start 7-Day Free Trial ($0)
+                Start 14-Day Free Trial ($0)
               </Link>
 
               <div className="border-t border-slate-800 pt-5">
@@ -244,7 +244,7 @@ export const Pricing: React.FC = () => {
                 to="/signup?plan=business"
                 className="w-full py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-center block transition text-sm mb-6 border border-slate-700"
               >
-                Start 7-Day Free Trial
+                Start 14-Day Free Trial
               </Link>
 
               <div className="border-t border-slate-800 pt-5">

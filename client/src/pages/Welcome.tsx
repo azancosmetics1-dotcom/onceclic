@@ -61,7 +61,7 @@ export const Welcome: React.FC = () => {
             Welcome to {planMeta.name}!
           </h1>
           <p className="text-sm text-slate-300 max-w-md mx-auto">
-            Your 7-day free trial is now active. Your AI Receptionist is ready to capture leads, book appointments, and answer questions 24/7.
+            Your 14-day free trial is now active. Your AI Receptionist is ready to capture leads, book appointments, and answer questions 24/7.
           </p>
         </div>
 
@@ -87,7 +87,7 @@ export const Welcome: React.FC = () => {
           <div className="space-y-2 text-xs text-slate-300">
             <div className="flex justify-between">
               <span className="text-slate-400">Trial Period:</span>
-              <span className="font-semibold text-white">7 Days Free ($0.00)</span>
+              <span className="font-semibold text-white">14 Days Free ($0.00)</span>
             </div>
             <div className="flex justify-between">
               <span className="text-slate-400">Recurring Billing:</span>

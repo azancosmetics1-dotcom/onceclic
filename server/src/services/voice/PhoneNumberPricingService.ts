@@ -144,11 +144,13 @@ export class PhoneNumberPricingService {
       }
       
       // Strict check against calculated customer price (provider cost + $1.00 markup).
-      // Also tolerate passing the exact raw provider cost for backward compatibility with older tests.
+      // Also tolerate passing the exact raw provider cost for backward compatibility with older tests,
+      // and flat $3.00 Creem phone-number pricing.
       const matchesCustomerPrice = Math.abs(em - pricing.customerMonthlyCostUsd) <= 0.01;
       const matchesRawProviderCost = Math.abs(em - pricing.providerCostUsd) <= 0.01;
+      const matchesCreemFlatFee = Math.abs(em - 3.00) <= 0.01;
 
-      if (!matchesCustomerPrice && !matchesRawProviderCost) {
+      if (!matchesCustomerPrice && !matchesRawProviderCost && !matchesCreemFlatFee) {
         throw new Error(
           `Quoted price ($${em.toFixed(2)}) does not match current customer price ($${pricing.customerMonthlyCostUsd.toFixed(2)}: $${pricing.providerCostUsd.toFixed(2)} provider cost + $${pricing.markupUsd.toFixed(2)} markup). Please review and reconfirm.`
         );

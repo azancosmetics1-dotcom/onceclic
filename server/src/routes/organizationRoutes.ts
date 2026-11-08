@@ -181,7 +181,7 @@ router.post('/members', requirePermission('org:manage'), async (req: Request, re
   }
 });
 
-// Complete Onboarding: Save industry, settings, knowledge chunks, and start 7-day free trial
+// Complete Onboarding: Save industry, settings, knowledge chunks, and start 14-day free trial
 const completeOnboardingHandler = async (req: Request, res: Response, next: any) => {
   try {
     const { AuthService } = await import('../services/AuthService');
@@ -209,7 +209,7 @@ const completeOnboardingHandler = async (req: Request, res: Response, next: any)
 
     res.json({
       success: true,
-      message: 'Onboarding completed successfully. 7-Day Free Trial activated.',
+      message: 'Onboarding completed successfully. 14-Day Free Trial activated.',
       data: result,
     });
   } catch (err) {

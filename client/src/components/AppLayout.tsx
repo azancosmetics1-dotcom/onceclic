@@ -95,7 +95,7 @@ export const AppLayout: React.FC = () => {
                   <>
                     <Clock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5 sm:mt-0" />
                     <span>
-                      You are currently on your <strong>7-Day Free Trial</strong> ({billingInfo?.daysRemainingInTrial} days remaining &bull; No credit card required).
+                      You are currently on your <strong>14-Day Free Trial</strong> ({billingInfo?.daysRemainingInTrial} days remaining &bull; No credit card required).
                     </span>
                   </>
                 )

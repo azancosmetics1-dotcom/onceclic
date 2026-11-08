@@ -250,7 +250,7 @@ export class CreemBillingService {
   }
 
   /**
-   * Initialize a default 7-day trial subscription for a new organization.
+   * Initialize a default 14-day trial subscription for a new organization.
    * Enforces 1-trial-per-email policy.
    */
   static async createTrialSubscription(organizationId: string, emailParam?: string): Promise<Subscription> {
@@ -356,9 +356,11 @@ export class CreemBillingService {
     id: string;
     eventType: string;
     created_at?: number | string;
-    object: any;
+    object?: any;
+    data?: any;
   }): Promise<{ success: boolean; message: string }> {
-    const { id: eventId, eventType, created_at, object } = event;
+    const { id: eventId, eventType, created_at } = event;
+    const object = event.object || event.data?.object || event.data;
     console.log(`[Creem Webhook] Processing event: ${eventType}`, { eventId, resourceId: object?.id });
 
     // 1. Strict Idempotency Check (Atomic insertion with concurrency handling)
@@ -458,7 +460,12 @@ export class CreemBillingService {
     let isPhoneNumberEvent =
       metadata?.type === 'PHONE_NUMBER' ||
       metadata?.type === 'phone_number' ||
-      Boolean(config.creem.phoneNumberProductId && productId === config.creem.phoneNumberProductId);
+      metadata?.type === 'PHONE_NUMBER_TRIAL' ||
+      metadata?.type === 'phone_number_trial' ||
+      metadata?.type === 'PHONE_NUMBER_RENEWAL' ||
+      metadata?.type === 'phone_number_renewal' ||
+      Boolean(config.creem.phoneNumberProductId && productId === config.creem.phoneNumberProductId) ||
+      Boolean(config.creem.phoneTrialProductId && productId === config.creem.phoneTrialProductId);
 
     if (!isPhoneNumberEvent && creemSubId) {
       const phoneSub = await db.getOne<{ id: string; organization_id: string }>(
@@ -724,13 +731,62 @@ export class CreemBillingService {
       }
 
       case 'refund.created': {
+        const refundObj = object;
+        const refundStatus = refundObj?.status; // 'succeeded' | 'pending' | 'failed'
+        const refundTxnId =
+          refundObj?.transaction?.id ||
+          refundObj?.transaction_id ||
+          (typeof refundObj?.transaction === 'string' ? refundObj.transaction : undefined);
+        const refundCheckoutId =
+          refundObj?.checkout?.id ||
+          refundObj?.checkout_id ||
+          (typeof refundObj?.checkout === 'string' ? refundObj.checkout : undefined);
+
         if (organizationId) {
           await AuditService.log({
             organizationId,
             action: AuditAction.PAYMENT_FAILED,
             entityType: 'REFUND',
-            metadata: { refundId: object?.id, reason: object?.reason },
+            metadata: {
+              refundId: object?.id,
+              status: refundStatus,
+              transactionId: refundTxnId,
+              checkoutId: refundCheckoutId,
+              reason: object?.reason,
+            },
           });
+        }
+
+        // Reconcile matching phone number checkout in REFUND_PENDING or MANUAL_REFUND_REQUIRED
+        if (refundStatus === 'succeeded' || !refundStatus) {
+          if (refundCheckoutId) {
+            await db.execute(
+              `UPDATE voice_phone_number_checkouts
+               SET status = 'REFUNDED', refund_status = 'REFUNDED', refund_id = $1, updated_at = CURRENT_TIMESTAMP
+               WHERE (id = $2 OR creem_checkout_id = $2)
+                 AND status IN ('REFUND_PENDING', 'MANUAL_REFUND_REQUIRED', 'PAID', 'FAILED')`,
+              [object?.id || null, refundCheckoutId]
+            );
+          }
+          if (refundTxnId) {
+            await db.execute(
+              `UPDATE voice_phone_numbers
+               SET billing_status = 'REFUNDED', refund_status = 'REFUNDED', action_required_reason = NULL, updated_at = CURRENT_TIMESTAMP
+               WHERE creem_subscription_id = $1 OR id IN (
+                 SELECT target_phone_number_id FROM voice_phone_number_checkouts WHERE creem_checkout_id = $1
+               )`,
+              [refundTxnId]
+            );
+          }
+        } else if (refundStatus === 'failed') {
+          if (refundCheckoutId) {
+            await db.execute(
+              `UPDATE voice_phone_number_checkouts
+               SET status = 'MANUAL_REFUND_REQUIRED', refund_status = 'MANUAL_REFUND_REQUIRED', updated_at = CURRENT_TIMESTAMP
+               WHERE (id = $1 OR creem_checkout_id = $1)`,
+              [refundCheckoutId]
+            );
+          }
         }
         break;
       }
@@ -944,7 +1000,7 @@ export class CreemBillingService {
    * Completely isolated from core software plan subscriptions!
    */
   private static async handlePhoneNumberWebhookEvent(params: {
-    event: { id: string; eventType: string; created_at?: number | string; object: any };
+    event: { id: string; eventType: string; created_at?: number | string; object?: any; data?: any };
     organizationId?: string;
     creemSubId: string | null;
     creemCustomerId: string | null;
@@ -1018,6 +1074,18 @@ export class CreemBillingService {
           const numberToProvision = phoneNumber || checkoutRecord.phone_number;
           const { VoiceService } = await import('./voice/VoiceService');
 
+          const checkoutType =
+            checkoutRecord?.checkout_type ||
+            metadata?.checkoutType ||
+            (metadata?.type === 'PHONE_NUMBER_TRIAL'
+              ? 'TRIAL_ONE_TIME'
+              : metadata?.type === 'PHONE_NUMBER_RENEWAL'
+              ? 'RENEWAL'
+              : 'RECURRING');
+
+          const targetPhoneNumberId = checkoutRecord?.target_phone_number_id || metadata?.targetPhoneNumberId;
+          const isTrialNumber = checkoutType === 'TRIAL_ONE_TIME' || metadata?.type === 'PHONE_NUMBER_TRIAL';
+
           await VoiceService.fulfillPaidPhoneNumberOrder({
             organizationId,
             phoneNumber: numberToProvision,
@@ -1028,6 +1096,9 @@ export class CreemBillingService {
             creemCustomerId: customerId || undefined,
             creemCheckoutId: creemCheckoutId || undefined,
             transactionId,
+            isTrialNumber,
+            checkoutType,
+            targetPhoneNumberId,
           });
         }
         break;
@@ -1036,15 +1107,136 @@ export class CreemBillingService {
       case 'subscription.active':
       case 'subscription.paid': {
         const subId = object?.id || creemSubId;
+        const transactionId =
+          object?.order?.transaction ||
+          (typeof object?.order === 'object' && object?.order?.transaction_id) ||
+          object?.transaction?.id ||
+          object?.transaction_id ||
+          object?.last_transaction_id ||
+          (object?.object === 'transaction' ? object.id : undefined);
+
         if (subId) {
-          await db.execute(
-            `UPDATE voice_phone_numbers
-             SET billing_status = 'ACTIVE',
-                 cancel_at_period_end = FALSE,
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE creem_subscription_id = $1`,
+          const phoneRow = await db.getOne<{
+            id: string;
+            organization_id: string;
+            phone_number: string;
+            status: string;
+            release_status: string;
+            billing_status: string;
+          }>(
+            'SELECT id, organization_id, phone_number, status, release_status, billing_status FROM voice_phone_numbers WHERE creem_subscription_id = $1',
             [subId]
           );
+
+          if (phoneRow) {
+            // 1. Attempt atomic conditional restoration directly in database.
+            // ONLY succeeds if the number has NOT crossed into RELEASE_IN_PROGRESS, RELEASED, or RELEASE_FAILED_MANUAL_ATTENTION.
+            const updated = await db.execute(
+              `UPDATE voice_phone_numbers
+               SET status = 'ACTIVE',
+                   provisioning_status = 'ACTIVE',
+                   billing_status = 'ACTIVE',
+                   release_status = 'NOT_RELEASED',
+                   release_worker_id = NULL,
+                   release_locked_until = NULL,
+                   is_retained = FALSE,
+                   retention_ends_at = NULL,
+                   rental_ends_at = NULL,
+                   cancel_at_period_end = FALSE,
+                   release_attempts = 0,
+                   next_release_attempt_at = NULL,
+                   release_error = NULL,
+                   last_error = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE creem_subscription_id = $1
+                 AND (release_status IS NULL OR release_status NOT IN ('RELEASE_IN_PROGRESS', 'RELEASED', 'RELEASE_FAILED_MANUAL_ATTENTION'))`,
+              [subId]
+            );
+
+            if (updated > 0) {
+              await AuditService.log({
+                organizationId: phoneRow.organization_id,
+                action: AuditAction.VOICE_NUMBER_CONNECTED,
+                entityType: 'VOICE_PHONE_NUMBER',
+                entityId: phoneRow.id,
+                metadata: { phoneNumber: phoneRow.phone_number, reason: 'subscription_restored', creemSubscriptionId: subId },
+              });
+              console.log(`[Creem Phone Webhook] Phone number ${phoneRow.phone_number} restored to ACTIVE following verified payment on subscription ${subId}.`);
+            } else {
+              // updated === 0: Release boundary was crossed (RELEASE_IN_PROGRESS, RELEASED, or RELEASE_FAILED_MANUAL_ATTENTION)
+              console.warn(`[Creem Phone Webhook] Received ${eventType} for phone ${phoneRow.phone_number} after release boundary was crossed (release_status: ${phoneRow.release_status}). Rejecting restoration and initiating cancellation/refund.`);
+
+              const creem = CreemBillingService.getCreemSdk();
+              let refundStatus: 'REFUNDED' | 'REFUND_PENDING' | 'MANUAL_REFUND_REQUIRED' = 'MANUAL_REFUND_REQUIRED';
+
+              if (creem) {
+                try {
+                  await creem.subscriptions.cancel(subId, { mode: 'immediate' });
+                } catch (cancelErr: any) {
+                  console.warn(`[Creem Phone Webhook] Failed to cancel subscription ${subId}:`, cancelErr.message);
+                }
+
+                if (transactionId) {
+                  try {
+                    const refundRes = await creem.transactions.refund({ transactionId });
+                    if (refundRes?.status === 'succeeded') {
+                      refundStatus = 'REFUNDED';
+                    } else if (refundRes?.status === 'pending') {
+                      refundStatus = 'REFUND_PENDING';
+                    } else {
+                      refundStatus = 'MANUAL_REFUND_REQUIRED';
+                      console.warn(`[Creem Phone Webhook] Refund returned non-success status: ${refundRes?.status}`);
+                    }
+                  } catch (refundErr: any) {
+                    if (refundErr.message?.includes('already refunded')) {
+                      refundStatus = 'REFUNDED';
+                    } else {
+                      refundStatus = 'MANUAL_REFUND_REQUIRED';
+                      console.warn(`[Creem Phone Webhook] Failed to refund transaction ${transactionId}:`, refundErr.message);
+                    }
+                  }
+                }
+              } else {
+                // Mock / test environment fallback
+                refundStatus = 'REFUNDED';
+              }
+
+              await db.execute(
+                `UPDATE voice_phone_numbers
+                 SET billing_status = $1,
+                     refund_status = $1,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE creem_subscription_id = $2`,
+                [refundStatus, subId]
+              );
+
+              // Update any matching checkout sessions in voice_phone_number_checkouts
+              await db.execute(
+                `UPDATE voice_phone_number_checkouts
+                 SET status = $1,
+                     refund_status = $1,
+                     failure_reason = 'Payment received after number deprovisioning commenced. Refund status: ' || $1,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE creem_subscription_id = $2 AND status IN ('PENDING', 'PAID', 'REFUND_PENDING')`,
+                [refundStatus, subId]
+              );
+
+              await AuditService.log({
+                organizationId: phoneRow.organization_id,
+                action: AuditAction.VOICE_NUMBER_DISCONNECTED,
+                entityType: 'VOICE_PHONE_NUMBER',
+                entityId: phoneRow.id,
+                metadata: {
+                  phoneNumber: phoneRow.phone_number,
+                  reason: 'payment_received_after_release',
+                  creemSubscriptionId: subId,
+                  transactionId,
+                  refundStatus,
+                  releaseStatus: phoneRow.release_status,
+                },
+              });
+            }
+          }
         }
         break;
       }
@@ -1091,13 +1283,30 @@ export class CreemBillingService {
       case 'subscription.payment_failed': {
         const subId = object?.id || creemSubId;
         if (subId) {
-          await db.execute(
-            `UPDATE voice_phone_numbers
-             SET billing_status = 'PAST_DUE',
-                 updated_at = CURRENT_TIMESTAMP
-             WHERE creem_subscription_id = $1`,
+          const phoneRow = await db.getOne<{ id: string; organization_id: string; phone_number: string }>(
+            'SELECT id, organization_id, phone_number FROM voice_phone_numbers WHERE creem_subscription_id = $1',
             [subId]
           );
+
+          if (phoneRow) {
+            await db.execute(
+              `UPDATE voice_phone_numbers
+               SET billing_status = 'PAST_DUE',
+                   status = 'SUSPENDED',
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE creem_subscription_id = $1`,
+              [subId]
+            );
+
+            await AuditService.log({
+              organizationId: phoneRow.organization_id,
+              action: AuditAction.VOICE_NUMBER_DISCONNECTED,
+              entityType: 'VOICE_PHONE_NUMBER',
+              entityId: phoneRow.id,
+              metadata: { phoneNumber: phoneRow.phone_number, reason: 'subscription_past_due', creemSubscriptionId: subId },
+            });
+            console.warn(`[Creem Phone Webhook] Phone number ${phoneRow.phone_number} suspended due to past-due recurring subscription ${subId}.`);
+          }
         }
         break;
       }

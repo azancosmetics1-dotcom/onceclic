@@ -144,7 +144,7 @@ export class PaddleBillingService {
   }
 
   /**
-   * Initialize a default 7-day trial subscription for a new organization.
+   * Initialize a default 14-day trial subscription for a new organization.
    * Enforces the 1-trial-per-email policy.
    */
   static async createTrialSubscription(organizationId: string, emailParam?: string): Promise<Subscription> {

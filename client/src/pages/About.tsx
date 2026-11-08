@@ -107,7 +107,7 @@ export const About: React.FC = () => {
                 to="/signup"
                 className="inline-flex items-center space-x-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-lg shadow-emerald-500/20"
               >
-                <span>Start 7-Day Free Trial</span>
+                <span>Start 14-Day Free Trial</span>
                 <ArrowRight className="w-4 h-4" />
               </Link>
             </div>

@@ -152,8 +152,8 @@ export async function runSignupIndustryKnowledgeTests() {
   assert.ok(clinicChunks.length > 0, 'Knowledge chunks created and queryable');
   console.log('  ✓ 8. Knowledge stored and indexed into searchable chunks.');
 
-  // Test 10-13: 7-Day Free Trial ($0, No credit card required)
-  console.log('\n--- 10-13. 7-Day Free Trial Properties ---');
+  // Test 10-13: 14-Day Free Trial ($0, No credit card required)
+  console.log('\n--- 10-13. 14-Day Free Trial Properties ---');
   const activeSub = await db.getOne(
     'SELECT status, trial_started_at, trial_ends_at FROM subscriptions WHERE organization_id = $1',
     [clinicReg.organization!.id]
@@ -163,7 +163,7 @@ export async function runSignupIndustryKnowledgeTests() {
   const trialStart = new Date(activeSub.trial_started_at).getTime();
   const trialEnd = new Date(activeSub.trial_ends_at).getTime();
   const diffDays = Math.round((trialEnd - trialStart) / (1000 * 60 * 60 * 24));
-  assert.equal(diffDays, 7, '11. Trial duration is exactly 7 days');
+  assert.equal(diffDays, 14, '11. Trial duration is exactly 14 days');
 
   // Check trial redemption record
   const redemption = await db.getOne(
@@ -171,7 +171,7 @@ export async function runSignupIndustryKnowledgeTests() {
     [clinicReg.organization!.id]
   );
   assert.ok(redemption, 'Trial redemption recorded without payment requirement (12. $0, 13. No credit card)');
-  console.log('  ✓ 10-13. Verified 7-day trial ($0, no card required) activated post-onboarding.');
+  console.log('  ✓ 10-13. Verified 14-day trial ($0, no card required) activated post-onboarding.');
 
   console.log('\n====================================================');
   console.log('  ALL SIGNUP & ONBOARDING TESTS PASSED SUCCESSFULLY!');

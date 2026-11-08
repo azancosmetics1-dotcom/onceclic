@@ -29,7 +29,7 @@ export interface ExtendedAuthResponse extends AuthResponse {
 
 export class AuthService {
   /**
-   * Register a new user, create default business workspace, 7-day trial, AI receptionist, and settings.
+   * Register a new user, create default business workspace, 14-day trial, AI receptionist, and settings.
    */
   static async register(params: RegisterRequest, ipAddress?: string): Promise<ExtendedAuthResponse> {
     const email = normalizeEmail(params.email);
@@ -185,7 +185,7 @@ export class AuthService {
   }
 
   /**
-   * Complete business onboarding: validate industry + knowledge, save business settings, create knowledge chunks, and start 7-day trial.
+   * Complete business onboarding: validate industry + knowledge, save business settings, create knowledge chunks, and start 14-day trial.
    */
   static async completeOnboarding(params: {
     userId: string;
@@ -295,7 +295,7 @@ export class AuthService {
       throw new Error('Failed to index business knowledge. Please try submitting again.');
     }
 
-    // 6. Start 7-Day Free Trial
+    // 6. Start 14-Day Free Trial
     let trialResult: any = null;
     if (email) {
       trialResult = await TrialService.redeemTrial({
@@ -1243,7 +1243,7 @@ export class AuthService {
           [userId, email, fullName, isEmailVerified, params.googleId, params.avatarUrl || null]
         );
 
-        // Setup standard organization, 7-day trial, Luna, settings, availability & knowledge
+        // Setup standard organization, 14-day trial, Luna, settings, availability & knowledge
         const workspace = await this.setupDefaultWorkspace(userId, fullName, undefined, email);
 
         await AuditService.log({

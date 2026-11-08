@@ -7,7 +7,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 export class TrialService {
   /**
-   * Check if a given email is eligible for the 7-day free trial.
+   * Check if a given email is eligible for the 14-day free trial.
    * Enforces the rule: ONE EMAIL = ONE FREE TRIAL EVER.
    */
   static async checkEligibility(email: string): Promise<TrialEligibilityResponse> {
@@ -43,13 +43,13 @@ export class TrialService {
       eligible: true,
       normalizedEmail: normalized,
       hasUsedTrial: false,
-      message: 'Eligible for 7-day free trial (no credit card required).',
+      message: 'Eligible for 14-day free trial (no credit card required).',
       pricePerMonthUsd: config.billing.monthlyPriceUsd,
     };
   }
 
   /**
-   * Atomically redeem a 7-day free trial for a user and organization.
+   * Atomically redeem a 14-day free trial for a user and organization.
    * Guaranteed against race conditions via DB unique constraint on normalized_email.
    */
   static async redeemTrial(params: {
@@ -155,7 +155,7 @@ export class TrialService {
       return {
         success: true,
         trialEndsAt,
-        message: '7-day free trial activated successfully.',
+        message: '14-day free trial activated successfully.',
       };
     } catch (err: any) {
       if (err.message && (err.message.includes('unique') || err.message.includes('duplicate key'))) {

@@ -37,7 +37,7 @@ export const RefundPolicy: React.FC = () => {
             <ul className="space-y-2 text-xs sm:text-sm text-slate-300">
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span><strong>7-Day Free Trial:</strong> All new accounts start with a 7-day free trial ($0.00). No credit card or payment information is required to access the trial.</span>
+                <span><strong>14-Day Free Trial:</strong> All new accounts start with a 14-day free trial ($0.00). No credit card or payment information is required to access the trial.</span>
               </li>
               <li className="flex items-start space-x-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
@@ -54,7 +54,7 @@ export const RefundPolicy: React.FC = () => {
           <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 space-y-4">
             <h2 className="text-lg font-bold text-white">1. Free Trial & Non-Automatic Conversion</h2>
             <p>
-              ONCEClic provides a 7-day free trial for businesses to evaluate our AI phone receptionist, real-time calendar booking, and multi-channel messaging capabilities.
+              ONCEClic provides a 14-day free trial for businesses to evaluate our AI phone receptionist, real-time calendar booking, and multi-channel messaging capabilities.
             </p>
             <p>
               Because trial access is 100% free and requires no credit card or payment credentials at signup, <strong>your trial will never automatically convert into a paid charge</strong>. When your trial concludes, your account transitions to an inactive state while preserving your configuration, business hours, and knowledge base. You can choose at any time whether to upgrade to a paid plan.

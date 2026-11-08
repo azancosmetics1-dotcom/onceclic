@@ -118,7 +118,7 @@ router.get('/trial-eligibility', requirePermission('billing:read'), async (req: 
   }
 });
 
-// Start 7-day free trial for current organization (if eligible)
+// Start 14-day free trial for current organization (if eligible)
 router.post('/start-trial', requirePermission('billing:manage'), async (req: Request, res: Response, next) => {
   try {
     const email = req.user?.email;
