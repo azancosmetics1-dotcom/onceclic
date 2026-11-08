@@ -103,7 +103,7 @@ export const Navbar: React.FC = () => {
                   to="/signup"
                   className="inline-flex items-center space-x-1.5 px-4 py-2 text-sm font-bold rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 transition shadow-md shadow-emerald-500/20"
                 >
-                  <span>Start 7-Day Free Trial</span>
+                  <span>Start 14-Day Free Trial</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               </>
@@ -188,7 +188,7 @@ export const Navbar: React.FC = () => {
                   onClick={() => setMobileMenuOpen(false)}
                   className="w-full py-2.5 px-4 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-center text-sm shadow-md"
                 >
-                  Start 7-Day Free Trial
+                  Start 14-Day Free Trial
                 </Link>
                 <Link
                   to="/login"

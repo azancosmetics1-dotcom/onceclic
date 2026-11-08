@@ -110,7 +110,7 @@ export const Footer: React.FC = () => {
                 <Link to="/contact" className="hover:text-white transition">Contact Support</Link>
               </li>
               <li className="pt-2 text-[11px] text-slate-500 leading-relaxed">
-                7-day free trial requires no credit card. Subscriptions can be upgraded or canceled at any time.
+                14-day free trial requires no credit card. Subscriptions can be upgraded or canceled at any time.
               </li>
             </ul>
           </div>
