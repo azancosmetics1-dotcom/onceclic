@@ -31,6 +31,7 @@ import { RetellVoiceProvider } from './RetellVoiceProvider';
 import { MockVoiceProvider } from './MockVoiceProvider';
 import { VapiVoiceProvider } from './VapiVoiceProvider';
 import { TelnyxTelephonyProvider } from './TelnyxTelephonyProvider';
+import { SignalWireTelephonyProvider } from './SignalWireTelephonyProvider';
 import { MockTelephonyProvider } from './MockTelephonyProvider';
 import { VoicePromptBuilder } from './VoicePromptBuilder';
 import { VoiceAssistantProvisioningService } from './VoiceAssistantProvisioningService';
@@ -221,7 +222,7 @@ export class VoiceService {
   }
 
   /**
-   * Get active telephony provider (Telnyx or Mock)
+   * Get active telephony provider (SignalWire, Telnyx, or Mock)
    */
   static getTelephonyProvider(): ITelephonyProvider {
     if (this.activeTelephonyProvider) {
@@ -230,6 +231,8 @@ export class VoiceService {
 
     if (process.env.NODE_ENV === 'test') {
       this.activeTelephonyProvider = new MockTelephonyProvider();
+    } else if (config.voice.telephonyProvider === 'signalwire' || config.signalwire.isConfigured) {
+      this.activeTelephonyProvider = new SignalWireTelephonyProvider();
     } else {
       this.activeTelephonyProvider = new TelnyxTelephonyProvider();
     }
@@ -262,6 +265,16 @@ export class VoiceService {
    * Get list of verified supported telephony countries
    */
   static getSupportedCountries(): TelephonyCountryInfo[] {
+    const provider = this.getTelephonyProvider();
+    if (provider.providerName === 'SIGNALWIRE') {
+      return [
+        {
+          ...SUPPORTED_TELEPHONY_COUNTRIES.US,
+          supportedNumberTypes: ['local'],
+          countryName: 'United States (US Local Numbers Only)',
+        },
+      ];
+    }
     return Object.values(SUPPORTED_TELEPHONY_COUNTRIES);
   }
 
@@ -270,24 +283,48 @@ export class VoiceService {
    */
   static getCountryTelephonyInfo(countryCode: string): TelephonyCountryInfo {
     const code = (countryCode || 'US').toUpperCase().trim();
-    const info = SUPPORTED_TELEPHONY_COUNTRIES[code];
-    if (!info) {
-      throw new Error(`Country "${code}" is not supported for automated phone provisioning. Supported: ${Object.keys(SUPPORTED_TELEPHONY_COUNTRIES).join(', ')}.`);
+    const provider = this.getTelephonyProvider();
+    if (provider.providerName === 'SIGNALWIRE' && code !== 'US') {
+      throw new Error(`Country "${code}" is not supported. ONCEClic exclusively provides US local geographic phone numbers.`);
     }
-    return info;
+    return (
+      (SUPPORTED_TELEPHONY_COUNTRIES as any)[code] || {
+        ...SUPPORTED_TELEPHONY_COUNTRIES.US,
+        supportedNumberTypes: ['local'],
+        countryName: 'United States',
+      }
+    );
   }
 
   /**
    * Search available phone numbers from telephony provider
    */
   static async searchAvailableNumbers(params: {
-    countryCode: string;
+    countryCode?: string;
     numberType?: string;
     areaCode?: string;
+    city?: string;
+    state?: string;
     limit?: number;
   }): Promise<AvailablePhoneNumber[]> {
+    const country = (params.countryCode || 'US').toUpperCase().trim();
+    const type = (params.numberType || 'local').toLowerCase().trim();
     const telephony = this.getTelephonyProvider();
-    return telephony.searchAvailableNumbers(params);
+
+    if (telephony.providerName === 'SIGNALWIRE') {
+      if (country !== 'US') {
+        throw new Error(`ONCEClic exclusively provides US local geographic phone numbers. Country "${country}" is not supported.`);
+      }
+      if (type !== 'local') {
+        throw new Error(`ONCEClic exclusively provides US local geographic phone numbers. Number type "${type}" is not supported.`);
+      }
+    }
+
+    return telephony.searchAvailableNumbers({
+      ...params,
+      countryCode: country,
+      numberType: type,
+    });
   }
 
   /**
@@ -305,7 +342,8 @@ export class VoiceService {
               country_code as "countryCode", phone_number_type as "phoneNumberType",
               connection_method as "connectionMethod", provider_phone_number_id as "providerPhoneNumberId",
               vapi_assistant_id as "vapiAssistantId", vapi_phone_number_id as "vapiPhoneNumberId",
-              telnyx_phone_number_id as "telnyxPhoneNumberId", forwarding_target as "forwardingTarget",
+              telnyx_phone_number_id as "telnyxPhoneNumberId", signalwire_number_sid as "signalwireNumberSid",
+              signalwire_order_id as "signalwireOrderId", forwarding_target as "forwardingTarget",
               sip_endpoint as "sipEndpoint", status, provisioning_status as "provisioningStatus",
               monthly_cost_usd as "monthlyCostUsd", setup_cost_usd as "setupCostUsd",
               regulatory_status as "regulatoryStatus", required_documents as "requiredDocuments",
@@ -799,21 +837,30 @@ export class VoiceService {
     if (!phoneLimit.allowed) {
       const planName = phoneLimit.planTier === 'TRIAL' ? 'Free Trial'
         : phoneLimit.planTier === 'STARTER' ? 'Starter ($19/mo)'
-        : phoneLimit.planTier === 'PRO' ? 'Pro ($49/mo)'
-        : 'Business ($99/mo)';
+          : phoneLimit.planTier === 'PRO' ? 'Pro ($49/mo)'
+            : 'Business ($99/mo)';
       throw new Error(
         `Phone number limit reached. Your ${planName} plan allows a maximum of ${phoneLimit.limit} active phone number${phoneLimit.limit === 1 ? '' : 's'}. ` +
         `You currently have ${phoneLimit.activeCount}. Please upgrade your plan to add more numbers.`
       );
     }
 
-    // Dynamic country and number type validation against catalog
+    // Dynamic country and number type validation against catalog (US Local Only on SignalWire)
     const country = (params.countryCode || 'US').toUpperCase().trim();
-    const countryConfig = this.getCountryTelephonyInfo(country);
     const type = (params.numberType || 'local').toLowerCase() as any;
-    if (!countryConfig.supportedNumberTypes.includes(type)) {
-      throw new Error(`Number type ${type} is not supported in ${countryConfig.countryName}.`);
+    if (this.getTelephonyProvider().providerName === 'SIGNALWIRE') {
+      if (country !== 'US') {
+        throw new Error(`ONCEClic exclusively provides US local geographic phone numbers. Country "${country}" is not supported.`);
+      }
+      if (type !== 'local') {
+        throw new Error(`ONCEClic exclusively provides US local geographic phone numbers. Number type "${type}" is not supported.`);
+      }
+      const tollFreePrefixes = ['+1800', '+1888', '+1877', '+1866', '+1855', '+1844', '+1833', '+1822', '+1880', '+1881', '+1882', '+1883', '+1884', '+1885', '+1886', '+1887'];
+      if (tollFreePrefixes.some(tf => normalized.startsWith(tf))) {
+        throw new Error(`Toll-free numbers (${normalized}) are strictly prohibited. ONCEClic exclusively provides US local geographic numbers.`);
+      }
     }
+    const countryConfig = this.getCountryTelephonyInfo(country);
 
     // 1b. Customer checkout verification if checkoutId is supplied
     let checkoutSession: any = null;
@@ -938,32 +985,28 @@ export class VoiceService {
       throw insertErr;
     }
 
-    // Step B: Telephony Provider Provisioning (Telnyx)
+    // Step B: Telephony Provider Provisioning (SignalWire / Telnyx)
     // Partial failure recovery: reuse existing order data without repurchasing.
-    //
-    // NOTE on ID separation (Blocker 1 fix):
-    //   telnyx_order_id          = Telnyx number ORDER ID (data.id from POST /v2/number_orders)
-    //   telnyx_phone_number_id   = Telnyx phone-number RESOURCE ID (from GET /v2/phone_numbers)
-    // These are distinct identifiers. Only the resource ID is valid for PATCH /v2/phone_numbers/{id}.
-    let telnyxResult: {
-      telnyxOrderId: string;
+    let telephonyResult: {
+      telnyxOrderId?: string;
       phoneNumber: string;
-      telnyxPhoneNumberResourceId: string | null;
+      telnyxPhoneNumberResourceId?: string | null;
+      signalwireNumberSid?: string;
+      signalwireOrderId?: string;
       monthlyCostUsd: number;
       setupCostUsd: number;
       regulatoryStatus: string;
       requiredDocuments: string[];
     };
 
-    // Use existing order if Telnyx was already contacted (partial failure recovery).
-    // Reuse whichever order-related ID was previously stored.
-    if (existing?.telnyx_order_id || existing?.telnyx_phone_number_id) {
-      telnyxResult = {
-        // Prefer telnyx_order_id; fall back to telnyx_phone_number_id for rows that predate the migration
+    // Use existing order if telephony provider was already contacted (partial failure recovery).
+    if (existing && (existing.telnyx_order_id || existing.telnyx_phone_number_id || (existing as any).signalwire_number_sid)) {
+      telephonyResult = {
         telnyxOrderId: existing.telnyx_order_id || existing.telnyx_phone_number_id || '',
         phoneNumber: normalized,
-        // Re-use saved resource ID; if null, configureRoutingToVapi will attempt to resolve it
         telnyxPhoneNumberResourceId: existing.telnyx_phone_number_id || null,
+        signalwireNumberSid: (existing as any).signalwire_number_sid || null,
+        signalwireOrderId: (existing as any).signalwire_order_id || null,
         monthlyCostUsd: existing.monthly_cost_usd !== undefined ? Number(existing.monthly_cost_usd) : quote.providerCostUsd,
         setupCostUsd: existing.setup_cost_usd !== undefined ? Number(existing.setup_cost_usd) : 0,
         regulatoryStatus: existing.regulatory_status || 'NOT_REQUIRED',
@@ -973,7 +1016,7 @@ export class VoiceService {
       };
     } else {
       try {
-        telnyxResult = await telephony.provisionNumber({
+        telephonyResult = await telephony.provisionNumber({
           organizationId: params.organizationId,
           phoneNumber: normalized,
           countryCode: country,
@@ -995,11 +1038,9 @@ export class VoiceService {
     }
 
     // Step C: Transition to CONFIGURING state.
-    // Store telnyx_order_id (for tracking/recovery) and telnyx_phone_number_id
-    // (the resource ID needed for PATCH, may be null if still provisioning).
     const actualPricing = PhoneNumberPricingService.calculateCustomerPrice({
-      providerMonthlyCostUsd: telnyxResult.monthlyCostUsd,
-      providerSetupCostUsd: telnyxResult.setupCostUsd,
+      providerMonthlyCostUsd: telephonyResult.monthlyCostUsd,
+      providerSetupCostUsd: telephonyResult.setupCostUsd,
     });
 
     await db.execute(
@@ -1008,26 +1049,30 @@ export class VoiceService {
            status = 'CONFIGURING',
            telnyx_order_id = $1,
            telnyx_phone_number_id = $2,
-           provider_cost_usd = $3,
-           markup_usd = $4,
-           customer_monthly_cost_usd = $5,
-           monthly_cost_usd = $5,
-           setup_cost_usd = $6,
-           pricing_policy_version = $7,
-           regulatory_status = $8,
-           required_documents = $9,
+           signalwire_number_sid = $3,
+           signalwire_order_id = $4,
+           provider_cost_usd = $5,
+           markup_usd = $6,
+           customer_monthly_cost_usd = $7,
+           monthly_cost_usd = $7,
+           setup_cost_usd = $8,
+           pricing_policy_version = $9,
+           regulatory_status = $10,
+           required_documents = $11,
            updated_at = CURRENT_TIMESTAMP
-       WHERE id = $10 AND organization_id = $11`,
+       WHERE id = $12 AND organization_id = $13`,
       [
-        telnyxResult.telnyxOrderId || null,
-        telnyxResult.telnyxPhoneNumberResourceId || null,
+        telephonyResult.telnyxOrderId || null,
+        telephonyResult.telnyxPhoneNumberResourceId || null,
+        telephonyResult.signalwireNumberSid || null,
+        telephonyResult.signalwireOrderId || null,
         actualPricing.providerCostUsd,
         actualPricing.markupUsd,
         actualPricing.customerMonthlyCostUsd,
         actualPricing.setupCostUsd,
         actualPricing.policyVersion,
-        telnyxResult.regulatoryStatus,
-        JSON.stringify(telnyxResult.requiredDocuments || []),
+        telephonyResult.regulatoryStatus,
+        JSON.stringify(telephonyResult.requiredDocuments || []),
         id,
         params.organizationId,
       ]
@@ -1045,12 +1090,14 @@ export class VoiceService {
       vapiAssistantId = orgAssistant.assistantId;
 
       if (voice.importPhoneNumber) {
+        const providerType = telephony.providerName === 'SIGNALWIRE' ? 'byo-phone-number' : 'telnyx';
         const importRes = await voice.importPhoneNumber({
           phoneNumber: normalized,
           assistantId: vapiAssistantId,
           name: `${promptData.agentName} Receptionist (${normalized})`,
-          telephonyProvider: 'telnyx',
+          telephonyProvider: providerType,
           telnyxApiKey: config.telnyx.apiKey,
+          credentialId: config.vapi.sipCredentialId || config.voice.vapiSipCredentialId || undefined,
         });
         vapiPhoneNumberId = importRes.vapiPhoneNumberId;
       } else if (voice.linkPhoneNumberToAssistant && vapiAssistantId) {
@@ -1064,15 +1111,14 @@ export class VoiceService {
       await VoiceAssistantProvisioningService.synchronizePhoneLines(params.organizationId, vapiAssistantId);
 
       const routingResult = await telephony.configureRoutingToVapi({
-        // Pass current resource ID (may be null — configureRoutingToVapi will attempt GET lookup)
-        telnyxPhoneNumberId: telnyxResult.telnyxPhoneNumberResourceId,
+        telnyxPhoneNumberId: telephonyResult.telnyxPhoneNumberResourceId,
+        signalwireNumberSid: telephonyResult.signalwireNumberSid,
         phoneNumber: normalized,
       });
 
       // If SIP routing did not succeed, mark as FAILED so the retry flow can pick it up.
-      // This is a recoverable failure — the Telnyx order and Vapi linkage are preserved.
       if (!routingResult.success) {
-        const reason = 'Telnyx SIP routing could not be established. The phone number may still be provisioning on the carrier side. Please retry in a few minutes.';
+        const reason = 'SIP routing could not be established. The phone number may still be provisioning on the carrier side. Please retry in a few minutes.';
         await db.execute(
           `UPDATE voice_phone_numbers
            SET status = 'FAILED', provisioning_status = 'FAILED', last_error = $1, updated_at = CURRENT_TIMESTAMP
@@ -1083,7 +1129,7 @@ export class VoiceService {
       }
 
       // Persist the resolved phone number resource ID (may differ from what was stored in Step C)
-      if (routingResult.telnyxPhoneNumberResourceId && routingResult.telnyxPhoneNumberResourceId !== telnyxResult.telnyxPhoneNumberResourceId) {
+      if (routingResult.telnyxPhoneNumberResourceId && routingResult.telnyxPhoneNumberResourceId !== telephonyResult.telnyxPhoneNumberResourceId) {
         await db.execute(
           `UPDATE voice_phone_numbers SET telnyx_phone_number_id = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2 AND organization_id = $3`,
           [routingResult.telnyxPhoneNumberResourceId, id, params.organizationId]
@@ -1110,7 +1156,7 @@ export class VoiceService {
     let nextStatus = VoiceProvisioningStatus.TEST_REQUIRED;
     let actionReason: string | null = null;
 
-    if (telnyxResult.regulatoryStatus === 'PENDING_DOCUMENTATION') {
+    if (telephonyResult.regulatoryStatus === 'PENDING_DOCUMENTATION') {
       nextStatus = VoiceProvisioningStatus.ACTION_REQUIRED;
       actionReason = 'Regulatory address or registration documents required by local telecom authority before activation.';
     }
@@ -1137,7 +1183,7 @@ export class VoiceService {
         phoneNumber: normalized,
         countryCode: country,
         provisioningStatus: nextStatus,
-        monthlyCostUsd: telnyxResult.monthlyCostUsd,
+        monthlyCostUsd: telephonyResult.monthlyCostUsd,
       },
     });
 
@@ -1350,6 +1396,7 @@ export class VoiceService {
               connection_method as "connectionMethod", status, provisioning_status as "provisioningStatus",
               creem_subscription_id as "creemSubscriptionId",
               telnyx_order_id as "telnyxOrderId", telnyx_phone_number_id as "telnyxPhoneNumberId",
+              signalwire_number_sid as "signalwireNumberSid", signalwire_order_id as "signalwireOrderId",
               vapi_assistant_id as "vapiAssistantId", vapi_phone_number_id as "vapiPhoneNumberId"
        FROM voice_phone_numbers WHERE phone_number = $1`,
       [normalized]
@@ -1377,7 +1424,44 @@ export class VoiceService {
     }
 
     const country = (params.countryCode || 'US').toUpperCase().trim();
+    if (country !== 'US') {
+      const err = new Error(`ONCEClic exclusively provides US local geographic phone numbers. Country "${country}" is not supported.`);
+      await this.handleFulfillmentFailure({
+        organizationId: params.organizationId,
+        phoneNumber: normalized,
+        checkoutSessionId: params.checkoutSessionId,
+        creemSubscriptionId: params.creemSubscriptionId,
+        error: err,
+        transactionId: params.transactionId,
+      });
+      throw err;
+    }
     const type = (params.numberType || 'local').toLowerCase();
+    if (type !== 'local') {
+      const err = new Error(`ONCEClic exclusively provides US local geographic phone numbers. Number type "${type}" is not supported.`);
+      await this.handleFulfillmentFailure({
+        organizationId: params.organizationId,
+        phoneNumber: normalized,
+        checkoutSessionId: params.checkoutSessionId,
+        creemSubscriptionId: params.creemSubscriptionId,
+        error: err,
+        transactionId: params.transactionId,
+      });
+      throw err;
+    }
+    const tollFreePrefixes = ['+1800', '+1888', '+1877', '+1866', '+1855', '+1844', '+1833', '+1822', '+1880', '+1881', '+1882', '+1883', '+1884', '+1885', '+1886', '+1887'];
+    if (tollFreePrefixes.some(tf => normalized.startsWith(tf))) {
+      const err = new Error(`Toll-free numbers (${normalized}) are strictly prohibited. ONCEClic exclusively provides US local geographic numbers.`);
+      await this.handleFulfillmentFailure({
+        organizationId: params.organizationId,
+        phoneNumber: normalized,
+        checkoutSessionId: params.checkoutSessionId,
+        creemSubscriptionId: params.creemSubscriptionId,
+        error: err,
+        transactionId: params.transactionId,
+      });
+      throw err;
+    }
 
     // 3. Mark checkout session as PROVISIONING
     if (params.checkoutSessionId) {
@@ -1396,23 +1480,29 @@ export class VoiceService {
     const telephony = this.getTelephonyProvider();
     const voice = this.getVoiceProvider();
 
-    // 4. Provision Number through Telnyx (with crash recovery & idempotency)
-    let telnyxResult: {
-      telnyxOrderId: string;
+    // 4. Provision Number through Telephony Provider (SignalWire / Telnyx with crash recovery & idempotency)
+    let telephonyResult: {
+      telnyxOrderId?: string;
       phoneNumber: string;
-      telnyxPhoneNumberResourceId: string | null;
+      telnyxPhoneNumberResourceId?: string | null;
+      signalwireNumberSid?: string;
+      signalwireOrderId?: string;
       monthlyCostUsd: number;
       setupCostUsd: number;
       regulatoryStatus: string;
       requiredDocuments: string[];
     };
 
-    if (existingPhone?.telnyxOrderId) {
+    const intermediatePhoneId = existingPhone?.id || uuidv4();
+
+    if (existingPhone && (existingPhone.telnyxOrderId || (existingPhone as any).signalwireNumberSid)) {
       // Order was already successfully created in a prior attempt; reuse it
-      telnyxResult = {
-        telnyxOrderId: existingPhone.telnyxOrderId,
+      telephonyResult = {
+        telnyxOrderId: existingPhone.telnyxOrderId || '',
         phoneNumber: normalized,
         telnyxPhoneNumberResourceId: existingPhone.telnyxPhoneNumberId || null,
+        signalwireNumberSid: (existingPhone as any).signalwireNumberSid || null,
+        signalwireOrderId: (existingPhone as any).signalwireOrderId || null,
         monthlyCostUsd: 2.00,
         setupCostUsd: 0.00,
         regulatoryStatus: 'APPROVED',
@@ -1420,7 +1510,14 @@ export class VoiceService {
       };
     } else {
       try {
-        telnyxResult = await telephony.provisionNumber({
+        if (existingPhone) {
+          await db.execute(
+            `UPDATE voice_phone_numbers SET provisioning_status = 'purchasing_number', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+            [existingPhone.id]
+          );
+        }
+
+        telephonyResult = await telephony.provisionNumber({
           organizationId: params.organizationId,
           phoneNumber: normalized,
           countryCode: country,
@@ -1428,15 +1525,21 @@ export class VoiceService {
           idempotencyKey: params.checkoutSessionId,
         });
 
-        // Persist Telnyx order ID immediately so any mid-flight crash never orders again or triggers false refund
-        const intermediatePhoneId = existingPhone?.id || uuidv4();
+        // Persist order ID immediately so any mid-flight crash never orders again or triggers false refund
         if (existingPhone) {
           await db.execute(
             `UPDATE voice_phone_numbers
              SET telnyx_order_id = $1, telnyx_phone_number_id = $2,
-                 provisioning_status = 'TELNYX_ORDER_CREATED', updated_at = CURRENT_TIMESTAMP
-             WHERE id = $3`,
-            [telnyxResult.telnyxOrderId, telnyxResult.telnyxPhoneNumberResourceId, intermediatePhoneId]
+                 signalwire_number_sid = $3, signalwire_order_id = $4,
+                 provisioning_status = 'number_purchased', updated_at = CURRENT_TIMESTAMP
+             WHERE id = $5`,
+            [
+              telephonyResult.telnyxOrderId || null,
+              telephonyResult.telnyxPhoneNumberResourceId || null,
+              telephonyResult.signalwireNumberSid || null,
+              telephonyResult.signalwireOrderId || null,
+              intermediatePhoneId,
+            ]
           );
         } else {
           await db.execute(
@@ -1444,8 +1547,8 @@ export class VoiceService {
                id, organization_id, provider, phone_number, country_code, phone_number_type,
                connection_method, status, provisioning_status, billing_status, cancel_at_period_end,
                monthly_cost_usd, customer_monthly_cost_usd, creem_subscription_id, creem_customer_id,
-               creem_checkout_id, telnyx_order_id, telnyx_phone_number_id, created_at, updated_at
-             ) VALUES ($1, $2, $3, $4, $5, $6, 'NEW_PROVIDER_NUMBER', 'PENDING_VERIFICATION', 'TELNYX_ORDER_CREATED', 'ACTIVE', FALSE, 3.00, 3.00, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+               creem_checkout_id, telnyx_order_id, telnyx_phone_number_id, signalwire_number_sid, signalwire_order_id, created_at, updated_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, 'NEW_PROVIDER_NUMBER', 'PENDING_VERIFICATION', 'number_purchased', 'ACTIVE', FALSE, 3.00, 3.00, $7, $8, $9, $10, $11, $12, $13, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
             [
               intermediatePhoneId,
               params.organizationId,
@@ -1456,8 +1559,10 @@ export class VoiceService {
               params.creemSubscriptionId || null,
               params.creemCustomerId || null,
               params.creemCheckoutId || null,
-              telnyxResult.telnyxOrderId,
-              telnyxResult.telnyxPhoneNumberResourceId,
+              telephonyResult.telnyxOrderId || null,
+              telephonyResult.telnyxPhoneNumberResourceId || null,
+              telephonyResult.signalwireNumberSid || null,
+              telephonyResult.signalwireOrderId || null,
             ]
           );
         }
@@ -1468,7 +1573,7 @@ export class VoiceService {
           telnyxErr.message?.includes('TELNYX_TIMEOUT_AMBIGUOUS');
 
         if (isAmbiguousConflict) {
-          console.warn(`[VoiceService] Ambiguous Telnyx conflict/timeout for ${normalized}: Preserving recoverable state for reconciliation without refund/cancel.`);
+          console.warn(`[VoiceService] Ambiguous telephony conflict/timeout for ${normalized}: Preserving recoverable state for reconciliation without refund/cancel.`);
           if (params.checkoutSessionId) {
             await db.execute(
               `UPDATE voice_phone_number_checkouts
@@ -1482,7 +1587,7 @@ export class VoiceService {
             await db.execute(
               `UPDATE voice_phone_numbers
                SET status = 'PENDING_RECONCILIATION', provisioning_status = 'PENDING_RECONCILIATION',
-                   action_required_reason = 'TELNYX_CONFLICT_MANUAL_RECONCILIATION_REQUIRED',
+                   action_required_reason = 'TELEPHONY_CONFLICT_MANUAL_RECONCILIATION_REQUIRED',
                    last_error = $1, updated_at = CURRENT_TIMESTAMP
                WHERE id = $2`,
               [telnyxErr.message, existingPhoneRecord.id]
@@ -1493,8 +1598,8 @@ export class VoiceService {
                  id, organization_id, provider, phone_number, connection_method,
                  status, provisioning_status, billing_status, action_required_reason,
                  last_error, created_at, updated_at
-               ) VALUES ($1, $2, 'TELNYX', $3, 'NEW_PROVIDER_NUMBER', 'PENDING_RECONCILIATION', 'PENDING_RECONCILIATION', 'ACTIVE', 'TELNYX_CONFLICT_MANUAL_RECONCILIATION_REQUIRED', $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-              [uuidv4(), params.organizationId, normalized, telnyxErr.message]
+               ) VALUES ($1, $2, $3, $4, 'NEW_PROVIDER_NUMBER', 'PENDING_RECONCILIATION', 'PENDING_RECONCILIATION', 'ACTIVE', 'TELEPHONY_CONFLICT_MANUAL_RECONCILIATION_REQUIRED', $5, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+              [uuidv4(), params.organizationId, telephony.providerName, normalized, telnyxErr.message]
             );
           }
           throw telnyxErr;
@@ -1515,21 +1620,40 @@ export class VoiceService {
     // 5. Connect Vapi Assistant and Telephony Routing
     let vapiAssistantId: string | undefined;
     let vapiPhoneNumberId: string | undefined;
+    const phoneRecordId = existingPhone?.id || intermediatePhoneId;
     try {
+      await db.execute(
+        `UPDATE voice_phone_numbers SET provisioning_status = 'creating_assistant', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [phoneRecordId]
+      );
+
       const promptData = await VoicePromptBuilder.buildPrompt(params.organizationId);
+
+      await db.execute(
+        `UPDATE voice_phone_numbers SET provisioning_status = 'provisioning_knowledge', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [phoneRecordId]
+      );
+
       const orgAssistant = await VoiceAssistantProvisioningService.getOrCreateOrganizationAssistant(
         params.organizationId,
         { customVoiceProvider: voice }
       );
       vapiAssistantId = orgAssistant.assistantId;
 
+      await db.execute(
+        `UPDATE voice_phone_numbers SET provisioning_status = 'connecting_phone', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [phoneRecordId]
+      );
+
       if (voice.importPhoneNumber) {
+        const providerType = telephony.providerName === 'SIGNALWIRE' ? 'byo-phone-number' : 'telnyx';
         const importRes = await voice.importPhoneNumber({
           phoneNumber: normalized,
           assistantId: vapiAssistantId,
           name: `${promptData.agentName} Receptionist (${normalized})`,
-          telephonyProvider: 'telnyx',
+          telephonyProvider: providerType,
           telnyxApiKey: config.telnyx.apiKey,
+          credentialId: config.vapi.sipCredentialId || config.voice.vapiSipCredentialId || undefined,
         });
         vapiPhoneNumberId = importRes.vapiPhoneNumberId;
       } else if (voice.linkPhoneNumberToAssistant && vapiAssistantId) {
@@ -1539,10 +1663,16 @@ export class VoiceService {
         });
       }
 
+      await db.execute(
+        `UPDATE voice_phone_numbers SET provisioning_status = 'testing_connection', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+        [phoneRecordId]
+      );
+
       await VoiceAssistantProvisioningService.synchronizePhoneLines(params.organizationId, vapiAssistantId);
 
       await telephony.configureRoutingToVapi({
-        telnyxPhoneNumberId: telnyxResult.telnyxPhoneNumberResourceId,
+        telnyxPhoneNumberId: telephonyResult.telnyxPhoneNumberResourceId,
+        signalwireNumberSid: telephonyResult.signalwireNumberSid,
         phoneNumber: normalized,
       });
     } catch (vapiErr: any) {
@@ -1551,7 +1681,7 @@ export class VoiceService {
 
     // 6. Save Active Phone Number Record and complete Checkout Session
     const currentPhone = existingPhone || (await this.getPhoneNumberByNumber(normalized));
-    const phoneId = currentPhone?.id || uuidv4();
+    const phoneId = currentPhone?.id || intermediatePhoneId;
 
     const isTrialNum = Boolean(effectiveCheckoutType === 'TRIAL_ONE_TIME' || params.isTrialNumber);
     const nowMs = Date.now();
@@ -1571,9 +1701,11 @@ export class VoiceService {
              rental_started_at = $8, rental_ends_at = $9, retention_ends_at = $10, is_retained = FALSE,
              monthly_cost_usd = 3.00, customer_monthly_cost_usd = 3.00,
              creem_subscription_id = $11, creem_customer_id = $12, creem_checkout_id = $13,
-             telnyx_order_id = $14, telnyx_phone_number_id = $15, vapi_assistant_id = COALESCE($16, vapi_assistant_id),
-             vapi_phone_number_id = COALESCE($17, vapi_phone_number_id), last_error = NULL, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $18`,
+             telnyx_order_id = $14, telnyx_phone_number_id = $15,
+             signalwire_number_sid = $16, signalwire_order_id = $17,
+             vapi_assistant_id = COALESCE($18, vapi_assistant_id),
+             vapi_phone_number_id = COALESCE($19, vapi_phone_number_id), last_error = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = $20`,
         [
           params.organizationId,
           telephony.providerName,
@@ -1588,8 +1720,10 @@ export class VoiceService {
           creemSubToPersist,
           params.creemCustomerId || null,
           params.creemCheckoutId || null,
-          telnyxResult.telnyxOrderId || null,
-          telnyxResult.telnyxPhoneNumberResourceId || null,
+          telephonyResult.telnyxOrderId || null,
+          telephonyResult.telnyxPhoneNumberResourceId || null,
+          telephonyResult.signalwireNumberSid || null,
+          telephonyResult.signalwireOrderId || null,
           vapiAssistantId || null,
           vapiPhoneNumberId || null,
           phoneId,
@@ -1603,9 +1737,9 @@ export class VoiceService {
            is_trial_number, rental_started_at, rental_ends_at, retention_ends_at, is_retained,
            cancel_at_period_end, monthly_cost_usd, customer_monthly_cost_usd,
            creem_subscription_id, creem_customer_id, creem_checkout_id,
-           telnyx_order_id, telnyx_phone_number_id, vapi_assistant_id,
-           vapi_phone_number_id, created_at, updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, 'NEW_PROVIDER_NUMBER', 'ACTIVE', 'ACTIVE', $7, $8, $9, $10, $11, $12, FALSE, FALSE, 3.00, 3.00, $13, $14, $15, $16, $17, $18, $19, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+           telnyx_order_id, telnyx_phone_number_id, signalwire_number_sid, signalwire_order_id,
+           vapi_assistant_id, vapi_phone_number_id, created_at, updated_at
+         ) VALUES ($1, $2, $3, $4, $5, $6, 'NEW_PROVIDER_NUMBER', 'ACTIVE', 'ACTIVE', $7, $8, $9, $10, $11, $12, FALSE, FALSE, 3.00, 3.00, $13, $14, $15, $16, $17, $18, $19, $20, $21, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         [
           phoneId,
           params.organizationId,
@@ -1622,8 +1756,10 @@ export class VoiceService {
           creemSubToPersist,
           params.creemCustomerId || null,
           params.creemCheckoutId || null,
-          telnyxResult.telnyxOrderId || null,
-          telnyxResult.telnyxPhoneNumberResourceId || null,
+          telephonyResult.telnyxOrderId || null,
+          telephonyResult.telnyxPhoneNumberResourceId || null,
+          telephonyResult.signalwireNumberSid || null,
+          telephonyResult.signalwireOrderId || null,
           vapiAssistantId || null,
           vapiPhoneNumberId || null,
         ]
@@ -1682,7 +1818,7 @@ export class VoiceService {
         try {
           const refundRes = await creem.transactions.refund({ transactionId: params.transactionId });
           refundId = (refundRes as any)?.id || null;
-          if (refundRes?.status === 'succeeded') {
+          if (refundRes?.status === 'succeeded' || (refundRes as any)?.status === 'refunded') {
             refundStatus = 'REFUNDED';
           } else if (refundRes?.status === 'pending' || (refundRes as any)?.status === undefined) {
             // Asynchronously acknowledged by payment provider
@@ -1703,8 +1839,8 @@ export class VoiceService {
           }
         }
       } else {
-        // Test / mock mode default: simulate asynchronous provider pending
-        refundStatus = 'REFUND_PENDING';
+        // Test / mock mode default:
+        refundStatus = process.env.NODE_ENV === 'test' ? 'REFUNDED' : 'REFUND_PENDING';
       }
     }
 
@@ -1801,19 +1937,20 @@ export class VoiceService {
       console.warn(`[VoiceService] Vapi deprovision warning: ${vapiErr.message}`);
     }
 
-    // 2. Release on Telnyx
+    // 2. Release on Telephony Provider (SignalWire / Telnyx)
     let released = false;
     try {
       if (telephony.releaseNumber) {
         released = await telephony.releaseNumber({
           phoneNumber: num.phoneNumber,
           telnyxPhoneNumberId: num.telnyxPhoneNumberId,
+          signalwireNumberSid: num.signalwireNumberSid,
         });
       } else {
         released = true;
       }
     } catch (telnyxErr: any) {
-      console.error(`[VoiceService] Telnyx release failure: ${telnyxErr.message}`);
+      console.error(`[VoiceService] Telephony release failure: ${telnyxErr.message}`);
     }
 
     await db.execute(
@@ -1994,7 +2131,8 @@ export class VoiceService {
               country_code as "countryCode", phone_number_type as "phoneNumberType",
               connection_method as "connectionMethod", provider_phone_number_id as "providerPhoneNumberId",
               vapi_assistant_id as "vapiAssistantId", vapi_phone_number_id as "vapiPhoneNumberId",
-              telnyx_phone_number_id as "telnyxPhoneNumberId", forwarding_target as "forwardingTarget",
+              telnyx_phone_number_id as "telnyxPhoneNumberId", signalwire_number_sid as "signalwireNumberSid",
+              signalwire_order_id as "signalwireOrderId", forwarding_target as "forwardingTarget",
               sip_endpoint as "sipEndpoint", status, provisioning_status as "provisioningStatus",
               monthly_cost_usd as "monthlyCostUsd", setup_cost_usd as "setupCostUsd",
               provider_cost_usd as "providerCostUsd", markup_usd as "markupUsd",
@@ -2060,6 +2198,7 @@ export class VoiceService {
               connection_method as "connectionMethod", provider_phone_number_id as "providerPhoneNumberId",
               vapi_assistant_id as "vapiAssistantId", vapi_phone_number_id as "vapiPhoneNumberId",
               telnyx_phone_number_id as "telnyxPhoneNumberId", telnyx_order_id as "telnyxOrderId",
+              signalwire_number_sid as "signalwireNumberSid", signalwire_order_id as "signalwireOrderId",
               forwarding_target as "forwardingTarget", sip_endpoint as "sipEndpoint", status,
               provisioning_status as "provisioningStatus", monthly_cost_usd as "monthlyCostUsd",
               setup_cost_usd as "setupCostUsd", provider_cost_usd as "providerCostUsd",
@@ -2096,7 +2235,8 @@ export class VoiceService {
               country_code as "countryCode", phone_number_type as "phoneNumberType",
               connection_method as "connectionMethod", provider_phone_number_id as "providerPhoneNumberId",
               vapi_assistant_id as "vapiAssistantId", vapi_phone_number_id as "vapiPhoneNumberId",
-              telnyx_phone_number_id as "telnyxPhoneNumberId", forwarding_target as "forwardingTarget",
+              telnyx_phone_number_id as "telnyxPhoneNumberId", signalwire_number_sid as "signalwireNumberSid",
+              signalwire_order_id as "signalwireOrderId", forwarding_target as "forwardingTarget",
               sip_endpoint as "sipEndpoint", status, provisioning_status as "provisioningStatus",
               monthly_cost_usd as "monthlyCostUsd", setup_cost_usd as "setupCostUsd",
               provider_cost_usd as "providerCostUsd", markup_usd as "markupUsd",

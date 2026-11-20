@@ -44,19 +44,39 @@ router.get('/countries', requirePermission('voice:read'), async (_req: Request, 
 });
 
 /**
- * Search available phone numbers for provisioning (Telnyx)
+ * Search available phone numbers for provisioning (SignalWire US Local)
  */
 router.get('/available-numbers', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
   try {
-    const countryCode = (req.query.country as string) || 'US';
-    const numberType = (req.query.type as string) || undefined;
+    const rawCountry = (req.query.country as string) || 'US';
+    if (rawCountry.toUpperCase() !== 'US') {
+      return res.status(400).json({
+        success: false,
+        error: 'Only US local phone numbers are currently supported.',
+      });
+    }
+
+    const rawType = req.query.type as string | undefined;
+    if (rawType && rawType !== 'local') {
+      return res.status(400).json({
+        success: false,
+        error: 'Only local geographic phone numbers are supported (toll-free and non-local numbers are prohibited).',
+      });
+    }
+
+    const countryCode = 'US';
+    const numberType = 'local';
     const areaCode = (req.query.areaCode as string) || undefined;
+    const city = (req.query.city as string) || undefined;
+    const state = (req.query.state as string) || undefined;
     const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 5;
 
     const numbers = await VoiceService.searchAvailableNumbers({
       countryCode,
       numberType,
       areaCode,
+      city,
+      state,
       limit,
     });
 
@@ -68,11 +88,18 @@ router.get('/available-numbers', requirePermission('voice:read'), async (req: Re
 
 /**
  * Authoritative Server-Side Pricing Quote
- * customer_monthly_number_price = verified_telnyx_monthly_cost + 1.00 USD
+ * customer_monthly_number_price = verified_provider_monthly_cost + 1.00 USD
  */
 router.post('/numbers/quote', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
   try {
     const { countryCode, numberType, phoneNumber, providerMonthlyCost, providerSetupCost } = req.body;
+    if (countryCode && String(countryCode).toUpperCase() !== 'US') {
+      return res.status(400).json({ success: false, error: 'Only US local phone numbers are supported.' });
+    }
+    if (numberType && numberType !== 'local') {
+      return res.status(400).json({ success: false, error: 'Only local geographic phone numbers are supported.' });
+    }
+
     const quote = PhoneNumberPricingService.getAuthoritativePricing({
       countryCode: (countryCode as string) || 'US',
       numberType: (numberType as string) || 'local',
@@ -103,6 +130,13 @@ router.post('/numbers/checkout-session', requirePermission('voice:manage'), asyn
     } = req.body;
     if (!phoneNumber) {
       return res.status(400).json({ success: false, error: 'Phone number is required.' });
+    }
+
+    if (countryCode && String(countryCode).toUpperCase() !== 'US') {
+      return res.status(400).json({ success: false, error: 'Only US local phone numbers are supported.' });
+    }
+    if (numberType && numberType !== 'local') {
+      return res.status(400).json({ success: false, error: 'Only local geographic phone numbers are supported.' });
     }
 
     const session = await PhoneNumberBillingService.createCheckoutSession({
@@ -251,6 +285,13 @@ router.post('/numbers/new/order', requirePermission('voice:manage'), async (req:
       return res.status(400).json({ success: false, error: 'Phone number is required.' });
     }
 
+    if (countryCode && String(countryCode).toUpperCase() !== 'US') {
+      return res.status(400).json({ success: false, error: 'Only US local phone numbers are supported.' });
+    }
+    if (numberType && numberType !== 'local') {
+      return res.status(400).json({ success: false, error: 'Only local geographic phone numbers are supported.' });
+    }
+
     if (!confirmPurchase) {
       return res.status(400).json({
         success: false,
@@ -284,10 +325,14 @@ router.post('/numbers/new', requirePermission('voice:manage'), async (req: Reque
   try {
     const { areaCode, country } = req.body;
 
+    if (country && String(country).toUpperCase() !== 'US') {
+      return res.status(400).json({ success: false, error: 'Only US phone numbers are supported.' });
+    }
+
     const phoneRecord = await VoiceService.provisionNewNumber({
       organizationId: req.organizationId!,
       areaCode,
-      country,
+      country: country || 'US',
       userId: req.user?.id,
     });
 

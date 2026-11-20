@@ -185,17 +185,23 @@ export const config = {
 
   voice: {
     provider: (process.env.VOICE_PROVIDER || 'mock').toLowerCase().trim(),
+    telephonyProvider: (process.env.TELEPHONY_PROVIDER || 'signalwire').toLowerCase().trim(),
+    signalwireProjectId: process.env.SIGNALWIRE_PROJECT_ID || '',
+    signalwireApiToken: process.env.SIGNALWIRE_API_TOKEN || '',
+    signalwireSpaceUrl: (process.env.SIGNALWIRE_SPACE_URL || '').replace(/^https?:\/\//, '').replace(/\/+$/, ''),
     retellApiKey: process.env.RETELL_API_KEY || '',
     retellAgentId: process.env.RETELL_AGENT_ID || '',
     retellWebhookSecret: process.env.RETELL_WEBHOOK_SECRET || '',
     vapiApiKey: process.env.VAPI_API_KEY || '',
     vapiAssistantId: process.env.VAPI_ASSISTANT_ID || '',
     vapiWebhookSecret: process.env.VAPI_WEBHOOK_SECRET || '',
+    vapiSipCredentialId: process.env.VAPI_SIP_CREDENTIAL_ID || '',
     isVapiConfigured: !!process.env.VAPI_API_KEY && !process.env.VAPI_API_KEY.includes('placeholder'),
     telnyxApiKey: process.env.TELNYX_API_KEY || '',
     telnyxPublicKey: process.env.TELNYX_PUBLIC_KEY || '',
     telnyxConnectionId: process.env.TELNYX_CONNECTION_ID || '',
     isTelnyxConfigured: !!process.env.TELNYX_API_KEY && !process.env.TELNYX_API_KEY.includes('placeholder'),
+    isSignalWireConfigured: !!process.env.SIGNALWIRE_PROJECT_ID && !process.env.SIGNALWIRE_PROJECT_ID.includes('placeholder') && !!process.env.SIGNALWIRE_API_TOKEN && !process.env.SIGNALWIRE_API_TOKEN.includes('placeholder'),
     isConfigured: (!!process.env.VAPI_API_KEY && !process.env.VAPI_API_KEY.includes('placeholder')) || (!!process.env.RETELL_API_KEY && !process.env.RETELL_API_KEY.includes('placeholder')),
     maxCallDurationSeconds: (() => {
       const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '120', 10);
@@ -209,6 +215,16 @@ export const config = {
     },
   },
 
+  signalwire: {
+    projectId: process.env.SIGNALWIRE_PROJECT_ID || '',
+    apiToken: process.env.SIGNALWIRE_API_TOKEN || '',
+    spaceUrl: (process.env.SIGNALWIRE_SPACE_URL || '').replace(/^https?:\/\//, '').replace(/\/+$/, ''),
+    sipDomain: process.env.SIGNALWIRE_SIP_DOMAIN || '',
+    sipUsername: process.env.SIGNALWIRE_SIP_USERNAME || '',
+    sipPassword: process.env.SIGNALWIRE_SIP_PASSWORD || '',
+    isConfigured: !!process.env.SIGNALWIRE_PROJECT_ID && !process.env.SIGNALWIRE_PROJECT_ID.includes('placeholder') && !!process.env.SIGNALWIRE_API_TOKEN && !process.env.SIGNALWIRE_API_TOKEN.includes('placeholder'),
+  },
+
   telnyx: {
     apiKey: process.env.TELNYX_API_KEY || '',
     publicKey: process.env.TELNYX_PUBLIC_KEY || '',
@@ -220,6 +236,7 @@ export const config = {
     apiKey: process.env.VAPI_API_KEY || '',
     assistantId: process.env.VAPI_ASSISTANT_ID || '',
     webhookSecret: process.env.VAPI_WEBHOOK_SECRET || '',
+    sipCredentialId: process.env.VAPI_SIP_CREDENTIAL_ID || '',
     isConfigured: !!process.env.VAPI_API_KEY && !process.env.VAPI_API_KEY.includes('placeholder'),
     // Gemini model used by Vapi for voice LLM (provider: 'google')
     // Vapi supports Google Gemini natively — see https://docs.vapi.ai/

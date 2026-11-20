@@ -214,6 +214,10 @@ async function runAllTests() {
     await runPostgresConcurrencyIntegrationTests();
     console.log('');
 
+    const { runSignalWireVapiIntegrationTests } = await import('./signalwire-vapi-integration.test');
+    await runSignalWireVapiIntegrationTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

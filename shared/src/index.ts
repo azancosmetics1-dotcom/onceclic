@@ -1079,6 +1079,18 @@ export enum VoiceProvisioningStatus {
   TEST_REQUIRED = 'TEST_REQUIRED',
   ACTIVE = 'ACTIVE',
   FAILED = 'FAILED',
+  // Granular lifecycle statuses
+  PAYMENT_PENDING = 'payment_pending',
+  PAYMENT_VERIFIED = 'payment_verified',
+  PURCHASING_NUMBER = 'purchasing_number',
+  NUMBER_PURCHASED = 'number_purchased',
+  CREATING_ASSISTANT = 'creating_assistant',
+  PROVISIONING_KNOWLEDGE = 'provisioning_knowledge',
+  CONNECTING_PHONE = 'connecting_phone',
+  TESTING_CONNECTION = 'testing_connection',
+  REFUND_PENDING = 'refund_pending',
+  REFUNDED = 'refunded',
+  RELEASING = 'releasing',
 }
 
 export interface CarrierForwardingGuide {
@@ -1428,6 +1440,8 @@ export interface VoicePhoneNumber {
   vapiPhoneNumberId?: string;
   telnyxPhoneNumberId?: string;
   telnyxOrderId?: string;
+  signalwireNumberSid?: string;
+  signalwireOrderId?: string;
   forwardingTarget?: string;
   sipEndpoint?: string;
   status: 'ACTIVE' | 'PENDING_VERIFICATION' | 'INACTIVE' | VoiceProvisioningStatus | string;

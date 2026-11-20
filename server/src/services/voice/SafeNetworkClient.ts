@@ -198,6 +198,8 @@ export class SafeNetworkClient {
     'storage.googleapis.com',
     'api.telnyx.com',
     'api.retellai.com',
+    'api.signalwire.com',
+    '*.signalwire.com',
   ]);
 
   /**
@@ -236,8 +238,15 @@ export class SafeNetworkClient {
       throw new Error('SSRF_BLOCKED: Hostname is empty.');
     }
 
-    // Host must match the allowlist exactly (no suffix wildcards)
-    const isAllowed = allowedHosts.some(allowed => allowed.toLowerCase().trim() === hostname);
+    // Host must match the allowlist exactly or match approved domain wildcard (e.g. *.signalwire.com)
+    const isAllowed = allowedHosts.some(allowed => {
+      const a = allowed.toLowerCase().trim();
+      if (a.startsWith('*.')) {
+        const root = a.slice(2);
+        return hostname.endsWith('.' + root) && hostname.length > root.length + 1;
+      }
+      return a === hostname;
+    });
     if (!isAllowed) {
       throw new Error(`SSRF_BLOCKED: Host "${hostname}" is not in the approved host allowlist.`);
     }

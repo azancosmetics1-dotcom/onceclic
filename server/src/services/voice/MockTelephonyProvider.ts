@@ -236,6 +236,8 @@ export class MockTelephonyProvider implements ITelephonyProvider {
       telnyxOrderId,
       phoneNumber: params.phoneNumber,
       telnyxPhoneNumberResourceId,
+      signalwireNumberSid: `mock_pn_sid_${ts}_${rand}`,
+      signalwireOrderId: `mock_ord_sid_${ts}_${rand}`,
       monthlyCostUsd: monthlyCost,
       setupCostUsd: setupCost,
       regulatoryStatus: regulatoryStatus as 'NOT_REQUIRED' | 'PENDING_DOCUMENTATION' | 'APPROVED',
@@ -253,6 +255,7 @@ export class MockTelephonyProvider implements ITelephonyProvider {
   async releaseNumber(params: {
     phoneNumber: string;
     telnyxPhoneNumberId?: string | null;
+    signalwireNumberSid?: string | null;
   }): Promise<boolean> {
     this.releaseCallCount++;
     if (this.simulateReleaseFailure) {
@@ -331,10 +334,11 @@ export class MockTelephonyProvider implements ITelephonyProvider {
   }
 
   async configureRoutingToVapi(params: {
-    telnyxPhoneNumberId: string | null;
+    telnyxPhoneNumberId?: string | null;
+    signalwireNumberSid?: string | null;
     phoneNumber: string;
     vapiSipUri?: string;
-  }): Promise<{ success: boolean; telnyxPhoneNumberResourceId: string | null }> {
+  }): Promise<{ success: boolean; telnyxPhoneNumberResourceId?: string | null; signalwireNumberSid?: string | null }> {
     if (this.simulateMissingConnectionId) {
       return { success: false, telnyxPhoneNumberResourceId: params.telnyxPhoneNumberId };
     }

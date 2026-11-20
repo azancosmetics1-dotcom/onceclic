@@ -62,6 +62,8 @@ export const AIReceptionistPage: React.FC = () => {
   const [selectedCountry, setSelectedCountry] = useState<string>('US');
   const [selectedNumberType, setSelectedNumberType] = useState<string>('local');
   const [areaCodeInput, setAreaCodeInput] = useState<string>('415');
+  const [cityInput, setCityInput] = useState<string>('');
+  const [stateInput, setStateInput] = useState<string>('');
   const [searchingNumbers, setSearchingNumbers] = useState<boolean>(false);
   const [availableNumbers, setAvailableNumbers] = useState<AvailablePhoneNumber[]>([]);
   const [selectedNumberForOrder, setSelectedNumberForOrder] = useState<AvailablePhoneNumber | null>(null);
@@ -181,29 +183,26 @@ export const AIReceptionistPage: React.FC = () => {
     }
   }, [searchParams]);
 
-  // Update available number types when country changes
-  const activeCountryInfo = countries.find((c) => c.countryCode === selectedCountry) || countries[0];
-  useEffect(() => {
-    if (activeCountryInfo && !activeCountryInfo.supportedNumberTypes.includes(selectedNumberType as any)) {
-      setSelectedNumberType(activeCountryInfo.supportedNumberTypes[0] || 'local');
-    }
-  }, [selectedCountry, activeCountryInfo]);
+  // Active country info (US Local only)
+  const activeCountryInfo = countries.find((c) => c.countryCode === 'US') || countries[0];
 
-  // Search available numbers
+  // Search available numbers (Strictly US Local)
   const handleSearchNumbers = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     try {
       setSearchingNumbers(true);
       setError(null);
       const results = await api.getAvailableVoiceNumbers({
-        country: selectedCountry,
-        type: selectedNumberType,
+        country: 'US',
+        type: 'local',
         areaCode: areaCodeInput.trim() || undefined,
+        city: cityInput.trim() || undefined,
+        state: stateInput.trim() || undefined,
         limit: 5,
       });
       setAvailableNumbers(results);
       if (results.length === 0) {
-        setError(`No numbers currently available in ${selectedCountry} with area code ${areaCodeInput}. Try another area code.`);
+        setError('No US local numbers currently available matching your search criteria. Try a different area code, city, or state.');
       }
     } catch (err: any) {
       setError(err.message || 'Failed to search available phone numbers.');
@@ -473,7 +472,7 @@ export const AIReceptionistPage: React.FC = () => {
                 )}
               </div>
               <p className="text-sm text-slate-400 mt-1">
-                24/7 AI Voice Receptionist powered by Vapi & Telnyx. Answers business questions, schedules appointments, and routes calls.
+                24/7 AI Voice Receptionist powered by Vapi & SignalWire. Answers business questions, schedules appointments, and routes calls.
               </p>
             </div>
           </div>
@@ -609,7 +608,7 @@ export const AIReceptionistPage: React.FC = () => {
             ) : (
               <div className="mt-3">
                 <p className="text-sm text-slate-400 font-medium">No active number</p>
-                <p className="text-xs text-slate-500 mt-1">Purchase a Telnyx number below</p>
+                <p className="text-xs text-slate-500 mt-1">Purchase a dedicated US number below</p>
               </div>
             )}
           </div>
@@ -715,17 +714,17 @@ export const AIReceptionistPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Phone Number Setup Section — Purchase New Telnyx Number */}
+      {/* Phone Number Setup Section — Purchase New Dedicated Number */}
       <div className="rounded-2xl bg-slate-900 border border-slate-800 overflow-hidden">
         <div className="p-6 border-b border-slate-800">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
               <h2 className="text-lg font-bold text-white flex items-center space-x-2">
                 <Phone className="w-5 h-5 text-emerald-400" />
-                <span>Get a Dedicated Business Phone Number</span>
+                <span>Get a Dedicated US Local Phone Number</span>
               </h2>
               <p className="text-sm text-slate-400 mt-1">
-                Purchase a new Telnyx number powered by Vapi AI.{' '}
+                Purchase an authentic US local geographic number powered by SignalWire & Vapi AI.{' '}
                 <span className="text-slate-300 font-medium">{activePhones}/{maxPhones} number{maxPhones !== 1 ? 's' : ''} used on your plan.</span>
               </p>
             </div>
@@ -750,69 +749,82 @@ export const AIReceptionistPage: React.FC = () => {
           )}
         </div>
 
-        {/* Get a New Number — Vapi + Telnyx */}
+        {/* Get a New Number — SignalWire + Vapi AI */}
         {!isPhoneLimitReached ? (
           <div className="p-6 space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Country Selection */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Country
-                </label>
-                <div className="relative">
-                  <Globe className="w-4 h-4 text-slate-500 absolute left-3 top-3.5" />
-                  <select
-                    value={selectedCountry}
-                    onChange={(e) => setSelectedCountry(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500 text-sm"
-                  >
-                    {countries.map((c) => (
-                      <option key={c.countryCode} value={c.countryCode}>
-                        {c.countryName} ({c.dialCode})
-                      </option>
-                    ))}
-                  </select>
+            {/* US Local Number Marketplace Badge */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-xl bg-slate-950/80 border border-emerald-500/30">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                  <Globe className="w-5 h-5 text-emerald-400" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-sm font-bold text-white">United States (+1)</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                      Local Geographic Numbers Only
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Authentic US local carrier numbers with direct geographic area codes. Toll-free and non-local numbers are strictly excluded.
+                  </p>
                 </div>
               </div>
+              <div className="text-right shrink-0">
+                <span className="text-sm font-extrabold text-white">$3.00</span>
+                <span className="text-xs text-slate-400"> / month</span>
+              </div>
+            </div>
 
-              {/* Number Type Selection */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Search Criteria: Area Code */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Number Type
+                  Area Code
                 </label>
-                <select
-                  value={selectedNumberType}
-                  onChange={(e) => setSelectedNumberType(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500 text-sm"
-                >
-                  {(activeCountryInfo?.supportedNumberTypes || ['local']).map((t) => (
-                    <option key={t} value={t}>
-                      {t === 'local' ? 'Local Number' : t === 'toll_free' ? 'Toll-Free' : t === 'national' ? 'National' : t}
-                    </option>
-                  ))}
-                </select>
+                <input
+                  type="text"
+                  value={areaCodeInput}
+                  onChange={(e) => setAreaCodeInput(e.target.value)}
+                  placeholder="e.g. 415 or 212"
+                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 text-sm"
+                />
               </div>
 
-              {/* Preferred Area Code */}
+              {/* City */}
               <div>
                 <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
-                  Area Code / City Prefix
+                  City (Optional)
+                </label>
+                <input
+                  type="text"
+                  value={cityInput}
+                  onChange={(e) => setCityInput(e.target.value)}
+                  placeholder="e.g. San Francisco or Miami"
+                  className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 text-sm"
+                />
+              </div>
+
+              {/* State */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-2">
+                  State / Region (Optional)
                 </label>
                 <div className="flex space-x-2">
                   <input
                     type="text"
-                    value={areaCodeInput}
-                    onChange={(e) => setAreaCodeInput(e.target.value)}
-                    placeholder="415"
+                    value={stateInput}
+                    onChange={(e) => setStateInput(e.target.value)}
+                    placeholder="e.g. CA or NY"
                     className="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 text-sm"
                   />
                   <button
                     type="button"
                     onClick={() => handleSearchNumbers()}
                     disabled={searchingNumbers}
-                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-xl text-xs whitespace-nowrap transition disabled:opacity-50"
+                    className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl text-xs whitespace-nowrap transition disabled:opacity-50"
                   >
-                    {searchingNumbers ? 'Searching...' : 'Search'}
+                    {searchingNumbers ? 'Searching...' : 'Search Numbers'}
                   </button>
                 </div>
               </div>
@@ -841,7 +853,7 @@ export const AIReceptionistPage: React.FC = () => {
             {availableNumbers.length > 0 && (
               <div className="space-y-3">
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Available Numbers in {activeCountryInfo?.countryName}
+                  Available US Local Numbers
                 </h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {availableNumbers.map((num) => (
@@ -1128,7 +1140,7 @@ export const AIReceptionistPage: React.FC = () => {
               <div>
                 <h3 className="font-bold text-white text-base">Confirm Phone Number Purchase</h3>
                 <p className="text-xs text-slate-400 mt-0.5">
-                  Direct Telnyx telephony provisioning with Vapi AI Voice integration
+                  Direct telephony provisioning with SignalWire & Vapi AI Voice integration
                 </p>
               </div>
               <button

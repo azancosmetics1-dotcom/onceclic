@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { VoiceService } from '../services/voice/VoiceService';
 import { db } from '../db';
+import { config } from '../config';
 
 const router = Router();
 
@@ -105,6 +106,182 @@ router.post(['/telnyx', '/webhooks/telnyx'], async (req: Request, res: Response)
   } catch (err: any) {
     // Fail safely without leaking internal stack traces or secrets
     res.status(500).json({ success: false, error: 'Internal webhook processing error' });
+  }
+});
+
+/**
+ * SignalWire Official Inbound Webhook Endpoint (/signalwire/inbound or /webhooks/signalwire/inbound)
+ * Routes incoming PSTN calls to Vapi via native SWML (application/json):
+ * connect to sip:%{call.to}@${credentialId}.sip.vapi.ai
+ *
+ * Requirements:
+ * 1. Strictly requires VAPI_SIP_CREDENTIAL_ID. Missing credential blocks routing safely (no fallback to global hostname).
+ * 2. Emits pure SWML JSON (Content-Type: application/json). Never mixes cXML/LaML in the response path.
+ * 3. Uses official SignalWire SWML format: sip:%{call.to}@${credentialId}.sip.vapi.ai with caller ID from: %{call.from}.
+ * 4. Resolves tenant organization in DB to ensure number is active and assigned.
+ */
+router.post(['/signalwire/inbound', '/webhooks/signalwire/inbound'], async (req: Request, res: Response) => {
+  // Always return application/json for native SignalWire SWML
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+  try {
+    const telephony = VoiceService.getTelephonyProvider();
+    const signature = (req.headers['x-signalwire-signature'] || req.headers['x-twilio-signature']) as string | undefined;
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+    const fullUrl = `${req.protocol}://${req.get('host')}${req.originalUrl}`;
+
+    if (telephony.verifyWebhookSignature && signature) {
+      const isValid = telephony.verifyWebhookSignature({
+        rawBody,
+        signature,
+        url: fullUrl,
+      });
+
+      if (!isValid) {
+        console.warn('[SignalWireWebhook] Unauthorized: invalid webhook signature');
+        return res.status(401).json({
+          version: '1.0.0',
+          sections: {
+            main: [{ hangup: { reason: 'busy' } }],
+          },
+        });
+      }
+    }
+
+    const payload = req.body || {};
+    const callSid = payload.CallSid || payload.call_sid || `sw_${Date.now()}`;
+    const to = payload.To || payload.to || '';
+    const from = payload.From || payload.from || '';
+
+    // Requirement 1: Verify credential ID. Never use unsafe global fallback.
+    const credentialId = config.vapi.sipCredentialId || config.voice.vapiSipCredentialId;
+    if (!credentialId || credentialId.trim() === '' || credentialId.includes('placeholder')) {
+      console.error('[SignalWireWebhook] SECURITY HALT: Missing VAPI_SIP_CREDENTIAL_ID. Routing rejected for safety.');
+      return res.status(500).json({
+        version: '1.0.0',
+        sections: {
+          main: [{ hangup: { reason: 'busy' } }],
+        },
+      });
+    }
+
+    // Official SWML connect instruction following https://signalwire.com/docs/platform/ai/vapi
+    const officialSwmlResponse = {
+      version: '1.0.0',
+      sections: {
+        main: [
+          {
+            connect: {
+              to: `sip:%{call.to}@${credentialId.trim()}.sip.vapi.ai`,
+              from: '%{call.from}',
+            },
+          },
+        ],
+      },
+    };
+
+    if (callSid) {
+      const isDuplicate = await checkAndRecordWebhookIdempotency(callSid, 'signalwire.inbound');
+      if (isDuplicate) {
+        // Return SWML routing instruction idempotently
+        return res.json(officialSwmlResponse);
+      }
+    }
+
+    if (!to) {
+      console.warn('[SignalWireWebhook] Inbound call missing destination "To" number.');
+      return res.status(400).json({
+        version: '1.0.0',
+        sections: {
+          main: [{ hangup: { reason: 'busy' } }],
+        },
+      });
+    }
+
+    // Resolve tenant organization ownership in DB
+    const orgInfo = await VoiceService.resolveOrganizationByNumber(to);
+    if (!orgInfo) {
+      console.warn(`[SignalWireWebhook] Inbound call received for unassigned number ${to}. Rejecting.`);
+      return res.status(404).json({
+        version: '1.0.0',
+        sections: {
+          main: [{ hangup: { reason: 'busy' } }],
+        },
+      });
+    }
+
+    // Record inbound call event
+    await VoiceService.handleInboundCall({
+      callId: callSid,
+      fromNumber: from,
+      toNumber: to,
+      provider: 'SIGNALWIRE',
+    });
+
+    // Return official SWML JSON
+    return res.json(officialSwmlResponse);
+  } catch (err: any) {
+    console.error(`[SignalWireWebhook] Inbound error: ${err.message}`);
+    return res.status(500).json({
+      version: '1.0.0',
+      sections: {
+        main: [{ hangup: { reason: 'busy' } }],
+      },
+    });
+  }
+});
+
+/**
+ * Dedicated SignalWire SWML Script Endpoint (/signalwire/swml or /webhooks/signalwire/swml)
+ * Pure SWML JSON conforming to official SignalWire + Vapi integration guide:
+ * sip:%{call.to}@YOUR_CREDENTIAL_ID.sip.vapi.ai
+ */
+router.all(['/signalwire/swml', '/webhooks/signalwire/swml'], async (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
+  const credentialId = config.vapi.sipCredentialId || config.voice.vapiSipCredentialId;
+  if (!credentialId || credentialId.trim() === '' || credentialId.includes('placeholder')) {
+    console.error('[SignalWireWebhook] SECURITY HALT: Missing VAPI_SIP_CREDENTIAL_ID on SWML script endpoint.');
+    return res.status(500).json({
+      version: '1.0.0',
+      sections: {
+        main: [{ hangup: { reason: 'busy' } }],
+      },
+    });
+  }
+
+  res.json({
+    version: '1.0.0',
+    sections: {
+      main: [
+        {
+          connect: {
+            to: `sip:%{call.to}@${credentialId.trim()}.sip.vapi.ai`,
+            from: '%{call.from}',
+          },
+        },
+      ],
+    },
+  });
+});
+
+/**
+ * SignalWire Call Status Callback Endpoint (/signalwire/status or /webhooks/signalwire/status)
+ */
+router.post(['/signalwire/status', '/webhooks/signalwire/status'], async (req: Request, res: Response) => {
+  try {
+    const payload = req.body || {};
+    const callSid = payload.CallSid || payload.call_sid;
+    const callStatus = payload.CallStatus || payload.call_status;
+    const duration = payload.CallDuration || payload.duration;
+
+    if (callSid && (callStatus === 'completed' || callStatus === 'failed' || callStatus === 'busy')) {
+      await checkAndRecordWebhookIdempotency(`sw_status_${callSid}_${callStatus}`, 'signalwire.status');
+    }
+
+    res.json({ success: true, callSid, callStatus, duration });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Internal status error' });
   }
 });
 

@@ -68,6 +68,7 @@ export interface IVoiceProvider {
     name?: string;
     telephonyProvider?: 'telnyx' | 'byo-phone-number' | string;
     telnyxApiKey?: string;
+    credentialId?: string;
   }): Promise<{ vapiPhoneNumberId: string; phoneNumber: string; assistantId?: string }>;
 
   linkPhoneNumberToAssistant?(params: { phoneNumberIdOrNumber: string; assistantId: string }): Promise<boolean>;
@@ -89,6 +90,8 @@ export interface ITelephonyProvider {
     countryCode: string;
     numberType?: string;
     areaCode?: string;
+    city?: string;
+    state?: string;
     limit?: number;
   }): Promise<AvailablePhoneNumber[]>;
 
@@ -99,24 +102,11 @@ export interface ITelephonyProvider {
     numberType?: string;
     idempotencyKey?: string;
   }): Promise<{
-    /**
-     * The Telnyx number ORDER ID (data.id from POST /v2/number_orders).
-     * Used for order tracking and status polling only.
-     * NOT valid as a path parameter for PATCH /v2/phone_numbers/{id}.
-     */
-    telnyxOrderId: string;
-    /**
-     * The confirmed E.164 phone number string from the order response
-     * (data.phone_numbers[0].phone_number). Used for all downstream routing.
-     */
+    telnyxOrderId?: string;
+    signalwireNumberSid?: string;
+    signalwireOrderId?: string;
     phoneNumber: string;
-    /**
-     * The Telnyx phone-number RESOURCE ID, required for PATCH /v2/phone_numbers/{id}.
-     * This is resolved by calling GET /v2/phone_numbers after the order completes.
-     * May be null if the number is still being provisioned; in that case,
-     * configureRoutingToVapi will attempt to resolve it via API lookup.
-     */
-    telnyxPhoneNumberResourceId: string | null;
+    telnyxPhoneNumberResourceId?: string | null;
     monthlyCostUsd: number;
     setupCostUsd: number;
     regulatoryStatus: 'NOT_REQUIRED' | 'PENDING_DOCUMENTATION' | 'APPROVED';
@@ -133,19 +123,17 @@ export interface ITelephonyProvider {
   }>;
 
   configureRoutingToVapi(params: {
-    /**
-     * The Telnyx phone-number RESOURCE ID (from GET /v2/phone_numbers lookup).
-     * If not yet known, pass null and provide phoneNumber for lookup.
-     */
-    telnyxPhoneNumberId: string | null;
-    /** The E.164 phone number string (used for resource ID lookup if telnyxPhoneNumberId is null). */
+    telnyxPhoneNumberId?: string | null;
+    signalwireNumberSid?: string | null;
     phoneNumber: string;
     vapiSipUri?: string;
-  }): Promise<{ success: boolean; telnyxPhoneNumberResourceId: string | null }>;
+    vapiAssistantId?: string;
+  }): Promise<{ success: boolean; telnyxPhoneNumberResourceId?: string | null; signalwireNumberSid?: string | null }>;
 
   releaseNumber?(params: {
     phoneNumber: string;
     telnyxPhoneNumberId?: string | null;
+    signalwireNumberSid?: string | null;
   }): Promise<boolean>;
 
   queryExistingNumber?(params: {
@@ -154,6 +142,7 @@ export interface ITelephonyProvider {
   }): Promise<{
     found: boolean;
     telnyxPhoneNumberResourceId?: string | null;
+    signalwireNumberSid?: string | null;
     customerReference?: string;
     status?: string;
     belongsToOrganization?: boolean;
@@ -164,5 +153,6 @@ export interface ITelephonyProvider {
     signature?: string;
     timestamp?: string;
     publicKey?: string;
+    url?: string;
   }): boolean;
 }

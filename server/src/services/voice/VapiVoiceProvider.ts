@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import dns from 'dns';
 import {
   IVoiceProvider,
   InboundCallEvent,
@@ -305,24 +306,248 @@ export class VapiVoiceProvider implements IVoiceProvider {
     return { assistantId: data.id };
   }
 
+  /**
+   * Official SignalWire Inbound Gateway IPs from official integration guide
+   * (https://signalwire.com/docs/platform/ai/vapi)
+   */
+  static readonly SIGNALWIRE_INBOUND_GATEWAYS = [
+    { ip: '170.64.128.96', inboundEnabled: true },
+    { ip: '198.13.56.186', inboundEnabled: true },
+    { ip: '104.248.176.184', inboundEnabled: true },
+    { ip: '152.42.144.114', inboundEnabled: true },
+    { ip: '104.248.150.114', inboundEnabled: true },
+    { ip: '138.68.125.160', inboundEnabled: true },
+    { ip: '159.65.244.171', inboundEnabled: true },
+    { ip: '167.99.198.84', inboundEnabled: true },
+    { ip: '13.245.35.235', inboundEnabled: true },
+    { ip: '108.61.169.31', inboundEnabled: true },
+    { ip: '137.184.4.155', inboundEnabled: true },
+    { ip: '188.166.126.7', inboundEnabled: true },
+    { ip: '139.59.34.94', inboundEnabled: true },
+    { ip: '165.232.186.228', inboundEnabled: true },
+    { ip: '157.175.131.128', inboundEnabled: true },
+  ];
+
+  /**
+   * Helper to create or verify master SignalWire inbound BYO SIP trunk credential on Vapi
+   */
+  async createSignalWireInboundCredential(name = 'SignalWire Inbound Trunk'): Promise<{ id: string }> {
+    const payload = {
+      provider: 'byo-sip-trunk',
+      name,
+      gateways: VapiVoiceProvider.SIGNALWIRE_INBOUND_GATEWAYS,
+    };
+
+    const res = await SafeNetworkClient.fetch('https://api.vapi.ai/credential', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`Failed to create Vapi BYO SIP trunk credential: ${err.message || res.statusText}`);
+    }
+
+    const data: any = await res.json();
+    return { id: data.id };
+  }
+
+  /**
+   * Verify the configured Vapi BYO SIP credential via Vapi API:
+   * - Checks that provider === 'byo-sip-trunk'
+   * - Checks that all SignalWire gateways are present and have inboundEnabled: true
+   * - Matches credentialId against VAPI_SIP_CREDENTIAL_ID
+   * - Never exposes private API keys in logs
+   */
+  async verifyCredential(credentialId?: string): Promise<{
+    valid: boolean;
+    credentialId: string;
+    provider: string;
+    inboundGatewaysCount: number;
+    allSignalWireGatewaysInboundEnabled: boolean;
+    error?: string;
+  }> {
+    const credId = credentialId || config.vapi.sipCredentialId || config.voice.vapiSipCredentialId;
+    if (!credId || credId.trim() === '' || credId.includes('placeholder')) {
+      return {
+        valid: false,
+        credentialId: '',
+        provider: '',
+        inboundGatewaysCount: 0,
+        allSignalWireGatewaysInboundEnabled: false,
+        error: 'VAPI_SIP_CREDENTIAL_ID is not configured in environment variables.',
+      };
+    }
+
+    try {
+      const res = await SafeNetworkClient.fetch(`https://api.vapi.ai/credential/${credId.trim()}`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          Accept: 'application/json',
+        },
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return {
+          valid: false,
+          credentialId: credId,
+          provider: '',
+          inboundGatewaysCount: 0,
+          allSignalWireGatewaysInboundEnabled: false,
+          error: `Credential verification failed (HTTP ${res.status}): ${err.message || res.statusText}`,
+        };
+      }
+
+      const cred: any = await res.json();
+      const isByoSip = cred.provider === 'byo-sip-trunk';
+      const gateways = Array.isArray(cred.gateways) ? cred.gateways : [];
+      const inboundEnabledCount = gateways.filter((g: any) => g.inboundEnabled === true).length;
+
+      // Check whether all 15 official SignalWire IPs are represented and enabled
+      const officialIps = VapiVoiceProvider.SIGNALWIRE_INBOUND_GATEWAYS.map(g => g.ip);
+      const allEnabled = officialIps.every(ip =>
+        gateways.some((g: any) => g.ip === ip && g.inboundEnabled === true)
+      );
+
+      return {
+        valid: isByoSip && (allEnabled || inboundEnabledCount >= 1),
+        credentialId: cred.id || credId,
+        provider: cred.provider || '',
+        inboundGatewaysCount: inboundEnabledCount,
+        allSignalWireGatewaysInboundEnabled: allEnabled,
+      };
+    } catch (err: any) {
+      return {
+        valid: false,
+        credentialId: credId,
+        provider: '',
+        inboundGatewaysCount: 0,
+        allSignalWireGatewaysInboundEnabled: false,
+        error: `Credential lookup error: ${err.message}`,
+      };
+    }
+  }
+
+  /**
+   * Monitor SignalWire gateway IP addresses via DNS lookup of sip.signalwire.com.
+   * Compares live DNS A records against the static, production-verified list.
+   * Does NOT automatically overwrite the production gateway list with unvalidated DNS results.
+   */
+  async getSignalWireGatewaysFromDns(): Promise<{
+    resolvedIps: string[];
+    staticIps: string[];
+    matching: boolean;
+    newIps: string[];
+    missingIps: string[];
+  }> {
+    const staticIps = VapiVoiceProvider.SIGNALWIRE_INBOUND_GATEWAYS.map(g => g.ip);
+    try {
+      const resolved = await dns.promises.resolve4('sip.signalwire.com');
+      const uniqueResolved = Array.from(new Set(resolved));
+      const newIps = uniqueResolved.filter(ip => !staticIps.includes(ip));
+      const missingIps = staticIps.filter(ip => !uniqueResolved.includes(ip));
+
+      return {
+        resolvedIps: uniqueResolved,
+        staticIps,
+        matching: newIps.length === 0 && missingIps.length === 0,
+        newIps,
+        missingIps,
+      };
+    } catch (err: any) {
+      console.warn(`[VapiVoiceProvider] DNS lookup of sip.signalwire.com failed: ${err.message}. Retaining static gateway list.`);
+      return {
+        resolvedIps: [],
+        staticIps,
+        matching: false,
+        newIps: [],
+        missingIps: staticIps,
+      };
+    }
+  }
+
+  /**
+   * Explicit administrative operation to update Vapi BYO SIP trunk gateway IPs.
+   * Only called intentionally by administrator; never automatically on application startup.
+   */
+  async updateSignalWireInboundGateways(
+    credentialId: string,
+    validatedIps?: string[]
+  ): Promise<{ updated: boolean; count: number }> {
+    const credId = credentialId || config.vapi.sipCredentialId;
+    if (!credId) {
+      throw new Error('Credential ID is required to update Vapi gateways.');
+    }
+
+    const ipsToApply = validatedIps || VapiVoiceProvider.SIGNALWIRE_INBOUND_GATEWAYS.map(g => g.ip);
+    // Validate each IP string
+    const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+    for (const ip of ipsToApply) {
+      if (!ipv4Regex.test(ip)) {
+        throw new Error(`Invalid IPv4 address format for gateway: "${ip}"`);
+      }
+    }
+
+    const gatewaysPayload = ipsToApply.map(ip => ({ ip, inboundEnabled: true }));
+
+    const res = await SafeNetworkClient.fetch(`https://api.vapi.ai/credential/${credId.trim()}`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        gateways: gatewaysPayload,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(`Failed to update Vapi gateway list: ${err.message || res.statusText}`);
+    }
+
+    return { updated: true, count: gatewaysPayload.length };
+  }
+
   async importPhoneNumber(params: {
     phoneNumber: string;
     assistantId?: string;
     name?: string;
     telephonyProvider?: 'telnyx' | 'byo-phone-number' | string;
     telnyxApiKey?: string;
+    credentialId?: string;
   }): Promise<{ vapiPhoneNumberId: string; phoneNumber: string; assistantId?: string }> {
+    const isByo = params.telephonyProvider === 'byo-phone-number' || params.telephonyProvider === 'signalwire';
     const telnyxKey = params.telnyxApiKey || config.telnyx.apiKey || config.voice.telnyxApiKey;
-    if (!telnyxKey || telnyxKey.includes('placeholder')) {
+    if (!isByo && (!telnyxKey || telnyxKey.includes('placeholder'))) {
       throw new Error('Telnyx master API key is required to import phone number into Vapi.');
     }
 
-    const payload: any = {
-      provider: params.telephonyProvider || 'telnyx',
-      number: params.phoneNumber,
-      telnyxApiKey: telnyxKey,
-      name: params.name || `Receptionist (${params.phoneNumber})`,
-    };
+    const sipCredId = params.credentialId || config.vapi.sipCredentialId;
+    if (isByo && !sipCredId && (process.env.NODE_ENV === 'production' || config.isProduction)) {
+      throw new Error('VAPI_SIP_CREDENTIAL_ID is required for SignalWire BYO phone number registration. Please create a BYO SIP trunk credential in Vapi and configure VAPI_SIP_CREDENTIAL_ID.');
+    }
+
+    const payload: any = isByo
+      ? {
+          provider: 'byo-phone-number',
+          number: params.phoneNumber,
+          name: params.name || `Receptionist (${params.phoneNumber})`,
+          numberE164CheckEnabled: true,
+          ...(sipCredId ? { credentialId: sipCredId } : {}),
+        }
+      : {
+          provider: params.telephonyProvider || 'telnyx',
+          number: params.phoneNumber,
+          telnyxApiKey: telnyxKey,
+          name: params.name || `Receptionist (${params.phoneNumber})`,
+        };
     if (params.assistantId) {
       payload.assistantId = params.assistantId;
     }

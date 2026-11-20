@@ -565,12 +565,16 @@ class ApiClient {
     country?: string;
     type?: string;
     areaCode?: string;
+    city?: string;
+    state?: string;
     limit?: number;
   }): Promise<AvailablePhoneNumber[]> {
     const q = new URLSearchParams();
     if (params.country) q.set('country', params.country);
     if (params.type) q.set('type', params.type);
     if (params.areaCode) q.set('areaCode', params.areaCode);
+    if (params.city) q.set('city', params.city);
+    if (params.state) q.set('state', params.state);
     if (params.limit) q.set('limit', String(params.limit));
     return this.request(`/voice/available-numbers?${q.toString()}`);
   }
