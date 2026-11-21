@@ -94,19 +94,19 @@ router.get('/org/:slug', async (req: Request, res: Response, next) => {
 /**
  * Start or verify browser voice receptionist session for website visitors
  */
-router.post('/org/:slug/voice-session', async (req: Request, res: Response, next) => {
+const handlePublicVoiceSession = async (req: Request, res: Response, next: any) => {
   try {
     const { slug } = req.params;
-    const org = await db.getOne<{ id: string }>(
-      'SELECT id FROM organizations WHERE (slug = $1 OR id = $1) AND is_active = TRUE',
+    const org = await db.getOne<{ id: string; name: string }>(
+      'SELECT id, name FROM organizations WHERE (slug = $1 OR id = $1) AND is_active = TRUE',
       [slug]
     );
 
     if (!org) {
-      return res.status(404).json({ success: false, error: 'Business not found.' });
+      return res.status(404).json({ success: false, error: 'Business not found or inactive.' });
     }
 
-    const session = await VoiceService.startBrowserVoiceSession(org.id);
+    const session = await VoiceService.startBrowserVoiceSession(org.id, { isGuest: true });
     if (!session.allowed) {
       return res.status(403).json({
         success: false,
@@ -133,7 +133,10 @@ router.post('/org/:slug/voice-session', async (req: Request, res: Response, next
   } catch (err) {
     next(err);
   }
-});
+};
+
+router.post('/org/:slug/voice-session', handlePublicVoiceSession);
+router.post('/chat/org/:slug/voice-session', handlePublicVoiceSession);
 
 // Start or resume a public customer chat session
 router.post('/session', async (req: Request, res: Response, next) => {

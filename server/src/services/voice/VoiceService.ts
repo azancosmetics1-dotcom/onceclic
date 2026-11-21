@@ -2703,7 +2703,7 @@ export class VoiceService {
    * enforces 180s conversation limit, checks concurrent active sessions,
    * and returns assistantId and public key for browser SDK.
    */
-  static async startBrowserVoiceSession(organizationId: string): Promise<{
+  static async startBrowserVoiceSession(organizationId: string, options?: { isGuest?: boolean }): Promise<{
     allowed: boolean;
     reason?: string;
     provider?: 'gemini_live' | 'vapi';
@@ -2777,6 +2777,7 @@ export class VoiceService {
     try {
       geminiLiveSession = await GeminiLiveBridgeService.createSessionTicket({
         organizationId,
+        isGuest: options?.isGuest,
       });
     } catch (liveErr: any) {
       console.warn('[VoiceService] Could not generate Gemini Live ticket:', liveErr?.message || liveErr);

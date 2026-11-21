@@ -108,8 +108,8 @@ export async function runGeminiLiveVoiceTests() {
   // Test 1: Gemini Live Model & Endpoint Configuration
   // --------------------------------------------------------------------------
   console.log('[1. Model & Endpoint Configuration]');
-  const liveModel = process.env.GEMINI_LIVE_MODEL || config.gemini?.liveModel || 'models/gemini-2.0-flash-exp';
-  assert.ok(liveModel.includes('gemini-2.0') || liveModel.includes('gemini'), 'Gemini Live model configured');
+  const liveModel = process.env.GEMINI_LIVE_MODEL || config.gemini?.liveModel || 'models/gemini-3.8-live';
+  assert.ok(liveModel.includes('gemini-3.8') || liveModel.includes('gemini'), 'Gemini Live model configured');
   assert.strictEqual(typeof config.gemini.liveVoice, 'string', 'Prebuilt voice configured (Aoede)');
   console.log(`  ✓ 1. Configured Gemini Live API model: ${liveModel} and voice: ${config.gemini?.liveVoice || 'Aoede'}`);
 

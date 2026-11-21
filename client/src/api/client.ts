@@ -604,7 +604,15 @@ class ApiClient {
     maxConversationSeconds?: number;
     appointmentReminderSeconds?: number;
   }> {
-    return this.request(`/public/org/${orgSlug}/voice-session`, { method: 'POST' });
+    const slug = encodeURIComponent(orgSlug.trim());
+    try {
+      return await this.request(`/public/org/${slug}/voice-session`, { method: 'POST' });
+    } catch (err: any) {
+      if (err?.status === 404) {
+        return await this.request(`/public/chat/org/${slug}/voice-session`, { method: 'POST' });
+      }
+      throw err;
+    }
   }
 
   async getVoiceCountries(): Promise<TelephonyCountryInfo[]> {

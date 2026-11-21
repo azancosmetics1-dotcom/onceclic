@@ -20,13 +20,17 @@ declare global {
 
 export type VoiceSessionStatus =
   | 'idle'
-  | 'loading_sdk'
+  | 'requesting_microphone'
   | 'connecting'
+  | 'waiting_for_gemini'
+  | 'ready'
   | 'active'
   | 'listening'
   | 'speaking'
+  | 'reconnecting'
   | 'ended'
-  | 'error';
+  | 'error'
+  | 'loading_sdk';
 
 export interface BrowserVoiceCallbacks {
   onStatusChange?: (status: VoiceSessionStatus, error?: string) => void;
@@ -105,9 +109,16 @@ export class BrowserVoiceSession {
 
     // Prefer direct Gemini Live Web Audio API if sessionTicket is provided or provider is gemini_live
     if (params.sessionTicket || params.provider === 'gemini_live') {
-      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const defaultWsUrl = `${wsProtocol}//${window.location.host}/api/voice/live`;
-      const targetWsUrl = params.wsUrl || defaultWsUrl;
+      let targetWsUrl = params.wsUrl;
+      if (!targetWsUrl || targetWsUrl.startsWith('/')) {
+        const isSecure = window.location.protocol === 'https:';
+        const wsScheme = isSecure ? 'wss:' : 'ws:';
+        const host = window.location.hostname;
+        const isOnceclicProd = host === 'onceclic.com' || host.endsWith('.onceclic.com') || host.endsWith('.netlify.app');
+        const apiHost = isOnceclicProd ? 'api.onceclic.com' : window.location.host;
+        const path = targetWsUrl && targetWsUrl.startsWith('/') ? targetWsUrl : '/api/voice/live';
+        targetWsUrl = `${wsScheme}//${apiHost}${path}`;
+      }
 
       this.geminiClient = new GeminiLiveVoiceClient({
         wsUrl: targetWsUrl,

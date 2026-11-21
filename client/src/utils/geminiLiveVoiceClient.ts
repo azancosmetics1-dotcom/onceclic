@@ -21,6 +21,18 @@ export interface GeminiLiveClientOptions {
   callbacks?: BrowserVoiceCallbacks;
 }
 
+export interface VoiceDiagnostics {
+  microphonePermissionGranted: boolean;
+  audioFramesSent: number;
+  webSocketConnected: boolean;
+  geminiSetupCompleted: boolean;
+  geminiAudioChunksReceived: number;
+  audioBytesDecoded: number;
+  audioPlaybackStarted: boolean;
+  audioPlaybackErrors: number;
+  lastError?: string;
+}
+
 export class GeminiLiveVoiceClient {
   private wsUrl: string;
   private sessionTicket: string;
@@ -36,17 +48,29 @@ export class GeminiLiveVoiceClient {
   private audioRecordContext: AudioContext | null = null;
   private recordProcessor: ScriptProcessorNode | null = null;
   private recordSource: MediaStreamAudioSourceNode | null = null;
+  private isReadyToSendAudio: boolean = false;
 
   // Audio playback
   private audioPlayContext: AudioContext | null = null;
   private nextPlayTime: number = 0;
   private activeSources: AudioBufferSourceNode[] = [];
 
+  // Diagnostics tracker
+  private diagnostics: VoiceDiagnostics = {
+    microphonePermissionGranted: false,
+    audioFramesSent: 0,
+    webSocketConnected: false,
+    geminiSetupCompleted: false,
+    geminiAudioChunksReceived: 0,
+    audioBytesDecoded: 0,
+    audioPlaybackStarted: false,
+    audioPlaybackErrors: 0,
+  };
+
   // Timers
   private timerInterval: any = null;
   private callStartTimestamp: number | null = null;
   private reminderTriggered: boolean = false;
-  private speakingTimeout: any = null;
 
   constructor(options: GeminiLiveClientOptions) {
     this.wsUrl = options.wsUrl;
@@ -58,7 +82,22 @@ export class GeminiLiveVoiceClient {
 
   private setStatus(status: VoiceSessionStatus, error?: string) {
     this.status = status;
+    if (error) {
+      this.diagnostics.lastError = error;
+    }
     this.callbacks.onStatusChange?.(status, error);
+  }
+
+  public getDiagnostics(): VoiceDiagnostics {
+    return { ...this.diagnostics };
+  }
+
+  private logDiag(message: string, meta?: any) {
+    if (meta !== undefined) {
+      console.log(`[VoiceDiag] ${message}`, meta);
+    } else {
+      console.log(`[VoiceDiag] ${message}`);
+    }
   }
 
   private startTimer(): void {
@@ -103,28 +142,34 @@ export class GeminiLiveVoiceClient {
    */
   async start(): Promise<void> {
     try {
-      this.setStatus('connecting');
+      // 1. Request microphone permission
+      this.setStatus('requesting_microphone');
+      this.logDiag('Requesting microphone permission...');
 
-      // 1. Request microphone access (16kHz mono preferred)
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
-          sampleRate: 16000,
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
         },
       });
 
-      // 2. Setup playback AudioContext (24kHz for Gemini Live audio)
+      this.diagnostics.microphonePermissionGranted = true;
+      this.logDiag('Microphone permission granted.');
+
+      // 2. Setup playback AudioContext (native hardware rate, e.g. 44100 or 48000 Hz)
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      this.audioPlayContext = new AudioCtx({ sampleRate: 24000 });
+      this.audioPlayContext = new AudioCtx();
       if (this.audioPlayContext.state === 'suspended') {
         await this.audioPlayContext.resume();
       }
       this.nextPlayTime = this.audioPlayContext.currentTime;
 
       // 3. Connect to Backend WebSocket Bridge
+      this.setStatus('connecting');
+      this.logDiag('Connecting to voice WebSocket bridge...');
+
       const cleanUrl = this.wsUrl.includes('?')
         ? `${this.wsUrl}&ticket=${encodeURIComponent(this.sessionTicket)}`
         : `${this.wsUrl}?ticket=${encodeURIComponent(this.sessionTicket)}`;
@@ -132,7 +177,9 @@ export class GeminiLiveVoiceClient {
       this.ws = new WebSocket(cleanUrl);
 
       this.ws.onopen = () => {
-        this.startMicrophoneCapture();
+        this.diagnostics.webSocketConnected = true;
+        this.logDiag('WebSocket connected. Waiting for Gemini Live setup...');
+        this.setStatus('waiting_for_gemini');
       };
 
       this.ws.onmessage = async (event) => {
@@ -146,6 +193,7 @@ export class GeminiLiveVoiceClient {
 
       this.ws.onerror = (err) => {
         console.error('[GeminiLiveClient] WebSocket error:', err);
+        this.diagnostics.lastError = 'Connection error to AI voice server';
         this.setStatus('error', 'Connection error to AI voice server');
       };
 
@@ -162,7 +210,10 @@ export class GeminiLiveVoiceClient {
       };
     } catch (err: any) {
       this.stop();
-      this.setStatus('error', err?.message || 'Failed to start microphone or connection');
+      const errorMsg = err?.name === 'NotAllowedError'
+        ? 'Microphone permission denied. Please allow microphone access to talk to the receptionist.'
+        : (err?.message || 'Failed to start microphone or connection');
+      this.setStatus('error', errorMsg);
       throw err;
     }
   }
@@ -175,47 +226,86 @@ export class GeminiLiveVoiceClient {
 
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      this.audioRecordContext = new AudioCtx({ sampleRate: 16000 });
-      this.recordSource = this.audioRecordContext.createMediaStreamSource(this.mediaStream);
+      // Do NOT constrain AudioContext sampleRate to 16000Hz, as that fails on Windows/Mac hardware
+      this.audioRecordContext = new AudioCtx();
+      const inputSampleRate = this.audioRecordContext.sampleRate || 48000;
 
-      // ScriptProcessorNode captures 4096-sample buffers (~256ms at 16kHz)
+      this.recordSource = this.audioRecordContext.createMediaStreamSource(this.mediaStream);
+      // ScriptProcessor captures 4096-sample windows
       this.recordProcessor = this.audioRecordContext.createScriptProcessor(4096, 1, 1);
 
       this.recordProcessor.onaudioprocess = (e) => {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        if (!this.isReadyToSendAudio || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-        const inputData = e.inputBuffer.getChannelData(0);
-        // Measure input volume for visualizer
+        const inputChannel = e.inputBuffer.getChannelData(0);
+
+        // Volume visualizer
         let sum = 0;
-        for (let i = 0; i < inputData.length; i++) {
-          sum += inputData[i] * inputData[i];
+        for (let i = 0; i < inputChannel.length; i++) {
+          sum += inputChannel[i] * inputChannel[i];
         }
-        const rms = Math.sqrt(sum / inputData.length);
+        const rms = Math.sqrt(sum / inputChannel.length);
         this.callbacks.onVolumeLevel?.(Math.min(1, rms * 5));
 
-        // Convert Float32Array to 16-bit PCM little-endian
-        const pcm16 = new Int16Array(inputData.length);
-        for (let i = 0; i < inputData.length; i++) {
-          const s = Math.max(-1, Math.min(1, inputData[i]));
-          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        // Downsample input audio from native hardware rate (e.g. 48000Hz) to 16000Hz mono
+        const downsampled = this.downsampleTo16k(inputChannel, inputSampleRate);
+
+        // Convert Float32Array to 16-bit signed PCM little-endian
+        const pcm16 = new Int16Array(downsampled.length);
+        for (let i = 0; i < downsampled.length; i++) {
+          const s = Math.max(-1, Math.min(1, downsampled[i]));
+          pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
 
-        // Base64 encode
+        // Base64 encode safely in 8KB chunks
         const uint8 = new Uint8Array(pcm16.buffer);
         let binary = '';
-        for (let i = 0; i < uint8.byteLength; i++) {
-          binary += String.fromCharCode(uint8[i]);
+        const chunkSize = 8192;
+        for (let i = 0; i < uint8.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, Array.from(uint8.subarray(i, i + chunkSize)));
         }
         const base64 = btoa(binary);
 
         this.ws.send(JSON.stringify({ type: 'audio', data: base64 }));
+        this.diagnostics.audioFramesSent++;
+        if (this.diagnostics.audioFramesSent % 25 === 1) {
+          this.logDiag(`Microphone audio frame #${this.diagnostics.audioFramesSent} sent (${uint8.byteLength} bytes PCM16 at 16kHz)`);
+        }
       };
 
       this.recordSource.connect(this.recordProcessor);
       this.recordProcessor.connect(this.audioRecordContext.destination);
+      this.isReadyToSendAudio = true;
+      this.logDiag('Microphone capture and streaming pipeline active at 16kHz.');
     } catch (err) {
       console.error('[GeminiLiveClient] Failed to setup mic processor:', err);
+      this.logDiag('Failed to setup mic processor', err);
     }
+  }
+
+  /**
+   * Anti-aliased downsampling from native input sample rate to 16,000 Hz
+   */
+  private downsampleTo16k(input: Float32Array, inputRate: number): Float32Array {
+    if (inputRate === 16000) return input;
+    const ratio = inputRate / 16000;
+    const newLength = Math.round(input.length / ratio);
+    const result = new Float32Array(newLength);
+    let offsetResult = 0;
+    let offsetInput = 0;
+    while (offsetResult < result.length) {
+      const nextOffsetInput = Math.round((offsetResult + 1) * ratio);
+      let accum = 0;
+      let count = 0;
+      for (let i = offsetInput; i < nextOffsetInput && i < input.length; i++) {
+        accum += input[i];
+        count++;
+      }
+      result[offsetResult] = count > 0 ? accum / count : 0;
+      offsetResult++;
+      offsetInput = nextOffsetInput;
+    }
+    return result;
   }
 
   /**
@@ -224,17 +314,22 @@ export class GeminiLiveVoiceClient {
   private async handleServerMessage(msg: any): Promise<void> {
     switch (msg.type) {
       case 'ready':
-        this.setStatus('active');
+        this.diagnostics.geminiSetupCompleted = true;
+        this.logDiag('Gemini setup completed (session ready). Starting microphone capture...');
+        this.startMicrophoneCapture();
+        this.setStatus('ready');
         this.startTimer();
         break;
 
       case 'audio':
         if (msg.data) {
+          this.diagnostics.geminiAudioChunksReceived++;
           this.playAudioChunk(msg.data);
         }
         break;
 
       case 'interrupted':
+        this.logDiag('Gemini Live session interrupted by user speech.');
         this.handleInterruption();
         break;
 
@@ -253,11 +348,13 @@ export class GeminiLiveVoiceClient {
         break;
 
       case 'ended':
+        this.logDiag(`Session ended: ${msg.reason || 'Normal closure'}`);
         this.stop(msg.reason);
         break;
 
       case 'error':
         console.error('[GeminiLiveClient] Server error:', msg.error);
+        this.diagnostics.lastError = msg.error;
         this.setStatus('error', msg.error);
         break;
     }
@@ -270,30 +367,35 @@ export class GeminiLiveVoiceClient {
     if (!this.audioPlayContext) return;
 
     try {
-      this.setStatus('speaking');
-      if (this.speakingTimeout) clearTimeout(this.speakingTimeout);
-      this.speakingTimeout = setTimeout(() => {
-        if (this.status === 'speaking') {
-          this.setStatus('listening');
-        }
-      }, 400);
+      // Ensure playback AudioContext is running
+      if (this.audioPlayContext.state === 'suspended') {
+        this.audioPlayContext.resume();
+      }
 
       // Decode base64 to binary PCM16
       const binary = atob(base64Audio);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) {
-        bytes[i] = binary.charCodeAt(i);
-      }
-      const pcm16 = new Int16Array(bytes.buffer);
+      const byteLen = binary.length;
+      const sampleCount = Math.floor(byteLen / 2);
+      if (sampleCount === 0) return;
 
-      // Create AudioBuffer at 24kHz mono
-      const audioBuffer = this.audioPlayContext.createBuffer(1, pcm16.length, 24000);
-      const channelData = audioBuffer.getChannelData(0);
-      for (let i = 0; i < pcm16.length; i++) {
-        channelData[i] = pcm16[i] / 32768.0;
+      this.diagnostics.audioBytesDecoded += byteLen;
+
+      // Extract 16-bit signed PCM little-endian samples directly into normalized Float32
+      const float32 = new Float32Array(sampleCount);
+      for (let i = 0; i < sampleCount; i++) {
+        const b1 = binary.charCodeAt(i * 2);
+        const b2 = binary.charCodeAt(i * 2 + 1);
+        let int16 = b1 | (b2 << 8);
+        if (int16 >= 0x8000) int16 -= 0x10000;
+        float32[i] = int16 / 32768.0;
       }
 
-      // Schedule seamless audio playback
+      // Create AudioBuffer at 24000 Hz mono (Gemini native output rate)
+      // The browser AudioContext destination automatically resamples to hardware rate (e.g. 48kHz)
+      const audioBuffer = this.audioPlayContext.createBuffer(1, sampleCount, 24000);
+      audioBuffer.getChannelData(0).set(float32);
+
+      // Schedule gapless playback
       const source = this.audioPlayContext.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(this.audioPlayContext.destination);
@@ -304,12 +406,29 @@ export class GeminiLiveVoiceClient {
       this.nextPlayTime = startTime + audioBuffer.duration;
 
       this.activeSources.push(source);
+      this.diagnostics.audioPlaybackStarted = true;
+      this.setStatus('speaking');
+
+      if (this.diagnostics.geminiAudioChunksReceived % 10 === 1) {
+        this.logDiag(`Audio playback scheduled at ${startTime.toFixed(3)}s (duration ${audioBuffer.duration.toFixed(3)}s, chunk #${this.diagnostics.geminiAudioChunksReceived})`);
+      }
+
       source.onended = () => {
         const idx = this.activeSources.indexOf(source);
-        if (idx !== -1) this.activeSources.splice(idx, 1);
+        if (idx !== -1) {
+          this.activeSources.splice(idx, 1);
+        }
+        if (this.activeSources.length === 0) {
+          if (this.status === 'speaking') {
+            this.setStatus('listening');
+          }
+        }
       };
-    } catch (err) {
+    } catch (err: any) {
       console.error('[GeminiLiveClient] Audio playback error:', err);
+      this.diagnostics.audioPlaybackErrors++;
+      this.diagnostics.lastError = err?.message || 'Audio playback error';
+      this.logDiag('Audio playback error', err?.message || err);
     }
   }
 
@@ -359,9 +478,12 @@ export class GeminiLiveVoiceClient {
   }
 
   private stopAudioCapture(): void {
+    this.isReadyToSendAudio = false;
+
     if (this.recordProcessor) {
       try {
         this.recordProcessor.disconnect();
+        this.recordProcessor.onaudioprocess = null;
       } catch {}
       this.recordProcessor = null;
     }
@@ -378,7 +500,11 @@ export class GeminiLiveVoiceClient {
       this.audioRecordContext = null;
     }
     if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach((track) => track.stop());
+      this.mediaStream.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {}
+      });
       this.mediaStream = null;
     }
   }

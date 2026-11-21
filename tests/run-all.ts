@@ -234,6 +234,10 @@ async function runAllTests() {
     await runGeminiLiveVoiceTests();
     console.log('');
 
+    const { runGeminiLiveAndPublicVoiceTests } = await import('./gemini-live-and-public-voice.test');
+    await runGeminiLiveAndPublicVoiceTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

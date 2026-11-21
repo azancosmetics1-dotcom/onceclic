@@ -473,7 +473,7 @@ export const AIReceptionistPage: React.FC = () => {
               </div>
 
               <div className="flex items-center gap-3 shrink-0">
-                {browserVoiceStatus === 'active' || browserVoiceStatus === 'listening' || browserVoiceStatus === 'speaking' || browserVoiceStatus === 'connecting' || browserVoiceStatus === 'loading_sdk' ? (
+                {browserVoiceStatus !== 'idle' && browserVoiceStatus !== 'ended' && browserVoiceStatus !== 'error' ? (
                   <button
                     onClick={handleEndBrowserVoiceTest}
                     className="inline-flex items-center space-x-2 px-5 py-2.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs transition shadow-lg shadow-rose-500/20"
@@ -495,17 +495,21 @@ export const AIReceptionistPage: React.FC = () => {
 
             {/* Test Status and Transcript Stream */}
             <div className="mt-4">
-              {(browserVoiceStatus === 'active' || browserVoiceStatus === 'listening' || browserVoiceStatus === 'speaking' || browserVoiceStatus === 'connecting' || browserVoiceStatus === 'loading_sdk') && (
+              {browserVoiceStatus !== 'idle' && browserVoiceStatus !== 'ended' && browserVoiceStatus !== 'error' && (
                 <div className="p-4 rounded-xl bg-slate-950 border border-emerald-500/40 flex items-center justify-between mb-4">
                   <div className="flex items-center space-x-3">
                     <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
                     <div>
                       <p className="text-xs font-bold text-white">
-                        {browserVoiceStatus === 'loading_sdk' && 'Initializing Gemini Live Voice...'}
+                        {browserVoiceStatus === 'requesting_microphone' && 'Requesting microphone permission...'}
                         {browserVoiceStatus === 'connecting' && 'Connecting to Google Gemini Live API...'}
+                        {browserVoiceStatus === 'waiting_for_gemini' && 'Waiting for Gemini setup to complete...'}
+                        {browserVoiceStatus === 'ready' && 'Ready — speak now'}
                         {browserVoiceStatus === 'listening' && 'Listening... Speak into your microphone.'}
                         {browserVoiceStatus === 'speaking' && 'AI Receptionist is speaking...'}
-                        {browserVoiceStatus === 'active' && 'Voice session active'}
+                        {browserVoiceStatus === 'active' && 'Ready — speak now'}
+                        {browserVoiceStatus === 'reconnecting' && 'Reconnecting to Gemini...'}
+                        {browserVoiceStatus === 'loading_sdk' && 'Initializing Gemini Live Voice...'}
                       </p>
                       <p className="text-[11px] text-slate-400">Google Gemini Live &bull; Real-Time Voice</p>
                     </div>

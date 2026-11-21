@@ -66,9 +66,10 @@ export const config = {
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
     model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
-    liveModel: process.env.GEMINI_LIVE_MODEL || 'models/gemini-2.0-flash-exp',
+    liveModel: process.env.GEMINI_LIVE_MODEL || 'models/gemini-3.8-live',
     liveVoice: process.env.GEMINI_LIVE_VOICE || 'Aoede',
     embeddingModel: process.env.GEMINI_EMBEDDING_MODEL || 'text-embedding-004',
+    embeddingDimension: parseInt(process.env.GEMINI_EMBEDDING_DIMENSION || '768', 10),
     isAvailable: !!process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes('placeholder'),
   },
 

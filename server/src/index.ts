@@ -156,6 +156,7 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/email', emailRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/public/chat', publicChatRoutes);
+app.use('/api/public', publicChatRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/integrations', integrationRoutes);
 app.use('/api/webhooks/voice', voiceWebhookRoutes);

@@ -175,12 +175,14 @@ export class GeminiProvider implements IAIProvider {
   private apiKey: string;
   private model: string;
   private embeddingModel: string;
+  private embeddingDimension: number;
   private apiBaseUrl: string;
 
-  constructor(apiKey?: string, model?: string, embeddingModel?: string, apiBaseUrl?: string) {
+  constructor(apiKey?: string, model?: string, embeddingModel?: string, apiBaseUrl?: string, embeddingDimension?: number) {
     this.apiKey = apiKey ?? config.gemini.apiKey;
     this.model = model ?? config.gemini.model;
     this.embeddingModel = embeddingModel ?? config.gemini.embeddingModel;
+    this.embeddingDimension = embeddingDimension ?? (config.gemini as any).embeddingDimension ?? 768;
     this.apiBaseUrl = (apiBaseUrl || 'https://generativelanguage.googleapis.com/v1beta').replace(/\/+$/, '');
   }
 
@@ -397,14 +399,21 @@ export class GeminiProvider implements IAIProvider {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
+      const requestBody: any = {
+        model: `models/${this.embeddingModel.replace(/^models\//, '')}`,
+        content: {
+          parts: [{ text: text.replace(/\n/g, ' ').substring(0, 8000) }],
+        },
+      };
+
+      if (this.embeddingDimension && this.embeddingDimension > 0 && !this.embeddingModel.includes('text-embedding-004')) {
+        requestBody.outputDimensionality = this.embeddingDimension;
+      }
+
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: {
-            parts: [{ text: text.replace(/\n/g, ' ').substring(0, 8000) }],
-          },
-        }),
+        body: JSON.stringify(requestBody),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -423,7 +432,15 @@ export class GeminiProvider implements IAIProvider {
         throw new Error('Malformed embedding response from Gemini API.');
       }
 
-      return data.embedding.values;
+      let values: number[] = data.embedding.values;
+
+      // L2 normalize vector for consistent cosine similarity comparison
+      const norm = Math.sqrt(values.reduce((sum, v) => sum + v * v, 0));
+      if (norm > 0) {
+        values = values.map((v) => v / norm);
+      }
+
+      return values;
     } catch (err: any) {
       console.error('[GeminiProvider] Embedding failed:', this.sanitizeErrorMessage(err.message || ''));
       throw new Error(`Gemini embedding error: ${this.sanitizeErrorMessage(err.message || 'Unknown error')}`);
@@ -469,7 +486,9 @@ export class MockAIProvider implements IAIProvider {
 
   async generateEmbedding(text: string): Promise<number[]> {
     const hash = Array.from(text).reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) % 1000000, 7);
-    return Array.from({ length: 1536 }, (_, i) => Math.sin(hash + i) * 0.1);
+    const raw = Array.from({ length: 768 }, (_, i) => Math.sin(hash + i) * 0.1);
+    const norm = Math.sqrt(raw.reduce((sum, v) => sum + v * v, 0));
+    return norm > 0 ? raw.map((v) => v / norm) : raw;
   }
 
   calculateCost(_model: string, _promptTokens: number, _completionTokens: number): number {

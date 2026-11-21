@@ -238,7 +238,8 @@ export class GeminiLiveBridgeService {
     }
 
     const geminiTools = toGeminiFunctionDeclarations(promptData.tools);
-    const liveModel = process.env.GEMINI_LIVE_MODEL || config.gemini?.liveModel || 'models/gemini-2.0-flash-exp';
+    const rawModel = process.env.GEMINI_LIVE_MODEL || config.gemini?.liveModel || 'models/gemini-3.8-live';
+    const liveModel = rawModel.startsWith('models/') ? rawModel : `models/${rawModel}`;
     const liveVoice = process.env.GEMINI_LIVE_VOICE || config.gemini?.liveVoice || 'Aoede';
 
     const setupPayload: any = {
@@ -363,6 +364,23 @@ export class GeminiLiveBridgeService {
         })
       );
 
+      const greetingText = promptData.greeting || `Thank you for calling ${promptData.agentName || 'our business'}. How may I help you today?`;
+      clientWs.send(JSON.stringify({ type: 'transcript', role: 'assistant', text: greetingText }));
+
+      // Send 0.5s of valid 24kHz PCM16 audio (soft chime) so audio pipeline can be fully exercised
+      const numSamples = Math.floor(24000 * 0.5);
+      const mockPcm16 = new Int16Array(numSamples);
+      for (let i = 0; i < numSamples; i++) {
+        const env = Math.max(0, 1 - i / numSamples);
+        mockPcm16[i] = Math.round(Math.sin((2 * Math.PI * 440 * i) / 24000) * 6000 * env);
+      }
+      const mockBytes = new Uint8Array(mockPcm16.buffer);
+      let mockBin = '';
+      for (let i = 0; i < mockBytes.byteLength; i++) {
+        mockBin += String.fromCharCode(mockBytes[i]);
+      }
+      clientWs.send(JSON.stringify({ type: 'audio', data: Buffer.from(mockBytes).toString('base64') }));
+
       if (this.mockUpstreamHandler) {
         this.mockUpstreamHandler(clientWs, setupMessage, callId, organizationId);
       }
@@ -373,8 +391,10 @@ export class GeminiLiveBridgeService {
           if (msg.type === 'end') {
             await closeSession('USER_ENDED');
           } else if (msg.type === 'audio') {
-            // In mock mode, echo acknowledgment
-            clientWs.send(JSON.stringify({ type: 'transcript', role: 'user', text: msg.transcript || '' }));
+            // In mock mode, echo acknowledgment with short audio
+            clientWs.send(JSON.stringify({ type: 'transcript', role: 'user', text: msg.transcript || 'User speech received' }));
+            clientWs.send(JSON.stringify({ type: 'transcript', role: 'assistant', text: 'I understand. Let me help you with that.' }));
+            clientWs.send(JSON.stringify({ type: 'audio', data: Buffer.from(mockBytes).toString('base64') }));
           }
         } catch {}
       });
@@ -428,7 +448,7 @@ export class GeminiLiveBridgeService {
         // Setup complete
         if (msg.setupComplete) {
           setupCompleteReceived = true;
-          sessionStage = 'SETUP_COMPLETE';
+          sessionStage = 'ACTIVE';
           console.log(`[GeminiLiveBridge] [callId=${callId}] SetupComplete confirmed by Google Gemini Live API. Session ready.`);
           if (clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(
@@ -440,7 +460,24 @@ export class GeminiLiveBridgeService {
               })
             );
           }
-          sessionStage = 'ACTIVE';
+
+          // Trigger immediate spoken greeting from Gemini Live
+          if (upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
+            const initialGreeting = promptData.greeting || `Hello, thank you for calling. How can I assist you today?`;
+            upstreamWs.send(
+              JSON.stringify({
+                clientContent: {
+                  turns: [
+                    {
+                      role: 'user',
+                      parts: [{ text: `The customer has joined the session. Speak your initial greeting aloud now: "${initialGreeting}"` }],
+                    },
+                  ],
+                  turnComplete: true,
+                },
+              })
+            );
+          }
           return;
         }
 
@@ -574,7 +611,7 @@ export class GeminiLiveBridgeService {
       try {
         const msg = JSON.parse(data.toString());
         if (msg.type === 'audio' && msg.data) {
-          if (upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
+          if (setupCompleteReceived && upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
             upstreamWs.send(
               JSON.stringify({
                 realtimeInput: {
