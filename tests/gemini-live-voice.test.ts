@@ -328,8 +328,10 @@ export async function runGeminiLiveVoiceTests() {
     args: { date: '2026-11-23' },
     organizationId: orgAId,
   });
-  assert.strictEqual(availResult.success, true, 'Availability check succeeded');
-  assert.ok(Array.isArray(availResult.availableSlots), 'Candidate slots returned');
+  assert.strictEqual(availResult.hasAvailableSlots, true, 'Availability check succeeded');
+  assert.ok(Array.isArray(availResult.slots), 'Candidate slots returned');
+
+  const chosenSlot = availResult.slots[0]?.startTime || '2026-11-23T10:00:00.000Z';
 
   // Call create_appointment
   const bookResult = await VoiceService.executeVoiceTool({
@@ -340,7 +342,7 @@ export async function runGeminiLiveVoiceTests() {
       customerName: 'Alice Walker',
       customerPhone: '+14155551234',
       customerEmail: 'alice@example.com',
-      startTime: availResult.availableSlots[0] || '2026-11-23T10:00:00.000Z',
+      startTime: chosenSlot,
     },
     organizationId: orgAId,
   });

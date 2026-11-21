@@ -306,11 +306,11 @@ export class AuthService {
       });
     }
 
-    // 7. Auto-provision dedicated Vapi assistant for website AI voice receptionist
+    // 7. Auto-provision AI voice receptionist (Gemini Live — no external assistant required)
     try {
       await VoiceAssistantProvisioningService.getOrCreateOrganizationAssistant(params.organizationId);
     } catch (vapiErr) {
-      console.warn(`[Onboarding] Deferred Vapi assistant provisioning for org ${params.organizationId}:`, vapiErr);
+      console.warn(`[Onboarding] Deferred voice AI provisioning for org ${params.organizationId}:`, vapiErr);
     }
 
     const updatedOrg = await db.getOne<Organization>(

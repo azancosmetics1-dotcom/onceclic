@@ -275,7 +275,7 @@ export const AIReceptionistPage: React.FC = () => {
           {config?.isVoiceReceptionistReady && (
             <span className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-xl bg-slate-800 text-xs font-mono text-slate-300 border border-slate-700">
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Dedicated Vapi Assistant Ready</span>
+              <span>AI Voice Receptionist Ready</span>
             </span>
           )}
         </div>
@@ -419,12 +419,12 @@ export const AIReceptionistPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Dedicated Assistant Architecture Card */}
+            {/* Gemini Live Architecture Card */}
             <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Dedicated Assistant Architecture</span>
+                  <span>Gemini Live Architecture</span>
                 </span>
 
                 <div className="mt-4 space-y-2 text-xs">
@@ -434,11 +434,11 @@ export const AIReceptionistPage: React.FC = () => {
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
                     <span className="text-slate-400">Voice:</span>
-                    <span className="font-semibold text-white">Vapi Clara (Multilingual)</span>
+                    <span className="font-semibold text-white">Gemini Live (Multilingual)</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
                     <span className="text-slate-400">Speech Recognition:</span>
-                    <span className="font-semibold text-white">Deepgram nova-2 (EN & UR)</span>
+                    <span className="font-semibold text-white">Google Speech (Built-in)</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
                     <span className="text-slate-400">Knowledge:</span>
@@ -452,7 +452,7 @@ export const AIReceptionistPage: React.FC = () => {
               </div>
 
               <div className="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-500">
-                Tenant isolation enforced &bull; 1 dedicated assistant per organization
+                Tenant isolation enforced &bull; Powered by Google Gemini Live
               </div>
             </div>
           </div>
@@ -501,13 +501,13 @@ export const AIReceptionistPage: React.FC = () => {
                     <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
                     <div>
                       <p className="text-xs font-bold text-white">
-                        {browserVoiceStatus === 'loading_sdk' && 'Loading WebRTC Voice SDK...'}
-                        {browserVoiceStatus === 'connecting' && 'Connecting to your dedicated assistant...'}
+                        {browserVoiceStatus === 'loading_sdk' && 'Initializing Gemini Live Voice...'}
+                        {browserVoiceStatus === 'connecting' && 'Connecting to Google Gemini Live API...'}
                         {browserVoiceStatus === 'listening' && 'Listening... Speak into your microphone.'}
-                        {browserVoiceStatus === 'speaking' && 'Clara is speaking...'}
+                        {browserVoiceStatus === 'speaking' && 'AI Receptionist is speaking...'}
                         {browserVoiceStatus === 'active' && 'Voice session active'}
                       </p>
-                      <p className="text-[11px] text-slate-400">Google Gemini 2.5 Flash-Lite &bull; Clara Voice</p>
+                      <p className="text-[11px] text-slate-400">Google Gemini Live &bull; Real-Time Voice</p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-1">
@@ -532,7 +532,7 @@ export const AIReceptionistPage: React.FC = () => {
                   {browserTranscripts.map((t, idx) => (
                     <div key={idx} className="text-xs flex items-start space-x-2">
                       <span className={`font-bold shrink-0 ${t.role === 'user' ? 'text-emerald-400' : 'text-sky-400'}`}>
-                        {t.role === 'user' ? 'You:' : 'Clara:'}
+                        {t.role === 'user' ? 'You:' : 'AI Receptionist:'}
                       </span>
                       <span className="text-slate-200">{t.text}</span>
                     </div>

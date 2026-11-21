@@ -241,24 +241,29 @@ export class GeminiLiveBridgeService {
     const liveModel = process.env.GEMINI_LIVE_MODEL || config.gemini?.liveModel || 'models/gemini-2.0-flash-exp';
     const liveVoice = process.env.GEMINI_LIVE_VOICE || config.gemini?.liveVoice || 'Aoede';
 
-    const setupMessage = {
-      setup: {
-        model: liveModel,
-        generationConfig: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: liveVoice,
-              },
+    const setupPayload: any = {
+      model: liveModel,
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: {
+              voiceName: liveVoice,
             },
           },
         },
-        systemInstruction: {
-          parts: [{ text: promptData.systemPrompt }],
-        },
-        tools: geminiTools.length > 0 ? [{ functionDeclarations: geminiTools }] : [],
       },
+      systemInstruction: {
+        parts: [{ text: promptData.systemPrompt }],
+      },
+    };
+
+    if (geminiTools.length > 0) {
+      setupPayload.tools = [{ functionDeclarations: geminiTools }];
+    }
+
+    const setupMessage = {
+      setup: setupPayload,
     };
 
     let sessionEnded = false;
@@ -382,17 +387,25 @@ export class GeminiLiveBridgeService {
     }
 
     // Connect to Google Gemini Multimodal Live API
-    const upstreamUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(config.gemini.apiKey)}`;
+    const upstreamUrl = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(config.gemini.apiKey)}`;
+
+    let sessionStage: 'INITIALIZING' | 'CONNECTING_GEMINI' | 'SETUP_SENT' | 'SETUP_COMPLETE' | 'ACTIVE' | 'CLOSING' = 'CONNECTING_GEMINI';
+    let setupCompleteReceived = false;
+
+    console.log(`[GeminiLiveBridge] [callId=${callId}] Connecting to Gemini Live API (model=${liveModel}, voice=${liveVoice}, org=${organizationId})`);
 
     try {
       upstreamWs = new WebSocket(upstreamUrl);
     } catch (err: any) {
+      console.error(`[GeminiLiveBridge] [callId=${callId}] Failed to instantiate upstream WebSocket:`, err?.message || err);
+      clientWs.send(JSON.stringify({ type: 'error', error: 'Could not connect to Google Gemini voice service' }));
       await closeSession('UPSTREAM_CONNECTION_FAILED');
       return;
     }
 
     upstreamWs.on('open', () => {
-      // Send initial setup frame
+      sessionStage = 'SETUP_SENT';
+      console.log(`[GeminiLiveBridge] [callId=${callId}] Upstream WebSocket connected. Sending initial setup payload (model=${liveModel}, voice=${liveVoice})...`);
       upstreamWs!.send(JSON.stringify(setupMessage));
     });
 
@@ -400,8 +413,23 @@ export class GeminiLiveBridgeService {
       try {
         const msg = JSON.parse(data.toString());
 
+        // Check for structured Gemini API errors
+        if (msg.error) {
+          console.error(`[GeminiLiveBridge] [callId=${callId}] Gemini API error (code=${msg.error.code}, status=${msg.error.status}):`, msg.error.message || 'Unknown error');
+          const safeMessage = msg.error.message
+            ? `Google Gemini error: ${msg.error.message}`
+            : 'AI voice service returned an error';
+          if (clientWs.readyState === WebSocket.OPEN) {
+            clientWs.send(JSON.stringify({ type: 'error', error: safeMessage }));
+          }
+          return;
+        }
+
         // Setup complete
         if (msg.setupComplete) {
+          setupCompleteReceived = true;
+          sessionStage = 'SETUP_COMPLETE';
+          console.log(`[GeminiLiveBridge] [callId=${callId}] SetupComplete confirmed by Google Gemini Live API. Session ready.`);
           if (clientWs.readyState === WebSocket.OPEN) {
             clientWs.send(
               JSON.stringify({
@@ -412,6 +440,7 @@ export class GeminiLiveBridgeService {
               })
             );
           }
+          sessionStage = 'ACTIVE';
           return;
         }
 
@@ -492,17 +521,52 @@ export class GeminiLiveBridgeService {
           }
         }
       } catch (parseErr: any) {
-        console.warn('[GeminiLiveBridge] Failed parsing upstream message:', parseErr?.message);
+        console.warn(`[GeminiLiveBridge] [callId=${callId}] Failed parsing upstream message:`, parseErr?.message);
       }
     });
 
     upstreamWs.on('error', (err: any) => {
-      console.error('[GeminiLiveBridge] Upstream WebSocket error:', err?.message || err);
+      console.error(`[GeminiLiveBridge] [callId=${callId}] Upstream WebSocket error (stage=${sessionStage}):`, err?.message || err);
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(JSON.stringify({
+          type: 'error',
+          error: 'Voice service connection error with Google Gemini',
+        }));
+      }
       closeSession('UPSTREAM_ERROR');
     });
 
-    upstreamWs.on('close', () => {
-      closeSession('UPSTREAM_CLOSED');
+    upstreamWs.on('close', (code: number, reasonBuffer: Buffer) => {
+      const reasonStr = reasonBuffer ? reasonBuffer.toString('utf8') : '';
+      console.error(
+        `[GeminiLiveBridge] [callId=${callId}] Upstream Gemini WebSocket closed. Code: ${code}, Reason: "${reasonStr}", Stage: ${sessionStage}, SetupComplete: ${setupCompleteReceived}`
+      );
+
+      let clientErrorMessage = 'AI voice session ended';
+      if (!setupCompleteReceived) {
+        if (code === 1008) {
+          clientErrorMessage = reasonStr.includes('API key')
+            ? 'Gemini Live authentication failed: API key invalid. Please verify GEMINI_API_KEY on Railway.'
+            : `Gemini Live authentication rejected (Code: 1008): ${reasonStr || 'Policy violation'}`;
+        } else if (code === 1007 || code === 1003) {
+          clientErrorMessage = `Gemini Live payload rejected (Code: ${code}): ${reasonStr || 'Invalid setup configuration'}`;
+        } else {
+          clientErrorMessage = reasonStr
+            ? `Gemini Live connection closed before setup complete: ${reasonStr} (Code: ${code})`
+            : `Gemini Live connection closed before setup complete (Code: ${code})`;
+        }
+      } else if (reasonStr) {
+        clientErrorMessage = `Gemini Live session ended: ${reasonStr}`;
+      }
+
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(JSON.stringify({
+          type: 'error',
+          error: clientErrorMessage,
+        }));
+      }
+
+      closeSession(clientErrorMessage);
     });
 
     // Client messages (audio from browser microphone)

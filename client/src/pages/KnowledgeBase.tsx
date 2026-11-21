@@ -126,7 +126,7 @@ export const KnowledgeBase: React.FC = () => {
             onClick={handleSyncToVapi}
             disabled={syncing || sources.length === 0}
             className="inline-flex items-center justify-center space-x-1.5 px-3.5 py-2.5 bg-slate-850 hover:bg-slate-800 text-slate-200 hover:text-emerald-400 border border-slate-750 font-bold text-xs rounded-xl transition disabled:opacity-40 shrink-0 w-full sm:w-auto"
-            title="Sync all knowledge documents with Vapi Voice Assistant"
+            title="Sync knowledge with AI Receptionist"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-emerald-400' : ''}`} />
             <span>{syncing ? 'Syncing...' : 'Sync to AI Receptionist'}</span>

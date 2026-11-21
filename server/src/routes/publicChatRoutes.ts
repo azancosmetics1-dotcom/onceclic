@@ -45,13 +45,17 @@ router.get('/org/:slug', async (req: Request, res: Response, next) => {
       [org.id]
     );
 
-    let voiceAssistant: { enabled: boolean; assistantId: string; vapiPublicKey: string } | null = null;
-    if (assistantRow?.vapi_assistant_id && assistantRow.provisioning_status === 'READY') {
+    // Gemini Live works without a Vapi assistant ID — enable voice if provisioning_status = 'READY'
+    // OR if the org is active (Gemini Live bridge handles voice natively via WebSocket)
+    let voiceAssistant: { enabled: boolean; assistantId?: string } | null = null;
+    if (assistantRow?.provisioning_status === 'READY') {
       voiceAssistant = {
         enabled: true,
-        assistantId: assistantRow.vapi_assistant_id,
-        vapiPublicKey: config.vapi.publicKey || '',
+        ...(assistantRow.vapi_assistant_id ? { assistantId: assistantRow.vapi_assistant_id } : {}),
       };
+    } else if (org.id) {
+      // Fallback: Gemini Live is always available for active orgs
+      voiceAssistant = { enabled: true };
     }
 
     res.json({

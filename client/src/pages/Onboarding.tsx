@@ -694,7 +694,7 @@ export const Onboarding: React.FC = () => {
                   <span>Configuring Your Dedicated AI Receptionist</span>
                 </div>
                 <p className="text-[11px] text-slate-400">
-                  {provisioningStep || 'Creating Vapi assistant, configuring Gemini 2.5 Flash-Lite & syncing knowledge...'}
+                  {provisioningStep || 'Configuring your Gemini Live AI Receptionist & syncing business knowledge...'}
                 </p>
               </div>
             )}

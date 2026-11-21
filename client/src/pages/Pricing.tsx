@@ -32,7 +32,7 @@ export const Pricing: React.FC = () => {
     },
     {
       q: 'How does the website AI voice agent work?',
-      a: 'Visitors click the voice button on your website and speak naturally through their browser microphone and speakers. Powered by Google Gemini 2.5 Flash-Lite, Vapi Clara voice, and Deepgram, the receptionist answers questions, explains your services, and checks real calendar availability.',
+      a: 'Visitors click the voice button on your website and speak naturally through their browser microphone and speakers. Powered by Google Gemini Live real-time audio AI, the receptionist answers questions, explains your services, and checks real calendar availability.',
     },
     {
       q: 'What happens when my included minutes run out?',
