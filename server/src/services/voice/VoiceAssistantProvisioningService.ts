@@ -3,6 +3,7 @@ import { db, IDatabase } from '../../db';
 import { VoiceService } from './VoiceService';
 import { VoicePromptBuilder } from './VoicePromptBuilder';
 import { KnowledgeService } from '../KnowledgeService';
+import { BusinessDataCompletenessService } from '../BusinessDataCompletenessService';
 import { OrganizationVoiceAssistant } from '@onceclic/shared';
 
 export interface ProvisioningClaimResult {
@@ -544,7 +545,22 @@ export class VoiceAssistantProvisioningService {
       let step: 'BUILD_PROMPT' | 'EXTERNAL_CALL' | 'DB_COMMIT' = 'BUILD_PROMPT';
 
       try {
+        // Validate business knowledge and ensure required fields are configured before provisioning
+        const completeness = await BusinessDataCompletenessService.getCompletenessReport(organizationId);
+        if (!completeness.isReadyForAI) {
+          const missingFields = completeness.fields
+            .filter((f) => f.tier === 'required' && f.status === 'missing')
+            .map((f) => f.field)
+            .join(', ');
+          throw new Error(
+            `Business knowledge validation failed: Required business knowledge is missing (${missingFields || 'incomplete'}). Please configure business settings before activating the AI assistant.`
+          );
+        }
+
         const promptData = await VoicePromptBuilder.buildPrompt(organizationId);
+        if (!promptData || !promptData.systemPrompt) {
+          throw new Error(`Failed to generate tenant-specific voice prompt for organization ${organizationId}.`);
+        }
         const org = await activeDb.getOne<any>('SELECT name FROM organizations WHERE id = $1', [organizationId]);
 
         // Sync organization knowledge documents to Vapi before assistant creation

@@ -35,6 +35,7 @@ import { SignalWireTelephonyProvider } from './SignalWireTelephonyProvider';
 import { MockTelephonyProvider } from './MockTelephonyProvider';
 import { VoicePromptBuilder } from './VoicePromptBuilder';
 import { VoiceAssistantProvisioningService } from './VoiceAssistantProvisioningService';
+import { GeminiLiveBridgeService } from './GeminiLiveBridgeService';
 import { AppointmentService } from '../AppointmentService';
 import { SalonService } from '../SalonService';
 import { AuditService } from '../AuditService';
@@ -48,7 +49,7 @@ export class VoiceService {
   private static activeVoiceProvider: IVoiceProvider | null = null;
   private static activeTelephonyProvider: ITelephonyProvider | null = null;
 
-  private static activeCalls = new Map<string, {
+  public static activeCalls = new Map<string, {
     callId: string;
     organizationId: string;
     startedAt: number;
@@ -2705,6 +2706,10 @@ export class VoiceService {
   static async startBrowserVoiceSession(organizationId: string): Promise<{
     allowed: boolean;
     reason?: string;
+    provider?: 'gemini_live' | 'vapi';
+    sessionTicket?: string;
+    wsUrl?: string;
+    callId?: string;
     assistantId?: string;
     vapiPublicKey?: string;
     remainingMinutes?: number;
@@ -2767,9 +2772,27 @@ export class VoiceService {
       };
     }
 
-    // Ensure dedicated assistant is provisioned for this organization
-    const assistantResult = await VoiceAssistantProvisioningService.getOrCreateOrganizationAssistant(organizationId);
-    if (!assistantResult?.assistantId) {
+    // Generate Gemini Live session ticket
+    let geminiLiveSession: any = null;
+    try {
+      geminiLiveSession = await GeminiLiveBridgeService.createSessionTicket({
+        organizationId,
+      });
+    } catch (liveErr: any) {
+      console.warn('[VoiceService] Could not generate Gemini Live ticket:', liveErr?.message || liveErr);
+    }
+
+    // Try Vapi assistant provision as fallback if Gemini Live ticket was not created
+    let assistantResult: any = null;
+    try {
+      assistantResult = await VoiceAssistantProvisioningService.getOrCreateOrganizationAssistant(organizationId);
+    } catch (vapiErr: any) {
+      if (!geminiLiveSession?.allowed) {
+        console.warn('[VoiceService] Vapi assistant fallback provisioning error:', vapiErr?.message || vapiErr);
+      }
+    }
+
+    if (!geminiLiveSession?.allowed && !assistantResult?.assistantId) {
       return {
         allowed: false,
         reason: 'AI voice receptionist is provisioning. Please try again in a moment.',
@@ -2785,7 +2808,11 @@ export class VoiceService {
 
     return {
       allowed: true,
-      assistantId: assistantResult.assistantId,
+      provider: geminiLiveSession?.allowed ? 'gemini_live' : 'vapi',
+      sessionTicket: geminiLiveSession?.sessionTicket,
+      wsUrl: geminiLiveSession?.wsUrl,
+      callId: geminiLiveSession?.callId,
+      assistantId: assistantResult?.assistantId,
       vapiPublicKey: config.vapi.publicKey || '',
       remainingMinutes: voiceUsage.remainingMinutes,
       maxDurationSeconds,

@@ -576,8 +576,12 @@ class ApiClient {
   async startBrowserVoiceSession(): Promise<{
     allowed: boolean;
     reason?: string;
-    assistantId: string;
-    vapiPublicKey: string;
+    provider?: 'gemini_live' | 'vapi';
+    sessionTicket?: string;
+    wsUrl?: string;
+    callId?: string;
+    assistantId?: string;
+    vapiPublicKey?: string;
     remainingMinutes?: number;
     maxDurationSeconds?: number;
     maxConversationSeconds?: number;
@@ -589,8 +593,12 @@ class ApiClient {
   async getPublicVoiceSession(orgSlug: string): Promise<{
     allowed: boolean;
     reason?: string;
-    assistantId: string;
-    vapiPublicKey: string;
+    provider?: 'gemini_live' | 'vapi';
+    sessionTicket?: string;
+    wsUrl?: string;
+    callId?: string;
+    assistantId?: string;
+    vapiPublicKey?: string;
     remainingMinutes?: number;
     maxDurationSeconds?: number;
     maxConversationSeconds?: number;

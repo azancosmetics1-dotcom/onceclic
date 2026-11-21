@@ -22,6 +22,7 @@ import voiceRoutes from './routes/voiceRoutes';
 import voiceWebhookRoutes from './routes/voiceWebhookRoutes';
 import salonRoutes from './routes/salonRoutes';
 import voiceRecordingRoutes from './routes/voiceRecordingRoutes';
+import { GeminiLiveBridgeService } from './services/voice/GeminiLiveBridgeService';
 
 dotenv.config();
 
@@ -218,6 +219,9 @@ export async function startServer() {
     console.log(`  Creem Billing: ${config.creem.isConfigured ? 'Ready' : 'Requires CREEM_API_KEY & CREEM_WEBHOOK_SECRET'}`);
     console.log(`==================================================`);
   });
+
+  // Attach Gemini Live Audio WebSocket Bridge
+  GeminiLiveBridgeService.init(server);
 
   // Start background workers (Gmail Sync, Social Channels Sync & Trial Notifications)
   if (config.google.isConfigured || config.nodeEnv !== 'test') {

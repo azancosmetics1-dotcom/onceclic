@@ -114,6 +114,10 @@ router.post('/org/:slug/voice-session', async (req: Request, res: Response, next
       success: true,
       data: {
         allowed: true,
+        provider: session.provider || 'gemini_live',
+        sessionTicket: session.sessionTicket,
+        wsUrl: session.wsUrl,
+        callId: session.callId,
         assistantId: session.assistantId,
         vapiPublicKey: session.vapiPublicKey,
         remainingMinutes: session.remainingMinutes,

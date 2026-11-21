@@ -118,12 +118,15 @@ export const AIReceptionistPage: React.FC = () => {
       setBrowserVoiceError(null);
       setBrowserTranscripts([]);
       const session = await api.startBrowserVoiceSession();
-      if (!session?.assistantId || !session?.vapiPublicKey) {
+      if (!session?.sessionTicket && (!session?.assistantId || !session?.vapiPublicKey)) {
         setBrowserVoiceError('AI voice receptionist assistant is not ready yet.');
         return;
       }
 
       const voice = new BrowserVoiceSession({
+        provider: session.provider || (session.sessionTicket ? 'gemini_live' : 'vapi'),
+        sessionTicket: session.sessionTicket,
+        wsUrl: session.wsUrl,
         assistantId: session.assistantId,
         publicKey: session.vapiPublicKey,
         maxDurationSeconds: session.maxDurationSeconds || 180,

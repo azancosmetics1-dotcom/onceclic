@@ -9,6 +9,8 @@
  * - Accurate timer starting ONLY when active voice conversation starts
  */
 
+import { GeminiLiveVoiceClient } from './geminiLiveVoiceClient';
+
 declare global {
   interface Window {
     vapiSDK?: any;
@@ -32,6 +34,17 @@ export interface BrowserVoiceCallbacks {
   onTranscript?: (role: 'user' | 'assistant', text: string) => void;
   onAppointmentReminder?: () => void;
   onTimerTick?: (elapsedSeconds: number, remainingSeconds: number) => void;
+}
+
+export interface BrowserVoiceSessionParams {
+  provider?: 'gemini_live' | 'vapi';
+  sessionTicket?: string;
+  wsUrl?: string;
+  assistantId?: string;
+  publicKey?: string;
+  maxDurationSeconds?: number;
+  appointmentReminderSeconds?: number;
+  callbacks?: BrowserVoiceCallbacks;
 }
 
 let vapiScriptLoadingPromise: Promise<void> | null = null;
@@ -71,6 +84,7 @@ export function loadVapiScript(): Promise<void> {
 }
 
 export class BrowserVoiceSession {
+  private geminiClient: GeminiLiveVoiceClient | null = null;
   private vapi: any = null;
   private assistantId: string;
   private publicKey: string;
@@ -82,18 +96,33 @@ export class BrowserVoiceSession {
   private callStartTimestamp: number | null = null;
   private reminderTriggered: boolean = false;
 
-  constructor(params: {
-    assistantId: string;
-    publicKey: string;
-    maxDurationSeconds?: number;
-    appointmentReminderSeconds?: number;
-    callbacks?: BrowserVoiceCallbacks;
-  }) {
-    this.assistantId = params.assistantId;
-    this.publicKey = params.publicKey;
+  constructor(params: BrowserVoiceSessionParams) {
+    this.assistantId = params.assistantId || '';
+    this.publicKey = params.publicKey || '';
     this.maxDurationSeconds = params.maxDurationSeconds || 180;
     this.appointmentReminderSeconds = params.appointmentReminderSeconds || 120;
     this.callbacks = params.callbacks || {};
+
+    // Prefer direct Gemini Live Web Audio API if sessionTicket is provided or provider is gemini_live
+    if (params.sessionTicket || params.provider === 'gemini_live') {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const defaultWsUrl = `${wsProtocol}//${window.location.host}/api/voice/live`;
+      const targetWsUrl = params.wsUrl || defaultWsUrl;
+
+      this.geminiClient = new GeminiLiveVoiceClient({
+        wsUrl: targetWsUrl,
+        sessionTicket: params.sessionTicket || '',
+        maxDurationSeconds: this.maxDurationSeconds,
+        appointmentReminderSeconds: this.appointmentReminderSeconds,
+        callbacks: {
+          ...this.callbacks,
+          onStatusChange: (status, err) => {
+            this.status = status;
+            this.callbacks.onStatusChange?.(status, err);
+          },
+        },
+      });
+    }
   }
 
   private setStatus(status: VoiceSessionStatus, error?: string) {
@@ -139,6 +168,10 @@ export class BrowserVoiceSession {
   }
 
   async start(): Promise<void> {
+    if (this.geminiClient) {
+      return this.geminiClient.start();
+    }
+
     try {
       this.setStatus('loading_sdk');
       await loadVapiScript();
@@ -219,6 +252,11 @@ export class BrowserVoiceSession {
 
   stop(reason?: string): void {
     this.clearTimer();
+    if (this.geminiClient) {
+      this.geminiClient.stop(reason);
+      this.setStatus('ended', reason);
+      return;
+    }
     try {
       if (this.vapi) {
         this.vapi.stop?.();
@@ -231,6 +269,9 @@ export class BrowserVoiceSession {
   }
 
   getStatus(): VoiceSessionStatus {
+    if (this.geminiClient) {
+      return this.geminiClient.getStatus();
+    }
     return this.status;
   }
 

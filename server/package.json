@@ -25,7 +25,8 @@
     "pg": "^8.12.0",
     "tsx": "^4.16.2",
     "typescript": "^5.4.5",
-    "uuid": "^10.0.0"
+    "uuid": "^10.0.0",
+    "ws": "^8.23.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -35,6 +36,7 @@
     "@types/node": "^20.14.9",
     "@types/pg": "^8.11.6",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.2",
     "ts-node": "^10.9.2",
     "tsx": "^4.16.2",
     "typescript": "^5.4.5"

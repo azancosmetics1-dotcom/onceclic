@@ -55,12 +55,15 @@ export const HostedChat: React.FC = () => {
     try {
       setVoiceError(null);
       const session = await api.getPublicVoiceSession(orgSlug);
-      if (!session?.assistantId || !session?.vapiPublicKey) {
+      if (!session?.sessionTicket && (!session?.assistantId || !session?.vapiPublicKey)) {
         setVoiceError('AI voice receptionist is currently unavailable.');
         return;
       }
 
       const voice = new BrowserVoiceSession({
+        provider: session.provider || (session.sessionTicket ? 'gemini_live' : 'vapi'),
+        sessionTicket: session.sessionTicket,
+        wsUrl: session.wsUrl,
         assistantId: session.assistantId,
         publicKey: session.vapiPublicKey,
         maxDurationSeconds: session.maxDurationSeconds || 180,
