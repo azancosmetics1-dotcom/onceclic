@@ -19,6 +19,7 @@ import { KnowledgeService } from './KnowledgeService';
 import { AuditService } from './AuditService';
 import { ResendEmailService } from './ResendEmailService';
 import { TrialService } from './TrialService';
+import { VoiceAssistantProvisioningService } from './voice/VoiceAssistantProvisioningService';
 import { normalizeEmail } from '../utils/emailNormalizer';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -303,6 +304,13 @@ export class AuthService {
         organizationId: params.organizationId,
         email,
       });
+    }
+
+    // 7. Auto-provision dedicated Vapi assistant for website AI voice receptionist
+    try {
+      await VoiceAssistantProvisioningService.getOrCreateOrganizationAssistant(params.organizationId);
+    } catch (vapiErr) {
+      console.warn(`[Onboarding] Deferred Vapi assistant provisioning for org ${params.organizationId}:`, vapiErr);
     }
 
     const updatedOrg = await db.getOne<Organization>(

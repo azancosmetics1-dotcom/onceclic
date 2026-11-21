@@ -194,18 +194,25 @@ export class VapiVoiceProvider implements IVoiceProvider {
   }
 
   formatInboundResponse(agentConfig: VoiceAgentConfig): any {
-    const geminiModel = config.vapi.voiceGeminiModel;
+    const geminiModel = config.vapi.voiceGeminiModel || 'gemini-2.5-flash-lite';
     const maxDurationSeconds =
       agentConfig.maxDurationSeconds ??
       config.vapi.maxCallDurationSeconds ??
       config.voice.maxCallDurationSeconds ??
-      120;
+      180;
 
     return {
       assistant: {
         name: agentConfig.agentName,
-        firstMessage: agentConfig.greeting || 'Hello! Thank you for calling. How can I help you today?',
+        firstMessage: agentConfig.greeting || 'Hello! Welcome to our website. How can I help you today?',
         maxDurationSeconds,
+        serverUrl: `${config.app.apiUrl}/api/voice/webhooks`,
+        serverUrlSecret: config.vapi.webhookSecret || undefined,
+        transcriber: {
+          provider: 'deepgram',
+          model: 'nova-2',
+          language: 'multi',
+        },
         model: {
           provider: 'google',
           model: geminiModel,
@@ -226,8 +233,9 @@ export class VapiVoiceProvider implements IVoiceProvider {
           temperature: agentConfig.temperature ?? 0.3,
         },
         voice: {
-          provider: '11labs',
-          voiceId: agentConfig.voiceId || 'sarah',
+          provider: 'vapi',
+          voiceId: 'Clara',
+          version: 2,
         },
       },
     };
@@ -261,28 +269,48 @@ export class VapiVoiceProvider implements IVoiceProvider {
   }
 
   async createOrUpdateAssistant(agentConfig: VoiceAgentConfig): Promise<{ assistantId: string }> {
-    const geminiModel = config.vapi.voiceGeminiModel;
+    const geminiModel = config.vapi.voiceGeminiModel || 'gemini-2.5-flash-lite';
     const maxDurationSeconds =
       agentConfig.maxDurationSeconds ??
       config.vapi.maxCallDurationSeconds ??
       config.voice.maxCallDurationSeconds ??
-      120;
+      180;
 
     const payload: any = {
       name: agentConfig.agentName,
-      firstMessage: agentConfig.greeting || 'Hello! Thank you for calling. How can I assist you?',
+      firstMessage: agentConfig.greeting || 'Hello! Welcome to our website. How can I assist you?',
       maxDurationSeconds,
+      serverUrl: `${config.app.apiUrl}/api/voice/webhooks`,
+      transcriber: {
+        provider: 'deepgram',
+        model: 'nova-2',
+        language: 'multi',
+      },
       model: {
         provider: 'google',
         model: geminiModel,
         messages: [{ role: 'system', content: agentConfig.systemPrompt }],
         temperature: agentConfig.temperature ?? 0.3,
+        tools: (agentConfig.tools || []).map((t: any) => ({
+          type: 'function',
+          function: {
+            name: t.name || t.function?.name,
+            description: t.description || t.function?.description,
+            parameters: t.parameters || t.function?.parameters,
+          },
+        })),
+        toolIds: agentConfig.knowledgeToolId ? [agentConfig.knowledgeToolId] : undefined,
       },
       voice: {
-        provider: '11labs',
-        voiceId: agentConfig.voiceId || 'sarah',
+        provider: 'vapi',
+        voiceId: 'Clara',
+        version: 2,
       },
     };
+
+    if (config.vapi.webhookSecret) {
+      payload.serverUrlSecret = config.vapi.webhookSecret;
+    }
 
     const res = await SafeNetworkClient.fetch('https://api.vapi.ai/assistant', {
       method: 'POST',
@@ -304,6 +332,86 @@ export class VapiVoiceProvider implements IVoiceProvider {
 
     const data: any = await res.json();
     return { assistantId: data.id };
+  }
+
+  /**
+   * Upload an organization knowledge document or FAQ file to Vapi file storage.
+   */
+  async uploadKnowledgeFile(params: {
+    filename: string;
+    content: string | Buffer;
+    mimeType?: string;
+  }): Promise<{ fileId: string; name: string }> {
+    const boundary = `----VapiBoundary${Date.now()}`;
+    const fileBuffer = typeof params.content === 'string' ? Buffer.from(params.content, 'utf-8') : params.content;
+    const mimeType = params.mimeType || 'text/plain';
+
+    const header = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${params.filename}"\r\nContent-Type: ${mimeType}\r\n\r\n`
+    );
+    const purposeField = Buffer.from(
+      `\r\n--${boundary}\r\nContent-Disposition: form-data; name="purpose"\r\n\r\nknowledge-base-v2`
+    );
+    const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
+    const body = Buffer.concat([header, fileBuffer, purposeField, footer]);
+
+    const res = await SafeNetworkClient.fetch('https://api.vapi.ai/file', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': `multipart/form-data; boundary=${boundary}`,
+      },
+      body,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const error: any = new Error(`Vapi file upload failed: ${err.message || res.statusText}`);
+      error.status = res.status;
+      error.statusCode = res.status;
+      throw error;
+    }
+
+    const data: any = await res.json();
+    return { fileId: data.id, name: data.name || params.filename };
+  }
+
+  /**
+   * Create or update a Vapi Knowledge Query Tool associated with uploaded file IDs.
+   */
+  async createOrUpdateKnowledgeQueryTool(params: {
+    name: string;
+    fileIds: string[];
+  }): Promise<{ toolId: string }> {
+    const payload = {
+      type: 'query',
+      name: params.name || 'knowledge-query',
+      description: 'Searches the organization business knowledge base and uploaded documents to answer customer questions accurately.',
+      knowledgeBase: {
+        provider: 'vapi',
+        fileIds: params.fileIds,
+      },
+    };
+
+    const res = await SafeNetworkClient.fetch('https://api.vapi.ai/tool', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const error: any = new Error(`Vapi knowledge query tool creation failed: ${err.message || res.statusText}`);
+      error.status = res.status;
+      error.statusCode = res.status;
+      throw error;
+    }
+
+    const data: any = await res.json();
+    return { toolId: data.id };
   }
 
   /**

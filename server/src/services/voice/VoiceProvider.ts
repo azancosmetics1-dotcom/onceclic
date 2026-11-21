@@ -37,6 +37,8 @@ export interface VoiceAgentConfig {
   temperature?: number;
   tools?: any[];
   maxDurationSeconds?: number;
+  knowledgeFileIds?: string[];
+  knowledgeToolId?: string;
 }
 
 export interface IVoiceProvider {
@@ -61,6 +63,10 @@ export interface IVoiceProvider {
   provisionNumber?(params: { areaCode?: string; country?: string }): Promise<{ phoneNumber: string; providerPhoneNumberId: string }>;
 
   createOrUpdateAssistant?(config: VoiceAgentConfig): Promise<{ assistantId: string }>;
+
+  uploadKnowledgeFile?(params: { filename: string; content: string | Buffer; mimeType?: string }): Promise<{ fileId: string; name: string }>;
+
+  createOrUpdateKnowledgeQueryTool?(params: { name: string; fileIds: string[] }): Promise<{ toolId: string }>;
 
   importPhoneNumber?(params: {
     phoneNumber: string;

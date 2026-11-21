@@ -26,17 +26,19 @@ export const Dashboard: React.FC = () => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [billing, setBilling] = useState<any>(null);
   const [aiHealth, setAiHealth] = useState<any>(null);
+  const [voiceConfig, setVoiceConfig] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function loadDashboardData() {
       try {
-        const [emp, appts, convs, bill, health] = await Promise.all([
+        const [emp, appts, convs, bill, health, voice] = await Promise.all([
           api.getAIEmployee().catch(() => null),
           api.getAppointments().catch(() => []),
           api.getConversations().catch(() => []),
           api.getBillingStatus().catch(() => null),
           api.getAIHealth().catch(() => null),
+          api.getVoiceAssistant().catch(() => null),
         ]);
 
         setAiEmployee(emp);
@@ -44,6 +46,7 @@ export const Dashboard: React.FC = () => {
         setConversations(convs || []);
         setBilling(bill);
         setAiHealth(health);
+        setVoiceConfig(voice);
       } catch (err) {
         console.error('[Dashboard] Error loading data:', err);
       } finally {
@@ -82,6 +85,58 @@ export const Dashboard: React.FC = () => {
             </a>
           </div>
         )}
+      </div>
+
+      {/* Featured Active Voice Card */}
+      <div className="bg-gradient-to-r from-emerald-950/40 via-slate-900 to-slate-900 border border-emerald-500/30 rounded-2xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="space-y-2 max-w-2xl">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex items-center space-x-2 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span>AI Voice Receptionist — Available Now</span>
+              </div>
+              {voiceConfig?.isVoiceReceptionistReady ? (
+                <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>Ready</span>
+                </div>
+              ) : (
+                <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-medium">
+                  <Clock className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                  <span>Provisioning Assistant...</span>
+                </div>
+              )}
+            </div>
+            <h2 className="text-lg sm:text-xl font-bold text-white">
+              Website AI Voice Receptionist
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+              Give your website visitors a natural voice conversation with your AI receptionist. Visitors can speak directly through their browser without calling a phone number.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <Link
+              to="/app/ai-receptionist"
+              className="inline-flex items-center space-x-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Open Voice Agent</span>
+            </Link>
+            {organization?.slug && (
+              <a
+                href={`/chat/${organization.slug}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-medium text-xs rounded-xl border border-slate-700 transition"
+              >
+                <span>Test in Browser</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Metrics Cards */}

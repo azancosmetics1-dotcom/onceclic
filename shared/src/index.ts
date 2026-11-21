@@ -395,6 +395,12 @@ export interface KnowledgeSource {
   rawContent: string;
   chunkCount: number;
   status: 'PROCESSED' | 'PENDING' | 'FAILED';
+  vapiFileId?: string | null;
+  vapiSyncStatus?: 'PENDING' | 'SYNCED' | 'FAILED' | string;
+  vapiSyncedAt?: string | null;
+  fileUrl?: string | null;
+  fileType?: string | null;
+  fileSize?: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -851,14 +857,16 @@ export const SUBSCRIPTION_PLANS: Record<PlanTier, PlanDetails> = {
     priceUsd: 0,
     billingPeriod: 'month',
     voiceMinutes: 15,
-    maxPhoneNumbers: 1,
+    maxPhoneNumbers: 0,
     maxMonthlyCalls: 5,
     features: [
-      '1 Phone Number',
-      '5 AI Calls / month (trial)',
-      '24/7 AI Phone Receptionist',
-      '24/7 Website AI Chat Widget',
+      '15 AI Voice Minutes (trial)',
+      'Website AI Voice Receptionist',
+      'One-Click Website Embed',
+      'Business Knowledge Base',
+      'Google Calendar Integration',
       'No Credit Card Required',
+      'Phone Numbers & PSTN (Coming Soon)',
     ],
   },
   STARTER: {
@@ -867,14 +875,16 @@ export const SUBSCRIPTION_PLANS: Record<PlanTier, PlanDetails> = {
     priceUsd: 19,
     billingPeriod: 'month',
     voiceMinutes: 50,
-    maxPhoneNumbers: 1,
+    maxPhoneNumbers: 0,
     maxMonthlyCalls: 20,
     features: [
-      '1 Phone Number',
-      '20 AI Calls / month',
-      '24/7 AI Phone Receptionist',
-      '24/7 Website AI Chat Widget',
-      'Google Calendar Booking',
+      '50 AI Voice Minutes / month',
+      'Website AI Voice Receptionist',
+      'One-Click Website Embed',
+      'Business Knowledge Base',
+      'Basic Dashboard & Analytics',
+      'Google Calendar Integration',
+      'Phone Numbers & PSTN (Coming Soon)',
     ],
   },
   PRO: {
@@ -882,20 +892,19 @@ export const SUBSCRIPTION_PLANS: Record<PlanTier, PlanDetails> = {
     name: 'ONCEClic Pro',
     priceUsd: 49,
     billingPeriod: 'month',
-    voiceMinutes: 150,
-    maxPhoneNumbers: 3,
+    voiceMinutes: 200,
+    maxPhoneNumbers: 0,
     maxMonthlyCalls: 50,
     highlight: true,
     badge: 'Most Popular',
     features: [
-      'Up to 3 Phone Numbers',
-      '50 AI Calls / month',
-      '24/7 AI Phone Receptionist',
-      '24/7 Website AI Chat Widget',
-      'Call Transcripts & Recordings',
-      'Google Calendar Booking',
-      'Custom Industry Knowledge & FAQs',
-      'Priority Support',
+      '200 AI Voice Minutes / month',
+      'Everything in Starter',
+      'Advanced Voice Agent Configuration',
+      'Real-Time Appointment Booking',
+      'Advanced Analytics & Transcripts',
+      'Additional Customization',
+      'Phone Numbers & PSTN (Coming Soon)',
     ],
   },
   BUSINESS: {
@@ -903,18 +912,16 @@ export const SUBSCRIPTION_PLANS: Record<PlanTier, PlanDetails> = {
     name: 'Business',
     priceUsd: 99,
     billingPeriod: 'month',
-    voiceMinutes: 400,
-    maxPhoneNumbers: 5,
+    voiceMinutes: 500,
+    maxPhoneNumbers: 0,
     maxMonthlyCalls: 100,
     features: [
-      'Up to 5 Phone Numbers',
-      '100 AI Calls / month',
-      '24/7 AI Phone Receptionist',
-      '24/7 Website AI Chat Widget',
-      'Call Transcripts & Recordings',
-      'Advanced Call Analytics',
-      'Dedicated Team Inboxes',
+      '500 AI Voice Minutes / month',
+      'Everything in Pro',
+      'Higher Usage Allowance',
+      'Advanced Business Configuration',
       'Priority Support',
+      'Phone Numbers & PSTN (Coming Soon)',
     ],
   },
 };
@@ -946,7 +953,11 @@ export const PLAN_MONTHLY_CALL_LIMITS: Record<PlanTier, number> = {
  * Maximum duration for a single AI phone call, in seconds.
  * Enforced at the platform level on both server (VoiceService) and Vapi provider.
  */
-export const MAX_CALL_DURATION_SECONDS = 120;
+export const MAX_CALL_DURATION_SECONDS = 180;
+export const CONVERSATION_MAX_DURATION_SECONDS = 180;
+export const APPOINTMENT_REMINDER_SECONDS = 120;
+export const DEFAULT_TRIAL_VOICE_MINUTES = 30;
+export const DEFAULT_TRIAL_PERIOD_DAYS = 14;
 
 export interface CustomerPlanConfig {
   id: PaidPlanTier;
@@ -1534,10 +1545,10 @@ export interface VoicePlanLimit {
 }
 
 export const DEFAULT_VOICE_PLAN_LIMITS: Record<'TRIAL' | 'STARTER' | 'PRO' | 'BUSINESS', number> = {
-  TRIAL: 15,
+  TRIAL: 30,
   STARTER: 50,
-  PRO: 150,
-  BUSINESS: 400,
+  PRO: 200,
+  BUSINESS: 500,
 };
 
 export interface CustomerVoiceUsage {
@@ -1607,6 +1618,11 @@ export interface OrganizationVoiceAssistant {
   claimExpiresAt?: string | null;
   lastReconciledAt?: string | null;
   errorMessage?: string | null;
+  vapiFileIds?: string[] | null;
+  vapiKnowledgeToolId?: string | null;
+  knowledgeSyncStatus?: 'IDLE' | 'SYNCING' | 'READY' | 'FAILED' | string;
+  knowledgeSyncedAt?: string | null;
+  knowledgeSyncError?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -1621,6 +1637,11 @@ export interface CustomerVoiceConfig {
   connectionTestStatus: VoiceConnectionTestStatus;
   voiceUsage: CustomerVoiceUsage;
   isConfigured: boolean;
+  assistantId?: string | null;
+  vapiPublicKey?: string | null;
+  browserVoiceMinutes?: number;
+  embedSnippet?: string;
+  isVoiceReceptionistReady?: boolean;
 }
 
 export interface VoiceAnalyticsSummary {

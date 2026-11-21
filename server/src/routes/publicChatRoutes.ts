@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { ConversationService } from '../services/ConversationService';
 import { AppointmentService } from '../services/AppointmentService';
+import { VoiceService } from '../services/voice/VoiceService';
 import { rateLimit } from '../middleware/rateLimitMiddleware';
 import { ConversationChannel, SubscriptionStatus } from '@onceclic/shared';
 import jwt from 'jsonwebtoken';
@@ -36,6 +37,23 @@ router.get('/org/:slug', async (req: Request, res: Response, next) => {
       [org.id]
     );
 
+    const assistantRow = await db.getOne<{
+      vapi_assistant_id: string | null;
+      provisioning_status: string;
+    }>(
+      'SELECT vapi_assistant_id, provisioning_status FROM organization_voice_assistants WHERE organization_id = $1',
+      [org.id]
+    );
+
+    let voiceAssistant: { enabled: boolean; assistantId: string; vapiPublicKey: string } | null = null;
+    if (assistantRow?.vapi_assistant_id && assistantRow.provisioning_status === 'READY') {
+      voiceAssistant = {
+        enabled: true,
+        assistantId: assistantRow.vapi_assistant_id,
+        vapiPublicKey: config.vapi.publicKey || '',
+      };
+    }
+
     res.json({
       success: true,
       data: {
@@ -58,9 +76,50 @@ router.get('/org/:slug', async (req: Request, res: Response, next) => {
             `Hi! Welcome to ${org.name}. How can I assist you today?`,
         },
         websiteChatEnabled: settings?.website_chat_enabled ?? true,
+        voiceAssistant,
         services: settings?.services ? (typeof settings.services === 'string' ? JSON.parse(settings.services) : settings.services) : [],
         businessHours: settings?.business_hours ? (typeof settings.business_hours === 'string' ? JSON.parse(settings.business_hours) : settings.business_hours) : [],
         reservationSettings: settings?.reservation_settings ? (typeof settings.reservation_settings === 'string' ? JSON.parse(settings.reservation_settings) : settings.reservation_settings) : null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Start or verify browser voice receptionist session for website visitors
+ */
+router.post('/org/:slug/voice-session', async (req: Request, res: Response, next) => {
+  try {
+    const { slug } = req.params;
+    const org = await db.getOne<{ id: string }>(
+      'SELECT id FROM organizations WHERE (slug = $1 OR id = $1) AND is_active = TRUE',
+      [slug]
+    );
+
+    if (!org) {
+      return res.status(404).json({ success: false, error: 'Business not found.' });
+    }
+
+    const session = await VoiceService.startBrowserVoiceSession(org.id);
+    if (!session.allowed) {
+      return res.status(403).json({
+        success: false,
+        error: session.reason || 'AI voice is currently unavailable for this business.',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        allowed: true,
+        assistantId: session.assistantId,
+        vapiPublicKey: session.vapiPublicKey,
+        remainingMinutes: session.remainingMinutes,
+        maxDurationSeconds: session.maxDurationSeconds,
+        maxConversationSeconds: session.maxConversationSeconds || 180,
+        appointmentReminderSeconds: session.appointmentReminderSeconds || 120,
       },
     });
   } catch (err) {

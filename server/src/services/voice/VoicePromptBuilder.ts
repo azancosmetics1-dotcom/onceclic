@@ -89,7 +89,7 @@ export class VoicePromptBuilder {
     // ----------------------------------------------------------------
     const baseAppointmentTools = [
       {
-        name: 'check_availability',
+        name: 'check_calendar_availability',
         description: 'Check available appointment slots on a specific date for a requested service.',
         parameters: {
           type: 'object',
@@ -111,8 +111,86 @@ export class VoicePromptBuilder {
         },
       },
       {
+        name: 'create_appointment',
+        description: 'Book and confirm an appointment slot for the visitor in the calendar after checking availability.',
+        parameters: {
+          type: 'object',
+          properties: {
+            serviceName: {
+              type: 'string',
+              description: 'Name of the service being booked',
+            },
+            customerName: {
+              type: 'string',
+              description: "Customer's full name",
+            },
+            customerPhone: {
+              type: 'string',
+              description: "Customer's phone number",
+            },
+            customerEmail: {
+              type: 'string',
+              description: "Customer's email address if provided",
+            },
+            startTime: {
+              type: 'string',
+              description: 'Selected start time in ISO 8601 format (e.g. 2026-09-15T14:00:00.000Z)',
+            },
+            notes: {
+              type: 'string',
+              description: 'Optional notes, party size, or specific requests',
+            },
+          },
+          required: ['serviceName', 'customerName', 'customerPhone', 'startTime'],
+        },
+      },
+      {
+        name: 'get_appointment',
+        description: 'Look up an existing appointment by appointmentId, customerPhone, or customerEmail.',
+        parameters: {
+          type: 'object',
+          properties: {
+            appointmentId: {
+              type: 'string',
+              description: 'The ID of the existing appointment if known',
+            },
+            customerPhone: {
+              type: 'string',
+              description: "Customer's phone number to look up their appointment",
+            },
+            customerEmail: {
+              type: 'string',
+              description: "Customer's email to look up their appointment",
+            },
+          },
+          required: [],
+        },
+      },
+      {
+        name: 'check_availability',
+        description: 'Alias for check_calendar_availability: check available appointment slots on a specific date.',
+        parameters: {
+          type: 'object',
+          properties: {
+            date: {
+              type: 'string',
+              description: 'Date to check in YYYY-MM-DD format (e.g. 2026-09-15)',
+            },
+            serviceName: {
+              type: 'string',
+              description: 'Optional name of the requested service to match duration and pricing',
+            },
+            durationMinutes: {
+              type: 'number',
+              description: 'Duration in minutes, default 30',
+            },
+          },
+          required: ['date'],
+        },
+      },
+      {
         name: 'book_appointment',
-        description: 'Book and confirm an appointment slot for the caller in the calendar.',
+        description: 'Alias for create_appointment: book and confirm an appointment slot in the calendar.',
         parameters: {
           type: 'object',
           properties: {
@@ -470,14 +548,15 @@ function buildBaseSystemPrompt(
   knowledgeChunks: Array<{ sourceTitle: string; chunkContent: string }>,
   industrySection: string
 ): string {
-  return `You are ${agentName}, the professional, friendly, and efficient AI Phone Receptionist for "${businessName}" (${businessType}).
-You are speaking on a live voice phone call. Follow these voice-specific communication rules:
+  return `You are ${agentName}, the professional, friendly, and efficient AI Voice Receptionist for "${businessName}" (${businessType}).
+You are speaking live directly with visitors through their website browser microphone and speakers (no telephone or PSTN connection required). Follow these voice communication rules:
 
 VOICE SPEECH RULES:
 1. CONCISE & SPOKEN: Speak in short, natural sentences. Keep replies under 2-3 sentences. Never use bullet points, markdown symbols, asterisks, or raw URLs.
 2. ONE STEP AT A TIME: Ask only ONE question per turn to keep the conversation clear.
-3. PRONUNCIATION: Speak times, dates, and phone numbers clearly (e.g., "Tuesday, September 15th at 2:00 PM").
-4. CALLER IDENTIFICATION: The caller's phone number is ${callerPhone || 'unknown'}. Confirm their name and phone number politely when booking.
+3. PRONUNCIATION: Speak times, dates, and names clearly (e.g., "Tuesday, September 15th at 2:00 PM").
+4. VISITOR IDENTIFICATION: Politely collect and confirm the visitor's name, phone number, and optional email when scheduling appointments.
+5. LANGUAGE SUPPORT: You support both English and Urdu. If the visitor speaks or asks in Urdu (or asks for Urdu assistance), respond naturally in polite, clear Urdu. Otherwise, communicate in English.
 
 BUSINESS CONTEXT & FACTS:
 - Business Name: ${businessName}
@@ -496,13 +575,21 @@ VERIFIED KNOWLEDGE BASE FACTS:
 ${knowledgeChunks.map((c, i) => `[Fact ${i + 1} - ${c.sourceTitle}]: ${c.chunkContent}`).join('\n')}
 
 APPOINTMENT BOOKING WORKFLOW:
-1. When caller requests to book or reserve, ask for their preferred date and service.
-2. Call the tool "check_availability" for that date.
-3. Offer 2 or 3 available times. Example: "I have 2:00 PM and 4:30 PM available. Which works best for you?"
-4. When the caller chooses a time, collect their full name and confirm their phone number.
-5. Call the tool "book_appointment".
-6. ONLY AFTER the tool returns success, confirm: "You're all set! I've booked your [Service] for [Date] at [Time]. We look forward to seeing you!"
-7. NEVER promise or claim an appointment is booked before the tool returns confirmation.
+1. When visitor requests to book, reserve, or inquire about availability, ask for their preferred date and requested service.
+2. Call the backend tool "check_calendar_availability" (or "check_availability") for that date.
+3. Only offer times that are strictly verified available by the backend tool against the business calendar.
+4. Offer 2 or 3 available times. Example: "I have 2:00 PM and 4:30 PM available on that day. Which works best for you?"
+5. When the visitor chooses a time, collect their full name and phone number (and email if available).
+6. Call the tool "create_appointment" (or "book_appointment").
+7. ONLY AFTER the tool returns a verified success confirmation from the database, confirm: "You're all set! I've booked your [Service] for [Date] at [Time]. We look forward to seeing you!"
+8. NEVER claim or promise an appointment was booked until the tool confirms successful creation.
+9. If visitor asks to look up an existing appointment, call the tool "get_appointment".
+
+CONVERSATION DURATION & 120-SECOND APPOINTMENT REMINDER:
+- Every voice conversation has a hard maximum ceiling of 180 seconds (3 minutes).
+- Around 120 seconds into the conversation, or after answering the visitor's core question, politely ask: "Would you like me to book an appointment for you before we finish?"
+- If the visitor agrees, prioritize booking immediately: check calendar availability, offer verified slots, collect their contact details, and create the appointment.
+- If time runs out before 180s, never invent a booking; provide the website booking link or invite them to book online, and conclude politely.
 ${industrySection}
 SILENCE & CALL EFFICIENCY:
 - If caller is silent for a moment: Say "Are you still there?"

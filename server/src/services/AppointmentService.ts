@@ -617,6 +617,60 @@ export class AppointmentService {
   }
 
   /**
+   * Search/lookup an appointment for voice/chat tools by ID, phone, or email.
+   * Strictly enforces tenant isolation (organizationId).
+   */
+  static async getAppointment(
+    organizationId: string,
+    params: {
+      appointmentId?: string;
+      customerPhone?: string;
+      customerEmail?: string;
+    }
+  ): Promise<Appointment | null> {
+    if (params.appointmentId) {
+      return this.getAppointmentById(organizationId, params.appointmentId);
+    }
+
+    if (params.customerPhone) {
+      const cleanPhone = params.customerPhone.trim();
+      const appt = await db.getOne<Appointment>(
+        `SELECT id, organization_id as "organizationId", service_id as "serviceId", service_name as "serviceName",
+                customer_name as "customerName", customer_email as "customerEmail", customer_phone as "customerPhone",
+                start_time as "startTime", end_time as "endTime", status, notes, conversation_id as "conversationId",
+                google_calendar_event_id as "googleCalendarEventId", calendar_sync_status as "calendarSyncStatus",
+                calendar_sync_error as "calendarSyncError", created_at as "createdAt", updated_at as "updatedAt"
+         FROM appointments
+         WHERE organization_id = $1
+           AND (customer_phone = $2 OR customer_phone LIKE $3)
+           AND status IN ('CONFIRMED', 'REQUESTED')
+         ORDER BY start_time ASC LIMIT 1`,
+        [organizationId, cleanPhone, `%${cleanPhone.slice(-7)}%`]
+      );
+      if (appt) return this.formatAppointment(appt);
+    }
+
+    if (params.customerEmail) {
+      const appt = await db.getOne<Appointment>(
+        `SELECT id, organization_id as "organizationId", service_id as "serviceId", service_name as "serviceName",
+                customer_name as "customerName", customer_email as "customerEmail", customer_phone as "customerPhone",
+                start_time as "startTime", end_time as "endTime", status, notes, conversation_id as "conversationId",
+                google_calendar_event_id as "googleCalendarEventId", calendar_sync_status as "calendarSyncStatus",
+                calendar_sync_error as "calendarSyncError", created_at as "createdAt", updated_at as "updatedAt"
+         FROM appointments
+         WHERE organization_id = $1
+           AND LOWER(customer_email) = LOWER($2)
+           AND status IN ('CONFIRMED', 'REQUESTED')
+         ORDER BY start_time ASC LIMIT 1`,
+        [organizationId, params.customerEmail.trim()]
+      );
+      if (appt) return this.formatAppointment(appt);
+    }
+
+    return null;
+  }
+
+  /**
    * Update appointment status (CONFIRMED, CANCELED, COMPLETED, NO_SHOW).
    */
   static async updateStatus(

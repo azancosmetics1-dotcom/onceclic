@@ -19,6 +19,9 @@ import {
   ShieldCheck,
   Bot,
   Calendar,
+  UploadCloud,
+  FileUp,
+  Loader2,
 } from 'lucide-react';
 
 type IndustryType = 'CLINIC' | 'RESTAURANT' | 'SALON';
@@ -110,6 +113,30 @@ export const Onboarding: React.FC = () => {
 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [uploadedDocNames, setUploadedDocNames] = useState<string[]>([]);
+  const [provisioningStep, setProvisioningStep] = useState<string>('');
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const text = event.target?.result as string;
+        if (text && text.trim().length > 0) {
+          setBusinessKnowledge((prev) => {
+            const separator = prev.trim().length > 0 ? '\n\n---\n' : '';
+            return `${prev}${separator}[Document: ${file.name}]\n${text.trim()}`;
+          });
+          setUploadedDocNames((prev) => [...prev, file.name]);
+          setKnowledgeError(null);
+        }
+      };
+      reader.readAsText(file);
+    }
+  };
 
   const handleSelectIndustry = (type: IndustryType) => {
     setSelectedIndustry(type);
@@ -373,13 +400,41 @@ export const Onboarding: React.FC = () => {
                 </p>
               )}
 
-              <button
-                type="button"
-                onClick={() => handleKnowledgeChange(INDUSTRIES[selectedIndustry].exampleKnowledge)}
-                className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium underline inline-block"
-              >
-                Insert sample {INDUSTRIES[selectedIndustry].title.toLowerCase()} knowledge
-              </button>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-850">
+                <button
+                  type="button"
+                  onClick={() => handleKnowledgeChange(INDUSTRIES[selectedIndustry].exampleKnowledge)}
+                  className="text-[11px] text-emerald-400 hover:text-emerald-300 font-medium underline inline-block"
+                >
+                  Insert sample {INDUSTRIES[selectedIndustry].title.toLowerCase()} knowledge
+                </button>
+
+                <label className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 hover:border-emerald-500/50 text-slate-300 hover:text-emerald-400 text-xs font-medium cursor-pointer transition">
+                  <FileUp className="w-3.5 h-3.5" />
+                  <span>Upload Document (.txt, .md, .faq)</span>
+                  <input
+                    type="file"
+                    multiple
+                    accept=".txt,.md,.faq,.csv,.json,.doc,.docx"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              {uploadedDocNames.length > 0 && (
+                <div className="pt-2 flex flex-wrap gap-1.5">
+                  {uploadedDocNames.map((name, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px]"
+                    >
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>{name}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* INDUSTRY-SPECIFIC OPTIONAL FIELDS */}
@@ -631,6 +686,19 @@ export const Onboarding: React.FC = () => {
               </div>
             </div>
 
+            {/* Provisioning progress feedback */}
+            {saving && (
+              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-2xl p-4 max-w-md mx-auto space-y-2">
+                <div className="flex items-center justify-center space-x-2 text-emerald-400 text-xs font-bold">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Configuring Your Dedicated AI Receptionist</span>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  {provisioningStep || 'Creating Vapi assistant, configuring Gemini 2.5 Flash-Lite & syncing knowledge...'}
+                </p>
+              </div>
+            )}
+
             <div className="pt-4 flex flex-col sm:flex-row justify-center gap-3">
               <button
                 type="button"
@@ -651,7 +719,7 @@ export const Onboarding: React.FC = () => {
                   <div className="w-5 h-5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
-                    <span>Launch ONCEClic Dashboard</span>
+                    <span>{saveError ? 'Retry Setup' : 'Enter Dashboard'}</span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}

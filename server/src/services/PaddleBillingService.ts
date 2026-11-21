@@ -331,6 +331,16 @@ export class PaddleBillingService {
         entityType: 'PADDLE_WEBHOOK',
         metadata: { eventType: event_type, eventId: event_id },
       });
+
+      // SAFETY GUARD: Prevent Paddle webhooks from overwriting active Creem subscriptions
+      const existingSub = await db.getOne<{ creemSubscriptionId?: string; status?: string }>(
+        'SELECT creem_subscription_id as "creemSubscriptionId", status FROM subscriptions WHERE organization_id = $1',
+        [organizationId]
+      );
+      if (existingSub?.creemSubscriptionId && existingSub.status === SubscriptionStatus.ACTIVE) {
+        console.log(`[Paddle Webhook] Organization ${organizationId} has an active Creem subscription (${existingSub.creemSubscriptionId}). Refusing to overwrite Creem subscription with Paddle event ${event_type}.`);
+        return { success: true, message: 'Ignored: Organization managed by active Creem subscription' };
+      }
     }
 
     // 3. Defensive Event Dispatching

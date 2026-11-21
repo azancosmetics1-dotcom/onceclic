@@ -12,6 +12,9 @@ import {
   CheckCircle2,
   Layers,
   Sparkles,
+  RefreshCw,
+  UploadCloud,
+  AlertCircle,
 } from 'lucide-react';
 
 export const KnowledgeBase: React.FC = () => {
@@ -19,6 +22,8 @@ export const KnowledgeBase: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<{ text: string; error?: boolean } | null>(null);
 
   const [newSource, setNewSource] = useState({
     sourceType: KnowledgeSourceType.FAQ,
@@ -40,6 +45,40 @@ export const KnowledgeBase: React.FC = () => {
   useEffect(() => {
     loadSources();
   }, []);
+
+  const handleSyncToVapi = async () => {
+    setSyncing(true);
+    setSyncMessage(null);
+    try {
+      await api.syncKnowledgeToVapi();
+      setSyncMessage({ text: 'Knowledge base successfully synchronized with AI Receptionist!' });
+      await loadSources();
+    } catch (err: any) {
+      setSyncMessage({ text: err.message || 'Failed to sync with AI assistant', error: true });
+    } finally {
+      setSyncing(false);
+      setTimeout(() => setSyncMessage(null), 5000);
+    }
+  };
+
+  const handleModalFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (content) {
+        const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+        setNewSource((prev) => ({
+          ...prev,
+          title: prev.title || cleanTitle,
+          rawContent: content.trim(),
+        }));
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,14 +121,43 @@ export const KnowledgeBase: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="inline-flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 shrink-0 w-full sm:w-auto"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Knowledge Source</span>
-        </button>
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <button
+            onClick={handleSyncToVapi}
+            disabled={syncing || sources.length === 0}
+            className="inline-flex items-center justify-center space-x-1.5 px-3.5 py-2.5 bg-slate-850 hover:bg-slate-800 text-slate-200 hover:text-emerald-400 border border-slate-750 font-bold text-xs rounded-xl transition disabled:opacity-40 shrink-0 w-full sm:w-auto"
+            title="Sync all knowledge documents with Vapi Voice Assistant"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin text-emerald-400' : ''}`} />
+            <span>{syncing ? 'Syncing...' : 'Sync to AI Receptionist'}</span>
+          </button>
+
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="inline-flex items-center justify-center space-x-1.5 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs rounded-xl transition shadow-md shadow-emerald-500/20 shrink-0 w-full sm:w-auto"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Knowledge Source</span>
+          </button>
+        </div>
       </div>
+
+      {syncMessage && (
+        <div
+          className={`p-3.5 rounded-xl border flex items-center space-x-2 text-xs font-medium transition ${
+            syncMessage.error
+              ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+          }`}
+        >
+          {syncMessage.error ? (
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+          ) : (
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          )}
+          <span>{syncMessage.text}</span>
+        </div>
+      )}
 
       {/* Sources List */}
       {loading ? (
@@ -132,6 +200,21 @@ export const KnowledgeBase: React.FC = () => {
                   </span>
                   <h3 className="text-sm font-bold text-white truncate max-w-xs sm:max-w-md">{source.title}</h3>
                   <Badge variant="brand">{source.sourceType}</Badge>
+                  {source.vapiSyncStatus === 'SYNCED' ? (
+                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] font-medium">
+                      <CheckCircle2 className="w-3 h-3" />
+                      <span>Synced with Voice AI</span>
+                    </span>
+                  ) : source.vapiSyncStatus === 'FAILED' ? (
+                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 text-[10px] font-medium">
+                      <AlertCircle className="w-3 h-3" />
+                      <span>Voice Sync Failed</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 text-[10px] font-medium">
+                      <span>Pending Voice Sync</span>
+                    </span>
+                  )}
                   <span className="text-[11px] text-slate-400 font-mono flex items-center space-x-1">
                     <Layers className="w-3 h-3 text-slate-500" />
                     <span>{source.chunkCount} RAG chunks</span>
@@ -169,6 +252,20 @@ export const KnowledgeBase: React.FC = () => {
             </h2>
 
             <form onSubmit={handleAdd} className="space-y-4">
+              <div className="flex items-center justify-between pb-1">
+                <span className="text-xs font-semibold text-slate-300">Import from File</span>
+                <label className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-800 hover:border-emerald-500/50 text-slate-300 hover:text-emerald-400 text-xs font-medium cursor-pointer transition">
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>Choose Document</span>
+                  <input
+                    type="file"
+                    accept=".txt,.md,.faq,.csv,.json,.doc,.docx"
+                    onChange={handleModalFileUpload}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Source Type</label>
                 <select

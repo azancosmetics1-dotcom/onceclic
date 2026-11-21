@@ -106,7 +106,9 @@ export class KnowledgeService {
   static async listSources(organizationId: string): Promise<KnowledgeSource[]> {
     const res = await db.query(
       `SELECT id, organization_id as "organizationId", source_type as "sourceType", title, raw_content as "rawContent",
-              chunk_count as "chunkCount", status, created_at as "createdAt", updated_at as "updatedAt"
+              chunk_count as "chunkCount", status, vapi_file_id as "vapiFileId", vapi_sync_status as "vapiSyncStatus",
+              vapi_synced_at as "vapiSyncedAt", file_url as "fileUrl", file_type as "fileType", file_size as "fileSize",
+              created_at as "createdAt", updated_at as "updatedAt"
        FROM knowledge_sources WHERE organization_id = $1 ORDER BY created_at DESC`,
       [organizationId]
     );
@@ -216,6 +218,100 @@ export class KnowledgeService {
 
     if (currentChunk) chunks.push(currentChunk);
     return chunks;
+  }
+
+  /**
+   * Synchronize all active knowledge sources for an organization with Vapi file storage
+   * and optionally create/update a Vapi Query Tool.
+   */
+  static async syncOrganizationKnowledgeToVapi(
+    organizationId: string,
+    options?: {
+      customVoiceProvider?: any;
+      organizationName?: string;
+    }
+  ): Promise<{
+    fileIds: string[];
+    queryToolId?: string;
+    syncedCount: number;
+    failedCount: number;
+  }> {
+    const { VoiceService } = await import('./voice/VoiceService');
+    const voice = options?.customVoiceProvider || VoiceService.getVoiceProvider();
+
+    // Query all knowledge sources for this organization
+    const res = await db.query<any>(
+      `SELECT id, title, raw_content as "rawContent", vapi_file_id as "vapiFileId", vapi_sync_status as "vapiSyncStatus"
+       FROM knowledge_sources
+       WHERE organization_id = $1
+       ORDER BY created_at ASC`,
+      [organizationId]
+    );
+
+    const sources = res.rows || [];
+    const fileIds: string[] = [];
+    let syncedCount = 0;
+    let failedCount = 0;
+
+    for (const source of sources) {
+      if (source.vapiFileId && source.vapiSyncStatus === 'SYNCED') {
+        fileIds.push(source.vapiFileId);
+        continue;
+      }
+
+      if (voice.uploadKnowledgeFile) {
+        try {
+          const safeTitle = (source.title || 'knowledge').replace(/[^a-zA-Z0-9_-]/g, '_');
+          const filename = `${safeTitle}.txt`;
+          const uploadRes = await voice.uploadKnowledgeFile({
+            filename,
+            content: source.rawContent || '',
+            mimeType: 'text/plain',
+          });
+
+          await db.execute(
+            `UPDATE knowledge_sources
+             SET vapi_file_id = $1,
+                 vapi_sync_status = 'SYNCED',
+                 vapi_synced_at = CURRENT_TIMESTAMP,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $2 AND organization_id = $3`,
+            [uploadRes.fileId, source.id, organizationId]
+          );
+
+          fileIds.push(uploadRes.fileId);
+          syncedCount++;
+        } catch (uploadErr: any) {
+          failedCount++;
+          console.error(`[KnowledgeService] Failed to upload knowledge source ${source.id} to Vapi:`, uploadErr?.message || uploadErr);
+          await db.execute(
+            `UPDATE knowledge_sources
+             SET vapi_sync_status = 'FAILED',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1 AND organization_id = $2`,
+            [source.id, organizationId]
+          );
+          throw uploadErr;
+        }
+      }
+    }
+
+    let queryToolId: string | undefined;
+    if (fileIds.length > 0 && voice.createOrUpdateKnowledgeQueryTool) {
+      const orgName = options?.organizationName || 'Business';
+      const toolRes = await voice.createOrUpdateKnowledgeQueryTool({
+        name: `${orgName.replace(/[^a-zA-Z0-9_-]/g, '_')}_knowledge_query`,
+        fileIds,
+      });
+      queryToolId = toolRes.toolId;
+    }
+
+    return {
+      fileIds,
+      queryToolId,
+      syncedCount,
+      failedCount,
+    };
   }
 
   /**

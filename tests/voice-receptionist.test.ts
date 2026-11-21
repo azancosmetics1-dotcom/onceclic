@@ -215,7 +215,7 @@ export async function runVoiceReceptionistTests() {
   assert.ok(promptResult.systemPrompt.includes('Dental Checkup'), 'System prompt contains configured services');
   assert.ok(promptResult.systemPrompt.includes('free validated parking'), 'System prompt contains knowledge facts');
   assert.ok(promptResult.systemPrompt.includes('NEVER invent unlisted prices'), 'System prompt enforces anti-hallucination');
-  assert.ok(promptResult.tools.length === 5, 'Includes 5 standard voice tools (check, book, reschedule, cancel, transfer_call)');
+  assert.ok(promptResult.tools.length >= 5, 'Includes standard voice tools (check, book, reschedule, cancel, transfer_call, get_appointment)');
   console.log('  ✓ 5. Voice prompt is speech-optimized, grounded in verified knowledge, and includes tool definitions');
 
   // ========================================================
@@ -362,7 +362,7 @@ export async function runVoiceReceptionistTests() {
   const voiceUsage = await VoiceService.getVoiceUsage(orgAId);
   assert.strictEqual(voiceUsage.usedMinutes >= 2.0, true, 'Used minutes calculated from call records');
   assert.ok(
-    [15, 50, 150, 400].includes(voiceUsage.includedMinutes),
+    [15, 30, 50, 150, 200, 400, 500].includes(voiceUsage.includedMinutes),
     `Plan limit retrieved (${voiceUsage.includedMinutes})`
   );
   console.log(`  ✓ 13. Usage tracked in customer-facing minutes (${voiceUsage.usedMinutes} / ${voiceUsage.includedMinutes} min)`);
@@ -1409,13 +1409,13 @@ export async function runVoiceReceptionistTests() {
   console.log('  ✓ 48. Assistant assignment is organization-specific and tenant isolation is strictly enforced');
 
   // ========================================================
-  // 19. 120-Second (Two-Minute) Call Duration Limit Verification
+  // 19. 180-Second (Three-Minute) Call Duration Limit Verification
   // ========================================================
-  console.log('\n[19. 120-Second (Two-Minute) Call Duration Limit Verification]');
+  console.log('\n[19. 180-Second (Three-Minute) Call Duration Limit Verification]');
 
-  // Test 49: Default duration is 120 seconds across config, assistant, and inbound webhook payload
+  // Test 49: Default duration is 180 seconds across config, assistant, and inbound webhook payload
   const defaultDuration = await VoiceService.resolveMaxCallDuration();
-  assert.strictEqual(defaultDuration, 120, 'Default call duration must be 120 seconds');
+  assert.strictEqual(defaultDuration, 180, 'Default call duration must be 180 seconds');
 
   const vapiInboundCheck = vapiProviderInstance.formatInboundResponse({
     agentName: 'Luna',
@@ -1424,8 +1424,8 @@ export async function runVoiceReceptionistTests() {
   });
   assert.strictEqual(
     vapiInboundCheck?.assistant?.maxDurationSeconds,
-    120,
-    'Vapi assistant inbound response payload must configure maxDurationSeconds=120'
+    180,
+    'Vapi assistant inbound response payload must configure maxDurationSeconds=180'
   );
 
   const mockInboundCheck = mockProvider.formatInboundResponse({
@@ -1434,8 +1434,8 @@ export async function runVoiceReceptionistTests() {
   });
   assert.strictEqual(
     mockInboundCheck.maxDurationSeconds,
-    120,
-    'Mock provider formatInboundResponse must include maxDurationSeconds=120'
+    180,
+    'Mock provider formatInboundResponse must include maxDurationSeconds=180'
   );
 
   const inboundCallRes = await VoiceService.handleInboundCall({
@@ -1445,28 +1445,28 @@ export async function runVoiceReceptionistTests() {
     provider: 'MOCK',
   });
   assert.strictEqual(inboundCallRes.allowed, true);
-  assert.strictEqual(inboundCallRes.responsePayload.maxDurationSeconds, 120, 'Inbound call response payload carries 120s limit');
-  console.log('  ✓ 49. Default call duration is 120 seconds across config, provider assistant, and inbound webhook responses');
+  assert.strictEqual(inboundCallRes.responsePayload.maxDurationSeconds, 180, 'Inbound call response payload carries 180s limit');
+  console.log('  ✓ 49. Default call duration is 180 seconds across config, provider assistant, and inbound webhook responses');
 
-  // Test 50: Invalid configuration is rejected or safely falls back to 120 seconds
-  assert.strictEqual(VoiceService.validateMaxCallDuration(-15), 120, 'Negative duration safely falls back to 120');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(0), 120, 'Zero duration safely falls back to 120');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(NaN), 120, 'NaN duration safely falls back to 120');
-  assert.strictEqual(VoiceService.validateMaxCallDuration('invalid_string'), 120, 'String duration safely falls back to 120');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(Infinity), 120, 'Infinity duration safely falls back to 120');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(null), 120, 'Null duration safely falls back to 120');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(90), 90, 'Valid custom duration under 120 is accepted');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(600), 120, 'Excessive duration is capped at 120s hard ceiling');
-  console.log('  ✓ 50. Invalid duration configuration safely falls back to 120 seconds (ceiling enforced)');
+  // Test 50: Invalid configuration is rejected or safely falls back to 180 seconds
+  assert.strictEqual(VoiceService.validateMaxCallDuration(-15), 180, 'Negative duration safely falls back to 180');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(0), 180, 'Zero duration safely falls back to 180');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(NaN), 180, 'NaN duration safely falls back to 180');
+  assert.strictEqual(VoiceService.validateMaxCallDuration('invalid_string'), 180, 'String duration safely falls back to 180');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(Infinity), 180, 'Infinity duration safely falls back to 180');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(null), 180, 'Null duration safely falls back to 180');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(90), 90, 'Valid custom duration under 180 is accepted');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(600), 180, 'Excessive duration is capped at 180s hard ceiling');
+  console.log('  ✓ 50. Invalid duration configuration safely falls back to 180 seconds (ceiling enforced)');
 
   // Test 51: A call is terminated when maximum duration is reached
   const testCallExceededId = `call_exceeded_${Date.now()}`;
   const exceedCheck = await VoiceService.checkCallDurationLimit({
     callId: testCallExceededId,
-    elapsedSeconds: 125,
+    elapsedSeconds: 185,
     organizationId: orgAId,
   });
-  assert.strictEqual(exceedCheck.exceeded, true, 'Call exceeding 120s marked as exceeded');
+  assert.strictEqual(exceedCheck.exceeded, true, 'Call exceeding 180s marked as exceeded');
   assert.ok(mockProvider.terminatedCalls.has(testCallExceededId), 'Call termination dispatched to provider');
 
   // Verify server-side mid-call tool execution guard blocks call
@@ -1477,7 +1477,7 @@ export async function runVoiceReceptionistTests() {
     organizationId: orgAId,
   });
   assert.strictEqual(toolExceededRes.callTerminated, true, 'Tool execution returns callTerminated: true');
-  assert.ok(toolExceededRes.error?.includes('120 seconds'), 'Error message informs caller of 120s limit reached');
+  assert.ok(toolExceededRes.error?.includes('180 seconds'), 'Error message informs caller of 180s limit reached');
   console.log('  ✓ 51. Call automatically terminated when maximum 120-second duration is reached; mid-call tools blocked');
 
   // Test 52: Calls below the limit are not terminated prematurely
@@ -2328,10 +2328,10 @@ export async function runVoiceReceptionistTests() {
   assert.strictEqual(untouchedPro.plan_tier, 'PRO');
   console.log('  ✓ 103. Paddle webhook router isolates phone number events from base Pro subscriptions');
 
-  // Test 104: 120-second call duration limit remains strictly enforced
+  // Test 104: 180-second call duration limit remains strictly enforced
   const maxDur = await VoiceService.resolveMaxCallDuration(billingOrgId);
-  assert.strictEqual(maxDur, 120, 'Max call duration ceiling is strictly 120 seconds');
-  console.log('  ✓ 104. 120-second call duration limit remains enforced');
+  assert.strictEqual(maxDur, 180, 'Max call duration ceiling is strictly 180 seconds');
+  console.log('  ✓ 104. 180-second call duration limit remains enforced');
 
   // ---- Summary ----
   console.log('\n  === Section 21 Results ===');

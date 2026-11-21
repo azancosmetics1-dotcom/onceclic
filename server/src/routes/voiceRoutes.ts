@@ -12,11 +12,71 @@ import {
   toCustomerCallRecordList,
 } from '../serializers/customerSerializers';
 import { db } from '../db';
+import { VoiceAssistantProvisioningService } from '../services/voice/VoiceAssistantProvisioningService';
+import { config } from '../config';
 
 const router = Router();
 
+const COMING_SOON_PHONE_MESSAGE =
+  'Phone calling and phone number services are coming soon. ONCEClic currently supports AI voice conversations directly through your website.';
+
+const phoneFeatureComingSoon = (_req: Request, res: Response) => {
+  return res.status(400).json({
+    success: false,
+    code: 'FEATURE_COMING_SOON',
+    error: COMING_SOON_PHONE_MESSAGE,
+    message: COMING_SOON_PHONE_MESSAGE,
+  });
+};
+
 router.use(authMiddleware);
 router.use(tenantIsolationMiddleware);
+
+/**
+ * Dedicated Vapi Assistant for Website AI Voice Receptionist
+ */
+router.get('/assistant', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
+  try {
+    const orgId = req.organizationId!;
+    const assistant = await VoiceAssistantProvisioningService.getOrCreateOrganizationAssistant(orgId);
+    const configData = await VoiceService.getCustomerVoiceConfig(orgId);
+    res.json({
+      success: true,
+      data: {
+        assistantId: assistant.assistantId,
+        vapiPublicKey: config.vapi.publicKey || null,
+        isVoiceReceptionistReady: true,
+        embedSnippet: configData.embedSnippet,
+        browserVoiceMinutes: configData.browserVoiceMinutes,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Start Browser Voice Session (Checks Plan Allowance & Prepares Session)
+ */
+router.post('/browser/session', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
+  try {
+    const session = await VoiceService.startBrowserVoiceSession(req.organizationId!);
+    if (!session.allowed) {
+      return res.status(403).json({
+        success: false,
+        code: 'USAGE_LIMIT_EXCEEDED',
+        error: session.reason || 'AI voice minutes allowance exceeded',
+        remainingMinutes: session.remainingMinutes ?? 0,
+      });
+    }
+    res.json({
+      success: true,
+      data: session,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 /**
  * Get AI Receptionist Voice Status, Active Numbers, and Minute Usage
@@ -44,150 +104,29 @@ router.get('/countries', requirePermission('voice:read'), async (_req: Request, 
 });
 
 /**
- * Search available phone numbers for provisioning (SignalWire US Local)
+ * Search available phone numbers for provisioning (Postponed - Coming Soon)
  */
-router.get('/available-numbers', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
-  try {
-    const rawCountry = (req.query.country as string) || 'US';
-    if (rawCountry.toUpperCase() !== 'US') {
-      return res.status(400).json({
-        success: false,
-        error: 'Only US local phone numbers are currently supported.',
-      });
-    }
-
-    const rawType = req.query.type as string | undefined;
-    if (rawType && rawType !== 'local') {
-      return res.status(400).json({
-        success: false,
-        error: 'Only local geographic phone numbers are supported (toll-free and non-local numbers are prohibited).',
-      });
-    }
-
-    const countryCode = 'US';
-    const numberType = 'local';
-    const areaCode = (req.query.areaCode as string) || undefined;
-    const city = (req.query.city as string) || undefined;
-    const state = (req.query.state as string) || undefined;
-    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 5;
-
-    const numbers = await VoiceService.searchAvailableNumbers({
-      countryCode,
-      numberType,
-      areaCode,
-      city,
-      state,
-      limit,
-    });
-
-    res.json({ success: true, data: numbers });
-  } catch (err) {
-    next(err);
-  }
-});
+router.get('/available-numbers', requirePermission('voice:read'), phoneFeatureComingSoon);
 
 /**
- * Authoritative Server-Side Pricing Quote
- * customer_monthly_number_price = verified_provider_monthly_cost + 1.00 USD
+ * Authoritative Server-Side Pricing Quote (Postponed - Coming Soon)
  */
-router.post('/numbers/quote', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
-  try {
-    const { countryCode, numberType, phoneNumber, providerMonthlyCost, providerSetupCost } = req.body;
-    if (countryCode && String(countryCode).toUpperCase() !== 'US') {
-      return res.status(400).json({ success: false, error: 'Only US local phone numbers are supported.' });
-    }
-    if (numberType && numberType !== 'local') {
-      return res.status(400).json({ success: false, error: 'Only local geographic phone numbers are supported.' });
-    }
-
-    const quote = PhoneNumberPricingService.getAuthoritativePricing({
-      countryCode: (countryCode as string) || 'US',
-      numberType: (numberType as string) || 'local',
-      phoneNumber: phoneNumber as string | undefined,
-      overrideProviderMonthlyCost: providerMonthlyCost !== undefined ? Number(providerMonthlyCost) : undefined,
-      overrideProviderSetupCost: providerSetupCost !== undefined ? Number(providerSetupCost) : undefined,
-    });
-    res.json({ success: true, data: quote });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/quote', requirePermission('voice:read'), phoneFeatureComingSoon);
 
 /**
- * Create Pre-Order Phone Number Checkout Session
+ * Create Pre-Order Phone Number Checkout Session (Postponed - Coming Soon)
  */
-router.post('/numbers/checkout-session', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const {
-      phoneNumber,
-      countryCode,
-      numberType,
-      expectedMonthlyCostUsd,
-      expectedSetupCostUsd,
-      idempotencyKey,
-      checkoutType,
-      targetPhoneNumberId,
-    } = req.body;
-    if (!phoneNumber) {
-      return res.status(400).json({ success: false, error: 'Phone number is required.' });
-    }
-
-    if (countryCode && String(countryCode).toUpperCase() !== 'US') {
-      return res.status(400).json({ success: false, error: 'Only US local phone numbers are supported.' });
-    }
-    if (numberType && numberType !== 'local') {
-      return res.status(400).json({ success: false, error: 'Only local geographic phone numbers are supported.' });
-    }
-
-    const session = await PhoneNumberBillingService.createCheckoutSession({
-      organizationId: req.organizationId!,
-      phoneNumber,
-      countryCode: countryCode || 'US',
-      numberType: numberType || 'local',
-      expectedMonthlyCostUsd: expectedMonthlyCostUsd !== undefined ? Number(expectedMonthlyCostUsd) : undefined,
-      expectedSetupCostUsd: expectedSetupCostUsd !== undefined ? Number(expectedSetupCostUsd) : undefined,
-      idempotencyKey: idempotencyKey || (req.headers['idempotency-key'] as string | undefined),
-      userEmail: req.user?.email,
-      userName: req.user?.fullName,
-      checkoutType,
-      targetPhoneNumberId,
-    });
-
-    res.status(201).json({ success: true, data: session });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/checkout-session', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Cancel In-Flight Checkout Session
+ * Cancel In-Flight Checkout Session (Postponed - Coming Soon)
  */
-router.post('/numbers/checkout-session/:id/cancel', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const cancelled = await PhoneNumberBillingService.cancelCheckoutSession(req.organizationId!, req.params.id);
-    res.json({ success: cancelled, data: { cancelled } });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/checkout-session/:id/cancel', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Authorize Checkout Session (for sandbox / verified callback)
+ * Authorize Checkout Session (Postponed - Coming Soon)
  */
-router.post('/numbers/checkout-session/:id/authorize', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const { paddleTransactionId, paddleSubscriptionId } = req.body;
-    const session = await PhoneNumberBillingService.authorizeCheckoutSession({
-      organizationId: req.organizationId!,
-      checkoutId: req.params.id,
-      paddleTransactionId,
-      paddleSubscriptionId,
-    });
-    res.json({ success: true, data: session });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/checkout-session/:id/authorize', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
  * List registered phone numbers for the organization
@@ -202,247 +141,59 @@ router.get('/numbers', requirePermission('voice:read'), async (req: Request, res
 });
 
 /**
- * Validate existing phone number and get carrier forwarding instructions
+ * Validate existing phone number and get carrier forwarding instructions (Postponed - Coming Soon)
  */
-router.post('/numbers/existing/validate', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const { phoneNumber, countryCode } = req.body;
-    if (!phoneNumber) {
-      return res.status(400).json({ success: false, error: 'Phone number is required.' });
-    }
-
-    const validation = await VoiceService.validateExistingNumber({
-      organizationId: req.organizationId!,
-      phoneNumber,
-      countryCode,
-    });
-
-    res.json({ success: true, data: validation });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/existing/validate', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Connect Existing Business Phone Number (Call Forwarding, SIP/VoIP, or Porting)
+ * Connect Existing Business Phone Number (Postponed - Coming Soon)
  */
-router.post('/numbers/existing', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const { phoneNumber, countryCode, connectionMethod, forwardingTarget, sipEndpoint } = req.body;
-
-    if (!phoneNumber) {
-      return res.status(400).json({ success: false, error: 'Phone number is required.' });
-    }
-
-    const method = connectionMethod || VoiceConnectionMethod.EXISTING_FORWARDING;
-
-    const phoneRecord = await VoiceService.connectExistingNumber({
-      organizationId: req.organizationId!,
-      phoneNumber,
-      countryCode,
-      connectionMethod: method,
-      forwardingTarget,
-      sipEndpoint,
-      userId: req.user?.id,
-    });
-
-    res.status(201).json({ success: true, data: phoneRecord });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/existing', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Verify ownership of existing phone number
+ * Verify ownership of existing phone number (Postponed - Coming Soon)
  */
-router.post('/numbers/existing/verify', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const { id, code } = req.body;
-    if (!id) {
-      return res.status(400).json({ success: false, error: 'Phone number ID is required.' });
-    }
-
-    const result = await VoiceService.verifyExistingNumberOwnership({
-      organizationId: req.organizationId!,
-      id,
-      code,
-    });
-
-    res.json({ success: result.verified, data: result });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/existing/verify', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Provision New Provider Phone Number (Standard Order with explicit confirmation and idempotency)
+ * Provision New Provider Phone Number (Postponed - Coming Soon)
  */
-router.post('/numbers/new/order', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const { phoneNumber, countryCode, numberType, idempotencyKey, confirmPurchase, expectedMonthlyCostUsd, expectedSetupCostUsd, checkoutId } = req.body;
-
-    if (!phoneNumber) {
-      return res.status(400).json({ success: false, error: 'Phone number is required.' });
-    }
-
-    if (countryCode && String(countryCode).toUpperCase() !== 'US') {
-      return res.status(400).json({ success: false, error: 'Only US local phone numbers are supported.' });
-    }
-    if (numberType && numberType !== 'local') {
-      return res.status(400).json({ success: false, error: 'Only local geographic phone numbers are supported.' });
-    }
-
-    if (!confirmPurchase) {
-      return res.status(400).json({
-        success: false,
-        error: 'Confirmation is required before purchasing a phone number.',
-      });
-    }
-
-    const phoneRecord = await VoiceService.orderNewNumber({
-      organizationId: req.organizationId!,
-      phoneNumber,
-      countryCode: countryCode || 'US',
-      numberType: numberType || 'local',
-      idempotencyKey: idempotencyKey || (req.headers['idempotency-key'] as string | undefined),
-      userId: req.user?.id,
-      confirmPurchase: Boolean(confirmPurchase),
-      expectedMonthlyCostUsd: expectedMonthlyCostUsd !== undefined ? Number(expectedMonthlyCostUsd) : undefined,
-      expectedSetupCostUsd: expectedSetupCostUsd !== undefined ? Number(expectedSetupCostUsd) : undefined,
-      checkoutId: checkoutId || undefined,
-    });
-
-    res.status(201).json({ success: true, data: phoneRecord });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/new/order', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Legacy / Fast Provision Endpoint (Backward Compatibility)
+ * Legacy / Fast Provision Endpoint (Postponed - Coming Soon)
  */
-router.post('/numbers/new', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const { areaCode, country } = req.body;
-
-    if (country && String(country).toUpperCase() !== 'US') {
-      return res.status(400).json({ success: false, error: 'Only US phone numbers are supported.' });
-    }
-
-    const phoneRecord = await VoiceService.provisionNewNumber({
-      organizationId: req.organizationId!,
-      areaCode,
-      country: country || 'US',
-      userId: req.user?.id,
-    });
-
-    res.status(201).json({ success: true, data: phoneRecord });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/new', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Disconnect/Delete Phone Number
+ * Disconnect/Delete Phone Number (Postponed - Coming Soon)
  */
-router.delete('/numbers/:id', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const success = await VoiceService.disconnectPhoneNumber(
-      req.organizationId!,
-      req.params.id,
-      req.user?.id
-    );
-
-    if (!success) {
-      return res.status(404).json({ success: false, error: 'Phone number not found.' });
-    }
-
-    res.json({ success: true, message: 'Phone number disconnected successfully.' });
-  } catch (err) {
-    next(err);
-  }
-});
+router.delete('/numbers/:id', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Cancel recurring phone number rental subscription (without touching main software plan)
+ * Cancel recurring phone number rental subscription (Postponed - Coming Soon)
  */
-router.post(['/numbers/:id/cancel-rental', '/numbers/:id/cancel-subscription'], requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const result = await PhoneNumberBillingService.cancelPhoneNumberRental(req.organizationId!, req.params.id);
-    res.json({ success: result.success, data: result });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post(['/numbers/:id/cancel-rental', '/numbers/:id/cancel-subscription'], requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Process idempotent refund for a phone number
+ * Process idempotent refund for a phone number (Postponed - Coming Soon)
  */
-router.post('/numbers/:id/refund', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const { amountUsd, reason } = req.body;
-    const result = await PhoneNumberBillingService.processRefund({
-      organizationId: req.organizationId!,
-      phoneNumberId: req.params.id,
-      amountUsd: amountUsd !== undefined ? Number(amountUsd) : undefined,
-      reason,
-    });
-    res.json({ success: result.success, data: result });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/:id/refund', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Safe Retry for partially configured or failed phone number provisioning
+ * Safe Retry for partially configured or failed phone number provisioning (Postponed - Coming Soon)
  */
-router.post('/numbers/:id/retry', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const phoneRecord = await VoiceService.retryNumberProvisioning({
-      organizationId: req.organizationId!,
-      phoneNumberId: req.params.id,
-      userId: req.user?.id,
-    });
-
-    res.json({ success: true, data: phoneRecord });
-  } catch (err) {
-    next(err);
-  }
-});
+router.post('/numbers/:id/retry', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Test Call to verify AI Receptionist routing before marking ACTIVE
+ * Test Call to verify AI Receptionist routing before marking ACTIVE (Postponed - Coming Soon)
  */
-router.post('/numbers/:id/test-call', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const result = await VoiceService.executeTestCall({
-      organizationId: req.organizationId!,
-      phoneNumberId: req.params.id,
-    });
-
-    res.json({ success: result.success, data: result });
-  } catch (err: any) {
-    if (err.message?.includes('suspended or inactive') || err.message?.includes('renew your rental')) {
-      return res.status(403).json({ success: false, error: err.message });
-    }
-    next(err);
-  }
-});
+router.post('/numbers/:id/test-call', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
- * Test Phone Number Connection / Forwarding Route
+ * Test Phone Number Connection / Forwarding Route (Postponed - Coming Soon)
  */
-router.post('/numbers/:id/test', requirePermission('voice:manage'), async (req: Request, res: Response, next) => {
-  try {
-    const result = await VoiceService.testNumberConnection(req.organizationId!, req.params.id);
-    res.json({ success: result.success, data: result });
-  } catch (err: any) {
-    if (err.message?.includes('suspended or inactive') || err.message?.includes('renew your rental')) {
-      return res.status(403).json({ success: false, error: err.message });
-    }
-    next(err);
-  }
-});
+router.post('/numbers/:id/test', requirePermission('voice:manage'), phoneFeatureComingSoon);
 
 /**
  * Get Call History (with masked numbers and no internal cost leaks)

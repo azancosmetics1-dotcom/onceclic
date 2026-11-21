@@ -22,8 +22,8 @@ export async function runCreemBillingTests() {
     console.log('  Testing Plan Tier Resolution & Product Mapping...');
     config.creem.plans = {
       STARTER: { id: 'STARTER', name: 'Starter', priceUsd: 19, productId: 'prod_creem_starter_test', voiceMinutes: 50 },
-      PRO: { id: 'PRO', name: 'ONCEClic Pro', priceUsd: 49, productId: 'prod_creem_pro_test', voiceMinutes: 150 },
-      BUSINESS: { id: 'BUSINESS', name: 'Business', priceUsd: 99, productId: 'prod_creem_biz_test', voiceMinutes: 400 },
+      PRO: { id: 'PRO', name: 'ONCEClic Pro', priceUsd: 49, productId: 'prod_creem_pro_test', voiceMinutes: 200 },
+      BUSINESS: { id: 'BUSINESS', name: 'Business', priceUsd: 99, productId: 'prod_creem_biz_test', voiceMinutes: 500 },
     };
     config.creem.environment = 'test';
 
@@ -468,7 +468,7 @@ export async function runCreemBillingTests() {
     // TEST 10: Accurate Configuration Status, Missing Product IDs & Checkout Guards
     // -------------------------------------------------------------------------
     console.log('  Testing Accurate Configuration Reporting & Checkout Guards...');
-    
+
     // 10a. Completely unconfigured Creem
     config.creem.apiKey = '';
     config.creem.isConfigured = false;

@@ -95,14 +95,14 @@ export const config = {
         name: 'ONCEClic Pro',
         priceUsd: 49,
         productId: cleanCreemProductId(process.env.CREEM_PRO_PRODUCT_ID),
-        voiceMinutes: 150,
+        voiceMinutes: 200,
       },
       BUSINESS: {
         id: 'BUSINESS' as const,
         name: 'Business',
         priceUsd: 99,
         productId: cleanCreemProductId(process.env.CREEM_BUSINESS_PRODUCT_ID),
-        voiceMinutes: 400,
+        voiceMinutes: 500,
       },
     },
   },
@@ -128,14 +128,14 @@ export const config = {
         name: 'ONCEClic Pro',
         priceUsd: 49,
         priceId: process.env.PADDLE_PRO_PRICE_ID || process.env.VITE_PADDLE_PRO_PRICE_ID || process.env.PADDLE_PRICE_ID || process.env.VITE_PADDLE_PRICE_ID || defaultSandboxProPrice,
-        voiceMinutes: 150,
+        voiceMinutes: 200,
       },
       BUSINESS: {
         id: 'BUSINESS' as const,
         name: 'Business',
         priceUsd: 99,
         priceId: process.env.PADDLE_BUSINESS_PRICE_ID || process.env.VITE_PADDLE_BUSINESS_PRICE_ID || '',
-        voiceMinutes: 400,
+        voiceMinutes: 500,
       },
     },
   },
@@ -204,14 +204,14 @@ export const config = {
     isSignalWireConfigured: !!process.env.SIGNALWIRE_PROJECT_ID && !process.env.SIGNALWIRE_PROJECT_ID.includes('placeholder') && !!process.env.SIGNALWIRE_API_TOKEN && !process.env.SIGNALWIRE_API_TOKEN.includes('placeholder'),
     isConfigured: (!!process.env.VAPI_API_KEY && !process.env.VAPI_API_KEY.includes('placeholder')) || (!!process.env.RETELL_API_KEY && !process.env.RETELL_API_KEY.includes('placeholder')),
     maxCallDurationSeconds: (() => {
-      const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '120', 10);
-      return isNaN(parsed) || !isFinite(parsed) || parsed <= 0 ? 120 : Math.min(parsed, 120);
+      const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '180', 10);
+      return isNaN(parsed) || !isFinite(parsed) || parsed <= 0 ? 180 : Math.min(parsed, 180);
     })(),
     planLimits: {
-      TRIAL: parseInt(process.env.VOICE_TRIAL_LIMIT_MINUTES || '15', 10),
+      TRIAL: parseInt(process.env.VOICE_TRIAL_LIMIT_MINUTES || '30', 10),
       STARTER: parseInt(process.env.VOICE_STARTER_LIMIT_MINUTES || '50', 10),
-      PRO: parseInt(process.env.VOICE_PRO_LIMIT_MINUTES || '150', 10),
-      BUSINESS: parseInt(process.env.VOICE_BUSINESS_LIMIT_MINUTES || '400', 10),
+      PRO: parseInt(process.env.VOICE_PRO_LIMIT_MINUTES || '200', 10),
+      BUSINESS: parseInt(process.env.VOICE_BUSINESS_LIMIT_MINUTES || '500', 10),
     },
   },
 
@@ -234,16 +234,17 @@ export const config = {
 
   vapi: {
     apiKey: process.env.VAPI_API_KEY || '',
+    publicKey: process.env.VAPI_PUBLIC_KEY || process.env.VITE_VAPI_PUBLIC_KEY || '',
     assistantId: process.env.VAPI_ASSISTANT_ID || '',
     webhookSecret: process.env.VAPI_WEBHOOK_SECRET || '',
     sipCredentialId: process.env.VAPI_SIP_CREDENTIAL_ID || '',
     isConfigured: !!process.env.VAPI_API_KEY && !process.env.VAPI_API_KEY.includes('placeholder'),
-    // Gemini model used by Vapi for voice LLM (provider: 'google')
-    // Vapi supports Google Gemini natively — see https://docs.vapi.ai/
-    voiceGeminiModel: process.env.VAPI_GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+    // Gemini 2.5 Flash-Lite LLM used by Vapi for ONCEClic voice assistant
+    voiceGeminiModel: process.env.VAPI_GEMINI_MODEL || 'gemini-2.5-flash-lite',
+    voiceName: 'Clara',
     maxCallDurationSeconds: (() => {
-      const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '120', 10);
-      return isNaN(parsed) || !isFinite(parsed) || parsed <= 0 ? 120 : Math.min(parsed, 120);
+      const parsed = parseInt(process.env.VOICE_MAX_CALL_DURATION_SECONDS || '180', 10);
+      return isNaN(parsed) || !isFinite(parsed) || parsed <= 0 ? 180 : Math.min(parsed, 180);
     })(),
   },
 };

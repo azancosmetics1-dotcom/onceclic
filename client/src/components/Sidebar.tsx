@@ -9,6 +9,8 @@ import {
   MessageSquare,
   Mail,
   PhoneCall,
+  Phone,
+  Sparkles,
   Layers,
   CreditCard,
   Settings,
@@ -31,7 +33,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
   const navItems = [
     { label: 'Dashboard', path: '/app', icon: LayoutDashboard },
     { label: 'Analytics', path: '/app/analytics', icon: BarChart3 },
-    { label: 'AI Receptionist', path: '/app/ai-receptionist', icon: PhoneCall, badge: 'NEW' },
+    { label: 'AI Voice Receptionist', path: '/app/ai-receptionist', icon: Sparkles, badge: 'ACTIVE' },
+    { label: 'Phone Numbers', path: '/app/ai-receptionist?tab=phone', icon: Phone, badge: 'SOON' },
     { label: 'Integrations', path: '/app/integrations', icon: Layers },
     { label: 'AI Employee', path: '/app/ai-employee', icon: Bot },
     { label: 'Knowledge Base', path: '/app/knowledge', icon: BookOpen },
@@ -64,9 +67,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
 
       {/* Sidebar Aside Drawer */}
       <aside
-        className={`w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-screen fixed top-0 left-0 z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 ${
-          isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
-        }`}
+        className={`w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-screen fixed top-0 left-0 z-50 transition-transform duration-300 ease-in-out lg:translate-x-0 ${isOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full'
+          }`}
       >
         {/* Brand Header */}
         <div className="h-16 px-5 flex items-center justify-between border-b border-slate-800">
@@ -111,11 +113,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose }) => 
                 key={item.path}
                 to={item.path}
                 onClick={handleNavClick}
-                className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                  active
-                    ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold'
-                    : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
-                }`}
+                className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${active
+                  ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold'
+                  : 'text-slate-400 hover:text-slate-100 hover:bg-slate-800/60'
+                  }`}
               >
                 <div className="flex items-center space-x-3">
                   <Icon className={`w-4 h-4 ${active ? 'text-emerald-400' : 'text-slate-400'}`} />

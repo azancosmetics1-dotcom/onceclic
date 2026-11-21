@@ -107,10 +107,10 @@ export async function runMigrationAndPricingSafetyTests(): Promise<void> {
   // 4. Pricing & Plan Limit Consistency
   // ==========================================
   console.log('\n[4. Pricing & Voice Plan Limit Consistency]');
-  assert.strictEqual(DEFAULT_VOICE_PLAN_LIMITS.TRIAL, 15, 'Trial voice limit is 15 minutes');
+  assert.strictEqual(DEFAULT_VOICE_PLAN_LIMITS.TRIAL, 30, 'Trial voice limit is 30 minutes');
   assert.strictEqual(DEFAULT_VOICE_PLAN_LIMITS.STARTER, 50, 'Starter voice limit is 50 minutes');
-  assert.strictEqual(DEFAULT_VOICE_PLAN_LIMITS.PRO, 150, 'Pro voice limit is 150 minutes');
-  assert.strictEqual(DEFAULT_VOICE_PLAN_LIMITS.BUSINESS, 400, 'Business voice limit is 400 minutes');
+  assert.strictEqual(DEFAULT_VOICE_PLAN_LIMITS.PRO, 200, 'Pro voice limit is 200 minutes');
+  assert.strictEqual(DEFAULT_VOICE_PLAN_LIMITS.BUSINESS, 500, 'Business voice limit is 500 minutes');
 
   const customerBilling = toCustomerBillingConfig(config);
   assert.strictEqual(customerBilling.monthlyPriceUsd, 19, 'Core customer billing is $19/mo');

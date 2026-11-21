@@ -23,7 +23,7 @@ router.get('/sources', requirePermission('knowledge:read'), async (req: Request,
 // Add knowledge source
 router.post('/sources', requirePermission('knowledge:manage'), async (req: Request, res: Response, next) => {
   try {
-    const { sourceType, title, rawContent } = req.body;
+    const { sourceType, title, rawContent, fileUrl, fileType, fileSize } = req.body;
     if (!title || !rawContent) {
       return res.status(400).json({ success: false, error: 'Title and content are required.' });
     }
@@ -38,9 +38,36 @@ router.post('/sources', requirePermission('knowledge:manage'), async (req: Reque
       userId: req.user?.id,
     });
 
+    // Asynchronously synchronize with Vapi assistant in background
+    import('../services/voice/VoiceAssistantProvisioningService')
+      .then(({ VoiceAssistantProvisioningService }) => {
+        VoiceAssistantProvisioningService.syncAssistantKnowledge(req.organizationId!).catch(err => {
+          console.warn(`[KnowledgeRoutes] Background Vapi knowledge sync deferred for org ${req.organizationId}:`, err?.message || err);
+        });
+      })
+      .catch(() => {});
+
     res.status(201).json({ success: true, data: source });
   } catch (err) {
     next(err);
+  }
+});
+
+// Explicit Sync to Vapi Assistant
+router.post('/sync-vapi', requirePermission('knowledge:manage'), async (req: Request, res: Response, next) => {
+  try {
+    const { VoiceAssistantProvisioningService } = await import('../services/voice/VoiceAssistantProvisioningService');
+    const result = await VoiceAssistantProvisioningService.syncAssistantKnowledge(req.organizationId!);
+    res.json({
+      success: true,
+      message: 'Knowledge base successfully synchronized with dedicated AI Voice Assistant.',
+      data: result,
+    });
+  } catch (err: any) {
+    res.status(500).json({
+      success: false,
+      error: `Knowledge synchronization failed: ${err.message || err}`,
+    });
   }
 });
 
@@ -51,6 +78,14 @@ router.delete('/sources/:id', requirePermission('knowledge:manage'), async (req:
     if (!success) {
       return res.status(404).json({ success: false, error: 'Knowledge source not found.' });
     }
+
+    // Re-sync after delete
+    import('../services/voice/VoiceAssistantProvisioningService')
+      .then(({ VoiceAssistantProvisioningService }) => {
+        VoiceAssistantProvisioningService.syncAssistantKnowledge(req.organizationId!).catch(() => {});
+      })
+      .catch(() => {});
+
     res.json({ success: true, message: 'Knowledge source deleted successfully.' });
   } catch (err) {
     next(err);

@@ -59,15 +59,15 @@ export async function runPaddleLiveSwitchTests() {
     if (SUBSCRIPTION_PLANS.PRO.priceUsd !== 49) {
       throw new Error(`Expected PRO price to be 49, got ${SUBSCRIPTION_PLANS.PRO.priceUsd}`);
     }
-    if (SUBSCRIPTION_PLANS.PRO.voiceMinutes !== 150) {
-      throw new Error(`Expected PRO voiceMinutes to be 150, got ${SUBSCRIPTION_PLANS.PRO.voiceMinutes}`);
+    if (SUBSCRIPTION_PLANS.PRO.voiceMinutes !== 200) {
+      throw new Error(`Expected PRO voiceMinutes to be 200, got ${SUBSCRIPTION_PLANS.PRO.voiceMinutes}`);
     }
 
     if (SUBSCRIPTION_PLANS.BUSINESS.priceUsd !== 99) {
       throw new Error(`Expected BUSINESS price to be 99, got ${SUBSCRIPTION_PLANS.BUSINESS.priceUsd}`);
     }
-    if (SUBSCRIPTION_PLANS.BUSINESS.voiceMinutes !== 400) {
-      throw new Error(`Expected BUSINESS voiceMinutes to be 400, got ${SUBSCRIPTION_PLANS.BUSINESS.voiceMinutes}`);
+    if (SUBSCRIPTION_PLANS.BUSINESS.voiceMinutes !== 500) {
+      throw new Error(`Expected BUSINESS voiceMinutes to be 500, got ${SUBSCRIPTION_PLANS.BUSINESS.voiceMinutes}`);
     }
     console.log('  ✓ 2. Customer-facing pricing verified: Starter $19/mo, Pro $49/mo, Business $99/mo');
 

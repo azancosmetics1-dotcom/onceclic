@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { ConversationMessage, AvailableSlot } from '@onceclic/shared';
+import { BrowserVoiceSession, VoiceSessionStatus } from '../utils/vapiBrowserVoice';
 import {
   Bot,
   Send,
@@ -12,6 +13,10 @@ import {
   AlertTriangle,
   User,
   X,
+  Volume2,
+  Mic,
+  MicOff,
+  PhoneOff,
 } from 'lucide-react';
 
 export const HostedChat: React.FC = () => {
@@ -39,6 +44,90 @@ export const HostedChat: React.FC = () => {
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingSuccess, setBookingSuccess] = useState(false);
+
+  // Browser Voice State
+  const [voiceStatus, setVoiceStatus] = useState<VoiceSessionStatus>('idle');
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const voiceSessionRef = useRef<BrowserVoiceSession | null>(null);
+
+  const handleStartVoiceCall = async () => {
+    if (!orgSlug) return;
+    try {
+      setVoiceError(null);
+      const session = await api.getPublicVoiceSession(orgSlug);
+      if (!session?.assistantId || !session?.vapiPublicKey) {
+        setVoiceError('AI voice receptionist is currently unavailable.');
+        return;
+      }
+
+      const voice = new BrowserVoiceSession({
+        assistantId: session.assistantId,
+        publicKey: session.vapiPublicKey,
+        maxDurationSeconds: session.maxDurationSeconds || 180,
+        appointmentReminderSeconds: session.appointmentReminderSeconds || 120,
+        callbacks: {
+          onStatusChange: (status, err) => {
+            setVoiceStatus(status);
+            if (err) setVoiceError(err);
+          },
+          onAppointmentReminder: () => {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `reminder_${Date.now()}`,
+                conversationId: conversationId || '',
+                organizationId: orgData?.organization?.id || '',
+                role: 'AI' as any,
+                content: 'Would you like me to book an appointment for you before we finish?',
+                status: 'DELIVERED',
+                grounded: true,
+                handoffRequired: false,
+                createdAt: new Date().toISOString(),
+              },
+            ]);
+          },
+          onTranscript: (role, text) => {
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: `voice_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+                conversationId: conversationId || '',
+                organizationId: orgData?.organization?.id || '',
+                role: (role === 'user' ? 'CUSTOMER' : 'AI') as any,
+                content: text,
+                status: 'DELIVERED',
+                grounded: true,
+                handoffRequired: false,
+                createdAt: new Date().toISOString(),
+              },
+            ]);
+          },
+        },
+      });
+
+      voiceSessionRef.current = voice;
+      await voice.start();
+    } catch (err: any) {
+      setVoiceError(err.message || 'Failed to start browser voice session.');
+    }
+  };
+
+  const handleEndVoiceCall = () => {
+    if (voiceSessionRef.current) {
+      voiceSessionRef.current.stop();
+      voiceSessionRef.current = null;
+    }
+    setVoiceStatus('ended');
+  };
+
+  // Clean up voice call when leaving
+  useEffect(() => {
+    return () => {
+      if (voiceSessionRef.current) {
+        voiceSessionRef.current.stop();
+      }
+    };
+  }, []);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -281,25 +370,80 @@ export const HostedChat: React.FC = () => {
             </div>
           </div>
 
-          <button
-            onClick={handleOpenBooking}
-            className="inline-flex items-center space-x-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] sm:text-xs transition shadow-md shadow-emerald-500/20 shrink-0"
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">
-              {orgData?.organization?.businessType?.toLowerCase().includes('restaurant')
-                ? 'Reserve a Table'
-                : orgData?.organization?.businessType?.toLowerCase().includes('salon')
-                ? 'Book a Service'
-                : 'Book Appointment'}
-            </span>
-            <span className="sm:hidden">
-              {orgData?.organization?.businessType?.toLowerCase().includes('restaurant')
-                ? 'Reserve'
-                : 'Book'}
-            </span>
-          </button>
+          <div className="flex items-center space-x-2 shrink-0">
+            {orgData?.voiceAssistant?.enabled && (
+              voiceStatus === 'active' || voiceStatus === 'listening' || voiceStatus === 'speaking' || voiceStatus === 'connecting' || voiceStatus === 'loading_sdk' ? (
+                <button
+                  onClick={handleEndVoiceCall}
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold text-[11px] sm:text-xs transition shadow-md shadow-rose-500/20 shrink-0"
+                >
+                  <PhoneOff className="w-3.5 h-3.5" />
+                  <span>End Call</span>
+                </button>
+              ) : (
+                <button
+                  onClick={handleStartVoiceCall}
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-[11px] sm:text-xs transition shadow-md shadow-sky-500/20 shrink-0"
+                  title="Speak with AI Receptionist through your browser"
+                >
+                  <Volume2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Talk to Luna</span>
+                  <span className="sm:hidden">Talk</span>
+                </button>
+              )
+            )}
+
+            <button
+              onClick={handleOpenBooking}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] sm:text-xs transition shadow-md shadow-emerald-500/20 shrink-0"
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">
+                {orgData?.organization?.businessType?.toLowerCase().includes('restaurant')
+                  ? 'Reserve a Table'
+                  : orgData?.organization?.businessType?.toLowerCase().includes('salon')
+                  ? 'Book a Service'
+                  : 'Book Appointment'}
+              </span>
+              <span className="sm:hidden">
+                {orgData?.organization?.businessType?.toLowerCase().includes('restaurant')
+                  ? 'Reserve'
+                  : 'Book'}
+              </span>
+            </button>
+          </div>
         </div>
+
+        {/* Active Browser Voice Banner */}
+        {(voiceStatus === 'active' || voiceStatus === 'listening' || voiceStatus === 'speaking' || voiceStatus === 'connecting' || voiceStatus === 'loading_sdk') && (
+          <div className="bg-gradient-to-r from-sky-950/80 via-emerald-950/60 to-slate-950 border-b border-sky-500/30 px-4 py-2.5 flex items-center justify-between text-xs">
+            <div className="flex items-center space-x-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+              <span className="font-semibold text-white">
+                {voiceStatus === 'loading_sdk' && 'Connecting audio...'}
+                {voiceStatus === 'connecting' && 'Connecting to Luna...'}
+                {voiceStatus === 'speaking' && 'Luna is speaking...'}
+                {voiceStatus === 'listening' && 'Listening (speak now)...'}
+                {voiceStatus === 'active' && 'Voice Receptionist connected'}
+              </span>
+              <span className="text-[10px] text-slate-400 hidden sm:inline">(Browser microphone & speaker active)</span>
+            </div>
+            <button
+              onClick={handleEndVoiceCall}
+              className="text-xs text-rose-400 hover:text-rose-300 font-semibold underline flex items-center space-x-1"
+            >
+              <span>Disconnect</span>
+            </button>
+          </div>
+        )}
+        {voiceError && (
+          <div className="bg-rose-950/60 border-b border-rose-500/30 px-4 py-2 flex items-center justify-between text-xs text-rose-300">
+            <span>{voiceError}</span>
+            <button onClick={() => setVoiceError(null)} className="text-slate-400 hover:text-white">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Message Stream */}
         <div className="flex-1 p-3.5 sm:p-5 overflow-y-auto space-y-4 min-w-0">

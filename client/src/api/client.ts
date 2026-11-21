@@ -286,6 +286,12 @@ class ApiClient {
     });
   }
 
+  async syncKnowledgeToVapi(): Promise<{ success: boolean; data: any; message?: string }> {
+    return this.request('/knowledge/sync-vapi', {
+      method: 'POST',
+    });
+  }
+
   // Appointments
   async getAppointments(status?: string): Promise<Appointment[]> {
     const query = status ? `?status=${status}` : '';
@@ -552,9 +558,45 @@ class ApiClient {
     return this.request('/integrations/facebook/disconnect', { method: 'POST' });
   }
 
-  // AI Phone Receptionist & Voice
+  // AI Voice Receptionist & Voice
   async getVoiceStatus(): Promise<CustomerVoiceConfig> {
     return this.request('/voice/status');
+  }
+
+  async getVoiceAssistant(): Promise<{
+    assistantId: string;
+    vapiPublicKey: string | null;
+    isVoiceReceptionistReady: boolean;
+    embedSnippet: string;
+    browserVoiceMinutes: number;
+  }> {
+    return this.request('/voice/assistant');
+  }
+
+  async startBrowserVoiceSession(): Promise<{
+    allowed: boolean;
+    reason?: string;
+    assistantId: string;
+    vapiPublicKey: string;
+    remainingMinutes?: number;
+    maxDurationSeconds?: number;
+    maxConversationSeconds?: number;
+    appointmentReminderSeconds?: number;
+  }> {
+    return this.request('/voice/browser/session', { method: 'POST' });
+  }
+
+  async getPublicVoiceSession(orgSlug: string): Promise<{
+    allowed: boolean;
+    reason?: string;
+    assistantId: string;
+    vapiPublicKey: string;
+    remainingMinutes?: number;
+    maxDurationSeconds?: number;
+    maxConversationSeconds?: number;
+    appointmentReminderSeconds?: number;
+  }> {
+    return this.request(`/public/org/${orgSlug}/voice-session`, { method: 'POST' });
   }
 
   async getVoiceCountries(): Promise<TelephonyCountryInfo[]> {

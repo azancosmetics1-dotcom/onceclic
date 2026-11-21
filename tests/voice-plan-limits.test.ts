@@ -143,20 +143,20 @@ export async function runVoicePlanLimitsTests() {
   console.log('  ✓ 2. PLAN_MONTHLY_CALL_LIMITS constants correct (TRIAL=5, STARTER=20, PRO=50, BUSINESS=100)');
 
   // Per-call duration limit
-  assert.strictEqual(MAX_CALL_DURATION_SECONDS, 120, 'MAX_CALL_DURATION_SECONDS = 120 (2 minutes)');
-  console.log('  ✓ 3. MAX_CALL_DURATION_SECONDS = 120 (2-minute per-call limit)');
+  assert.strictEqual(MAX_CALL_DURATION_SECONDS, 180, 'MAX_CALL_DURATION_SECONDS = 180 (3 minutes)');
+  console.log('  ✓ 3. MAX_CALL_DURATION_SECONDS = 180 (3-minute per-call limit)');
 
-  // ── 2. validateMaxCallDuration: ceiling at 120s ─────────────────────────
+  // ── 2. validateMaxCallDuration: ceiling at 180s ─────────────────────────
 
   assert.strictEqual(VoiceService.validateMaxCallDuration(60),   60,  'Valid 60s accepted');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(120),  120, 'Exactly 120s accepted');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(180),  120, 'Above 120s clamped to 120');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(300),  120, '300s clamped to 120 (ceiling)');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(0),    120, '0s falls back to 120 default');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(-1),   120, 'Negative falls back to 120');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(NaN),  120, 'NaN falls back to 120');
-  assert.strictEqual(VoiceService.validateMaxCallDuration(null), 120, 'null falls back to 120');
-  console.log('  ✓ 4. validateMaxCallDuration: ceiling = 120s, invalid inputs default to 120s');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(120),  120, '120s accepted');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(180),  180, 'Exactly 180s accepted');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(300),  180, '300s clamped to 180 (ceiling)');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(0),    180, '0s falls back to 180 default');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(-1),   180, 'Negative falls back to 180');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(NaN),  180, 'NaN falls back to 180');
+  assert.strictEqual(VoiceService.validateMaxCallDuration(null), 180, 'null falls back to 180');
+  console.log('  ✓ 4. validateMaxCallDuration: ceiling = 180s, invalid inputs default to 180s');
 
   // ── 3. checkPhoneNumberLimit per plan tier ──────────────────────────────
 

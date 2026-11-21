@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { db, IDatabase } from '../../db';
 import { VoiceService } from './VoiceService';
 import { VoicePromptBuilder } from './VoicePromptBuilder';
+import { KnowledgeService } from '../KnowledgeService';
 import { OrganizationVoiceAssistant } from '@onceclic/shared';
 
 export interface ProvisioningClaimResult {
@@ -244,20 +245,32 @@ export class VoiceAssistantProvisioningService {
 
   /**
    * Conditional commit with fencing.
-   * Only persists the assistant ID IF the worker still owns the valid claim token.
+   * Only persists the assistant ID and synced knowledge IF the worker still owns the valid claim token.
    */
   static async commitAssistant(
     organizationId: string,
     claimToken: string,
     assistantId: string,
-    database?: IDatabase
+    database?: IDatabase,
+    knowledgeData?: {
+      vapiFileIds?: string[];
+      vapiKnowledgeToolId?: string | null;
+      knowledgeSyncStatus?: string;
+    }
   ): Promise<{ committed: boolean }> {
     const activeDb = database || db;
+    const fileIdsJson = JSON.stringify(knowledgeData?.vapiFileIds || []);
+    const toolId = knowledgeData?.vapiKnowledgeToolId || null;
+    const kbStatus = knowledgeData?.knowledgeSyncStatus || 'READY';
 
     const affected = await activeDb.execute(
       `UPDATE organization_voice_assistants
        SET vapi_assistant_id = $1,
            provisioning_status = 'READY',
+           vapi_file_ids = $4,
+           vapi_knowledge_tool_id = $5,
+           knowledge_sync_status = $6,
+           knowledge_synced_at = CURRENT_TIMESTAMP,
            claim_token = NULL,
            claim_expires_at = NULL,
            error_message = NULL,
@@ -266,7 +279,7 @@ export class VoiceAssistantProvisioningService {
        WHERE organization_id = $2
          AND claim_token = $3
          AND provisioning_status = 'CLAIMED'`,
-      [assistantId, organizationId, claimToken]
+      [assistantId, organizationId, claimToken, fileIdsJson, toolId, kbStatus]
     );
 
     if (affected === 1) {
@@ -297,13 +310,19 @@ export class VoiceAssistantProvisioningService {
     organizationId: string,
     claimToken: string,
     errorMessage?: string,
-    database?: IDatabase
+    database?: IDatabase,
+    options?: {
+      assistantId?: string;
+      knowledgeSyncStatus?: string;
+    }
   ): Promise<void> {
     const activeDb = database || db;
 
     await activeDb.execute(
       `UPDATE organization_voice_assistants
        SET provisioning_status = 'FAILED',
+           vapi_assistant_id = COALESCE($4, vapi_assistant_id),
+           knowledge_sync_status = COALESCE($5, 'FAILED'),
            claim_token = NULL,
            claim_expires_at = NULL,
            error_message = $1,
@@ -311,7 +330,13 @@ export class VoiceAssistantProvisioningService {
        WHERE organization_id = $2
          AND claim_token = $3
          AND provisioning_status = 'CLAIMED'`,
-      [errorMessage || 'Voice AI assistant provisioning failed', organizationId, claimToken]
+      [
+        errorMessage || 'Voice AI assistant provisioning failed',
+        organizationId,
+        claimToken,
+        options?.assistantId || null,
+        options?.knowledgeSyncStatus || 'FAILED',
+      ]
     );
   }
 
@@ -520,6 +545,30 @@ export class VoiceAssistantProvisioningService {
 
       try {
         const promptData = await VoicePromptBuilder.buildPrompt(organizationId);
+        const org = await activeDb.getOne<any>('SELECT name FROM organizations WHERE id = $1', [organizationId]);
+
+        // Sync organization knowledge documents to Vapi before assistant creation
+        let knowledgeSyncResult: { fileIds: string[]; queryToolId?: string } = { fileIds: [] };
+        try {
+          knowledgeSyncResult = await KnowledgeService.syncOrganizationKnowledgeToVapi(organizationId, {
+            customVoiceProvider: voice,
+            organizationName: org?.name || 'Business',
+          });
+        } catch (kbErr: any) {
+          this.logEvent({
+            event: 'ASSISTANT_CREATION_FAILED',
+            organizationId,
+            reason: `Knowledge sync failed: ${kbErr?.message || kbErr}`,
+          });
+          await this.releaseClaim(
+            organizationId,
+            claimToken,
+            `Knowledge synchronization failed: ${kbErr?.message || kbErr}`,
+            activeDb,
+            { knowledgeSyncStatus: 'FAILED' }
+          );
+          throw new Error(`Failed to configure knowledge for organization ${organizationId}: ${kbErr?.message || kbErr}`);
+        }
 
         step = 'EXTERNAL_CALL';
         if (voice.createOrUpdateAssistant) {
@@ -528,6 +577,8 @@ export class VoiceAssistantProvisioningService {
             systemPrompt: promptData.systemPrompt,
             greeting: promptData.greeting,
             tools: promptData.tools,
+            knowledgeFileIds: knowledgeSyncResult.fileIds,
+            knowledgeToolId: knowledgeSyncResult.queryToolId,
           });
           createdAssistantId = asstRes.assistantId;
         } else {
@@ -544,13 +595,18 @@ export class VoiceAssistantProvisioningService {
           assistantId: createdAssistantId,
         });
 
-        // 4. Commit assistant ID with fencing
+        // 4. Commit assistant ID and synced knowledge with fencing
         step = 'DB_COMMIT';
         const commitResult = await this.commitAssistant(
           organizationId,
           claimToken,
           createdAssistantId,
-          activeDb
+          activeDb,
+          {
+            vapiFileIds: knowledgeSyncResult.fileIds,
+            vapiKnowledgeToolId: knowledgeSyncResult.queryToolId,
+            knowledgeSyncStatus: 'READY',
+          }
         );
 
         if (!commitResult.committed) {
@@ -730,6 +786,51 @@ export class VoiceAssistantProvisioningService {
     }
 
     return { linesSynchronized, linesPending, conflictDetected };
+  }
+
+  /**
+   * Re-synchronize knowledge documents with Vapi for an existing organization assistant.
+   */
+  static async syncAssistantKnowledge(
+    organizationId: string,
+    options?: {
+      customVoiceProvider?: any;
+      database?: IDatabase;
+    }
+  ): Promise<{ fileIds: string[]; queryToolId?: string; assistantId?: string }> {
+    const activeDb = options?.database || db;
+    const voice = options?.customVoiceProvider || VoiceService.getVoiceProvider();
+
+    const current = await activeDb.getOne<OrganizationVoiceAssistant>(
+      `SELECT organization_id as "organizationId", vapi_assistant_id as "vapiAssistantId",
+              provisioning_status as "provisioningStatus"
+       FROM organization_voice_assistants
+       WHERE organization_id = $1`,
+      [organizationId]
+    );
+
+    const org = await activeDb.getOne<any>('SELECT name FROM organizations WHERE id = $1', [organizationId]);
+    const syncResult = await KnowledgeService.syncOrganizationKnowledgeToVapi(organizationId, {
+      customVoiceProvider: voice,
+      organizationName: org?.name || 'Business',
+    });
+
+    await activeDb.execute(
+      `UPDATE organization_voice_assistants
+       SET vapi_file_ids = $1,
+           vapi_knowledge_tool_id = COALESCE($2, vapi_knowledge_tool_id),
+           knowledge_sync_status = 'READY',
+           knowledge_synced_at = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE organization_id = $3`,
+      [JSON.stringify(syncResult.fileIds), syncResult.queryToolId || null, organizationId]
+    );
+
+    return {
+      fileIds: syncResult.fileIds,
+      queryToolId: syncResult.queryToolId,
+      assistantId: current?.vapiAssistantId || undefined,
+    };
   }
 }
 

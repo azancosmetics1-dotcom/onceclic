@@ -12,7 +12,11 @@ export class MockVoiceProvider implements IVoiceProvider {
   public simulateVapiImportFailure: boolean = false;
   public simulateTestCallFailure: boolean = false;
   public simulateTerminationFailure: boolean = false;
+  public simulateKnowledgeUploadFailure: boolean = false;
+  public simulateKnowledgeToolFailure: boolean = false;
   public terminatedCalls: Set<string> = new Set();
+  public uploadedFiles: Array<{ fileId: string; name: string; content: string }> = [];
+  public queryTools: Array<{ toolId: string; name: string; fileIds: string[] }> = [];
 
   verifyWebhookSignature(_rawBody: string | Buffer, _signature: string | undefined, _secret?: string): boolean {
     // In mock mode for testing, permit test calls unless signature is explicitly 'invalid_signature_test'
@@ -62,7 +66,7 @@ export class MockVoiceProvider implements IVoiceProvider {
 
   formatInboundResponse(agentConfig: VoiceAgentConfig): any {
     this.lastInboundConfig = agentConfig;
-    const maxDurationSeconds = agentConfig.maxDurationSeconds ?? 120;
+    const maxDurationSeconds = agentConfig.maxDurationSeconds ?? 180;
     return {
       success: true,
       provider: this.providerName,
@@ -110,6 +114,32 @@ export class MockVoiceProvider implements IVoiceProvider {
     return {
       assistantId: `vapi_asst_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
     };
+  }
+
+  async uploadKnowledgeFile(params: {
+    filename: string;
+    content: string | Buffer;
+    mimeType?: string;
+  }): Promise<{ fileId: string; name: string }> {
+    if (this.simulateKnowledgeUploadFailure) {
+      throw new Error('Simulated Vapi file upload failure: Document parsing or rate limit error.');
+    }
+    const fileId = `mock_vapi_file_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    const strContent = typeof params.content === 'string' ? params.content : params.content.toString('utf-8');
+    this.uploadedFiles.push({ fileId, name: params.filename, content: strContent });
+    return { fileId, name: params.filename };
+  }
+
+  async createOrUpdateKnowledgeQueryTool(params: {
+    name: string;
+    fileIds: string[];
+  }): Promise<{ toolId: string }> {
+    if (this.simulateKnowledgeToolFailure) {
+      throw new Error('Simulated Vapi query tool creation failure: Invalid file IDs or tool quota exceeded.');
+    }
+    const toolId = `mock_query_tool_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+    this.queryTools.push({ toolId, name: params.name, fileIds: params.fileIds });
+    return { toolId };
   }
 
   async linkPhoneNumberToAssistant(params: { phoneNumberIdOrNumber: string; assistantId: string }): Promise<boolean> {

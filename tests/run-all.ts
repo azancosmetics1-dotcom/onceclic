@@ -218,6 +218,18 @@ async function runAllTests() {
     await runSignalWireVapiIntegrationTests();
     console.log('');
 
+    const { runWebsiteVoiceV1Tests } = await import('./website-voice-v1.test');
+    await runWebsiteVoiceV1Tests();
+    console.log('');
+
+    const { runAutomatedCustomerOnboardingTests } = await import('./automated-customer-onboarding.test');
+    await runAutomatedCustomerOnboardingTests();
+    console.log('');
+
+    const { runTrialAndVoiceLimitsTests } = await import('./trial-and-voice-limits.test');
+    await runTrialAndVoiceLimitsTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

@@ -1,0 +1,244 @@
+/**
+ * Browser Voice Helper for Vapi Web SDK
+ * Connects website visitors and dashboard users to their dedicated AI Voice Receptionist
+ * using the visitor's browser microphone and speakers without any phone number or PSTN connection.
+ *
+ * Enforces:
+ * - Universal 180-second (3-minute) hard conversation maximum
+ * - Appointment reminder at 120 seconds of active conversation
+ * - Accurate timer starting ONLY when active voice conversation starts
+ */
+
+declare global {
+  interface Window {
+    vapiSDK?: any;
+    vapiInstance?: any;
+  }
+}
+
+export type VoiceSessionStatus =
+  | 'idle'
+  | 'loading_sdk'
+  | 'connecting'
+  | 'active'
+  | 'listening'
+  | 'speaking'
+  | 'ended'
+  | 'error';
+
+export interface BrowserVoiceCallbacks {
+  onStatusChange?: (status: VoiceSessionStatus, error?: string) => void;
+  onVolumeLevel?: (volume: number) => void;
+  onTranscript?: (role: 'user' | 'assistant', text: string) => void;
+  onAppointmentReminder?: () => void;
+  onTimerTick?: (elapsedSeconds: number, remainingSeconds: number) => void;
+}
+
+let vapiScriptLoadingPromise: Promise<void> | null = null;
+
+export function loadVapiScript(): Promise<void> {
+  if (window.vapiSDK) {
+    return Promise.resolve();
+  }
+
+  if (vapiScriptLoadingPromise) {
+    return vapiScriptLoadingPromise;
+  }
+
+  vapiScriptLoadingPromise = new Promise((resolve, reject) => {
+    // Check if script already in document
+    const existingScript = document.querySelector('script[src*="VapiAI"]');
+    if (existingScript && window.vapiSDK) {
+      resolve();
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/gh/VapiAI/html-script-tag@latest/dist/assets/index.js';
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      resolve();
+    };
+    script.onerror = (err) => {
+      vapiScriptLoadingPromise = null;
+      reject(new Error('Failed to load Vapi Web SDK for browser voice.'));
+    };
+    document.head.appendChild(script);
+  });
+
+  return vapiScriptLoadingPromise;
+}
+
+export class BrowserVoiceSession {
+  private vapi: any = null;
+  private assistantId: string;
+  private publicKey: string;
+  private callbacks: BrowserVoiceCallbacks;
+  private status: VoiceSessionStatus = 'idle';
+  private maxDurationSeconds: number;
+  private appointmentReminderSeconds: number;
+  private timerInterval: any = null;
+  private callStartTimestamp: number | null = null;
+  private reminderTriggered: boolean = false;
+
+  constructor(params: {
+    assistantId: string;
+    publicKey: string;
+    maxDurationSeconds?: number;
+    appointmentReminderSeconds?: number;
+    callbacks?: BrowserVoiceCallbacks;
+  }) {
+    this.assistantId = params.assistantId;
+    this.publicKey = params.publicKey;
+    this.maxDurationSeconds = params.maxDurationSeconds || 180;
+    this.appointmentReminderSeconds = params.appointmentReminderSeconds || 120;
+    this.callbacks = params.callbacks || {};
+  }
+
+  private setStatus(status: VoiceSessionStatus, error?: string) {
+    this.status = status;
+    this.callbacks.onStatusChange?.(status, error);
+  }
+
+  private startTimer(): void {
+    this.clearTimer();
+    this.callStartTimestamp = Date.now();
+    this.reminderTriggered = false;
+
+    this.timerInterval = setInterval(() => {
+      if (!this.callStartTimestamp) return;
+      const elapsedSeconds = Math.floor((Date.now() - this.callStartTimestamp) / 1000);
+      const remainingSeconds = Math.max(0, this.maxDurationSeconds - elapsedSeconds);
+
+      this.callbacks.onTimerTick?.(elapsedSeconds, remainingSeconds);
+
+      // Trigger appointment reminder at 120s into conversation
+      if (
+        !this.reminderTriggered &&
+        elapsedSeconds >= this.appointmentReminderSeconds &&
+        elapsedSeconds < this.maxDurationSeconds
+      ) {
+        this.reminderTriggered = true;
+        this.callbacks.onAppointmentReminder?.();
+      }
+
+      // Hard stop at 180s (max conversation limit)
+      if (elapsedSeconds >= this.maxDurationSeconds) {
+        this.clearTimer();
+        this.stop('The maximum conversation limit of 3 minutes has been reached. Please book online or start a new inquiry.');
+      }
+    }, 1000);
+  }
+
+  private clearTimer(): void {
+    if (this.timerInterval) {
+      clearInterval(this.timerInterval);
+      this.timerInterval = null;
+    }
+  }
+
+  async start(): Promise<void> {
+    try {
+      this.setStatus('loading_sdk');
+      await loadVapiScript();
+
+      if (!window.vapiSDK && !(window as any).Vapi) {
+        throw new Error('Vapi Web SDK is not available.');
+      }
+
+      const VapiConstructor = window.vapiSDK?.run ? null : ((window as any).Vapi || window.vapiSDK);
+
+      this.setStatus('connecting');
+
+      if (VapiConstructor && typeof VapiConstructor === 'function') {
+        this.vapi = new VapiConstructor(this.publicKey);
+      } else if (window.vapiSDK?.run) {
+        // Alternative CDN instance runner
+        this.vapi = window.vapiSDK.run({
+          apiKey: this.publicKey,
+          assistant: this.assistantId,
+        });
+        this.setStatus('active');
+        this.startTimer();
+        return;
+      } else {
+        throw new Error('Vapi client constructor could not be initialized.');
+      }
+
+      this.vapi.on('call-start', () => {
+        this.setStatus('active');
+        // Timer strictly starts when voice conversation becomes active, not during mic permission/connecting
+        this.startTimer();
+      });
+
+      this.vapi.on('call-end', () => {
+        this.clearTimer();
+        this.setStatus('ended');
+      });
+
+      this.vapi.on('speech-start', () => {
+        this.setStatus('speaking');
+      });
+
+      this.vapi.on('speech-end', () => {
+        this.setStatus('listening');
+      });
+
+      this.vapi.on('volume-level', (volume: number) => {
+        this.callbacks.onVolumeLevel?.(volume);
+      });
+
+      this.vapi.on('message', (message: any) => {
+        if (message.type === 'transcript') {
+          if (message.transcriptType === 'final') {
+            this.callbacks.onTranscript?.(
+              message.role === 'user' ? 'user' : 'assistant',
+              message.transcript
+            );
+          }
+        }
+      });
+
+      this.vapi.on('error', (err: any) => {
+        console.error('[BrowserVoiceSession] Vapi error:', err);
+        const errMsg = err?.message || err?.errorMsg || 'Voice session error';
+        this.clearTimer();
+        this.setStatus('error', errMsg);
+      });
+
+      // Start the voice call with the dedicated assistant
+      await this.vapi.start(this.assistantId);
+    } catch (err: any) {
+      console.error('[BrowserVoiceSession] Start failed:', err);
+      this.clearTimer();
+      this.setStatus('error', err?.message || 'Failed to start browser voice session');
+      throw err;
+    }
+  }
+
+  stop(reason?: string): void {
+    this.clearTimer();
+    try {
+      if (this.vapi) {
+        this.vapi.stop?.();
+      }
+    } catch (err) {
+      console.warn('[BrowserVoiceSession] Stop error:', err);
+    } finally {
+      this.setStatus('ended', reason);
+    }
+  }
+
+  getStatus(): VoiceSessionStatus {
+    return this.status;
+  }
+
+  getMaxDurationSeconds(): number {
+    return this.maxDurationSeconds;
+  }
+
+  getAppointmentReminderSeconds(): number {
+    return this.appointmentReminderSeconds;
+  }
+}
