@@ -43,15 +43,15 @@ export class GeminiLiveVoiceClient {
   private ws: WebSocket | null = null;
   private status: VoiceSessionStatus = 'idle';
 
-  // Audio recording
+  // Audio engine (unified for both recording and playback)
   private mediaStream: MediaStream | null = null;
-  private audioRecordContext: AudioContext | null = null;
+  private audioContext: AudioContext | null = null;
   private recordProcessor: ScriptProcessorNode | null = null;
   private recordSource: MediaStreamAudioSourceNode | null = null;
+  private muteGain: GainNode | null = null;
   private isReadyToSendAudio: boolean = false;
 
-  // Audio playback
-  private audioPlayContext: AudioContext | null = null;
+  // Audio playback queue
   private nextPlayTime: number = 0;
   private activeSources: AudioBufferSourceNode[] = [];
 
@@ -158,15 +158,18 @@ export class GeminiLiveVoiceClient {
       this.diagnostics.microphonePermissionGranted = true;
       this.logDiag('Microphone permission granted.');
 
-      // 2. Setup playback AudioContext (native hardware rate, e.g. 44100 or 48000 Hz)
+      // 2. Setup unified AudioContext (native hardware rate, e.g. 44100 or 48000 Hz)
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      this.audioPlayContext = new AudioCtx();
-      if (this.audioPlayContext.state === 'suspended') {
-        await this.audioPlayContext.resume();
+      this.audioContext = new AudioCtx();
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
       }
-      this.nextPlayTime = this.audioPlayContext.currentTime;
+      this.nextPlayTime = this.audioContext.currentTime;
 
-      // 3. Connect to Backend WebSocket Bridge
+      // 3. Setup microphone capture & downsampling pipeline immediately while inside user gesture
+      this.setupMicrophonePipeline();
+
+      // 4. Connect to Backend WebSocket Bridge
       this.setStatus('connecting');
       this.logDiag('Connecting to voice WebSocket bridge...');
 
@@ -219,20 +222,16 @@ export class GeminiLiveVoiceClient {
   }
 
   /**
-   * Start streaming microphone PCM chunks to backend
+   * Set up microphone capture pipeline on the unified AudioContext
    */
-  private startMicrophoneCapture(): void {
-    if (!this.mediaStream) return;
+  private setupMicrophonePipeline(): void {
+    if (!this.mediaStream || !this.audioContext) return;
 
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      // Do NOT constrain AudioContext sampleRate to 16000Hz, as that fails on Windows/Mac hardware
-      this.audioRecordContext = new AudioCtx();
-      const inputSampleRate = this.audioRecordContext.sampleRate || 48000;
-
-      this.recordSource = this.audioRecordContext.createMediaStreamSource(this.mediaStream);
-      // ScriptProcessor captures 4096-sample windows
-      this.recordProcessor = this.audioRecordContext.createScriptProcessor(4096, 1, 1);
+      const inputSampleRate = this.audioContext.sampleRate || 48000;
+      this.recordSource = this.audioContext.createMediaStreamSource(this.mediaStream);
+      // ScriptProcessor captures 4096-sample windows (~85ms chunks)
+      this.recordProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
       this.recordProcessor.onaudioprocess = (e) => {
         if (!this.isReadyToSendAudio || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
@@ -257,7 +256,7 @@ export class GeminiLiveVoiceClient {
           pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
 
-        // Base64 encode safely in 8KB chunks
+        // Base64 encode safely
         const uint8 = new Uint8Array(pcm16.buffer);
         let binary = '';
         const chunkSize = 8192;
@@ -268,15 +267,19 @@ export class GeminiLiveVoiceClient {
 
         this.ws.send(JSON.stringify({ type: 'audio', data: base64 }));
         this.diagnostics.audioFramesSent++;
-        if (this.diagnostics.audioFramesSent % 25 === 1) {
+        if (this.diagnostics.audioFramesSent === 1 || this.diagnostics.audioFramesSent % 25 === 0) {
           this.logDiag(`Microphone audio frame #${this.diagnostics.audioFramesSent} sent (${uint8.byteLength} bytes PCM16 at 16kHz)`);
         }
       };
 
+      // Mute gain node connects to destination to keep ScriptProcessor running without speaker echo
+      this.muteGain = this.audioContext.createGain();
+      this.muteGain.gain.value = 0;
       this.recordSource.connect(this.recordProcessor);
-      this.recordProcessor.connect(this.audioRecordContext.destination);
-      this.isReadyToSendAudio = true;
-      this.logDiag('Microphone capture and streaming pipeline active at 16kHz.');
+      this.recordProcessor.connect(this.muteGain);
+      this.muteGain.connect(this.audioContext.destination);
+
+      this.logDiag('Microphone capture and streaming pipeline prepared on unified AudioContext.');
     } catch (err) {
       console.error('[GeminiLiveClient] Failed to setup mic processor:', err);
       this.logDiag('Failed to setup mic processor', err);
@@ -315,9 +318,12 @@ export class GeminiLiveVoiceClient {
     switch (msg.type) {
       case 'ready':
         this.diagnostics.geminiSetupCompleted = true;
-        this.logDiag('Gemini setup completed (session ready). Starting microphone capture...');
-        this.startMicrophoneCapture();
-        this.setStatus('ready');
+        this.logDiag('Gemini setup completed (session ready). Enabling microphone stream...');
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+          this.audioContext.resume().catch(() => {});
+        }
+        this.isReadyToSendAudio = true;
+        this.setStatus('listening');
         this.startTimer();
         break;
 
@@ -364,12 +370,12 @@ export class GeminiLiveVoiceClient {
    * Play incoming 24kHz PCM audio chunk
    */
   private playAudioChunk(base64Audio: string): void {
-    if (!this.audioPlayContext) return;
+    if (!this.audioContext) return;
 
     try {
       // Ensure playback AudioContext is running
-      if (this.audioPlayContext.state === 'suspended') {
-        this.audioPlayContext.resume();
+      if (this.audioContext.state === 'suspended') {
+        this.audioContext.resume().catch(() => {});
       }
 
       // Decode base64 to binary PCM16
@@ -392,15 +398,15 @@ export class GeminiLiveVoiceClient {
 
       // Create AudioBuffer at 24000 Hz mono (Gemini native output rate)
       // The browser AudioContext destination automatically resamples to hardware rate (e.g. 48kHz)
-      const audioBuffer = this.audioPlayContext.createBuffer(1, sampleCount, 24000);
+      const audioBuffer = this.audioContext.createBuffer(1, sampleCount, 24000);
       audioBuffer.getChannelData(0).set(float32);
 
       // Schedule gapless playback
-      const source = this.audioPlayContext.createBufferSource();
+      const source = this.audioContext.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(this.audioPlayContext.destination);
+      source.connect(this.audioContext.destination);
 
-      const currentTime = this.audioPlayContext.currentTime;
+      const currentTime = this.audioContext.currentTime;
       const startTime = Math.max(currentTime, this.nextPlayTime);
       source.start(startTime);
       this.nextPlayTime = startTime + audioBuffer.duration;
@@ -443,8 +449,8 @@ export class GeminiLiveVoiceClient {
       } catch {}
     }
     this.activeSources = [];
-    if (this.audioPlayContext) {
-      this.nextPlayTime = this.audioPlayContext.currentTime;
+    if (this.audioContext) {
+      this.nextPlayTime = this.audioContext.currentTime;
     }
     this.setStatus('listening');
   }
@@ -457,11 +463,11 @@ export class GeminiLiveVoiceClient {
     this.handleInterruption();
     this.stopAudioCapture();
 
-    if (this.audioPlayContext) {
+    if (this.audioContext) {
       try {
-        this.audioPlayContext.close();
+        this.audioContext.close();
       } catch {}
-      this.audioPlayContext = null;
+      this.audioContext = null;
     }
 
     if (this.ws) {
@@ -493,11 +499,11 @@ export class GeminiLiveVoiceClient {
       } catch {}
       this.recordSource = null;
     }
-    if (this.audioRecordContext) {
+    if (this.muteGain) {
       try {
-        this.audioRecordContext.close();
+        this.muteGain.disconnect();
       } catch {}
-      this.audioRecordContext = null;
+      this.muteGain = null;
     }
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => {

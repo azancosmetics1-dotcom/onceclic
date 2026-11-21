@@ -237,7 +237,7 @@ export const AIReceptionistPage: React.FC = () => {
   const usedMinutes = usage?.usedMinutes ?? config?.browserVoiceMinutes ?? 0;
   const maxMinutes = usage?.includedMinutes ?? (DEFAULT_VOICE_PLAN_LIMITS[planTier] ?? 200);
   const minutePct = Math.min(100, Math.round((usedMinutes / Math.max(1, maxMinutes)) * 100));
-  const isLimitReached = usage?.callLimitReached ?? false;
+  const isLimitReached = (usage?.remainingMinutes !== undefined && usage.remainingMinutes <= 0) || (usage?.minuteLimitReached ?? false) || (usedMinutes >= maxMinutes);
 
   if (loading) {
     return (
@@ -429,16 +429,16 @@ export const AIReceptionistPage: React.FC = () => {
 
                 <div className="mt-4 space-y-2 text-xs">
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">LLM Model:</span>
-                    <span className="font-semibold text-white">Google Gemini 2.5 Flash-Lite</span>
+                    <span className="text-slate-400">Chat / LLM Model:</span>
+                    <span className="font-semibold text-white">Google Gemini 3.5 Flash-Lite</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">Voice:</span>
-                    <span className="font-semibold text-white">Gemini Live (Multilingual)</span>
+                    <span className="text-slate-400">Live Voice Model:</span>
+                    <span className="font-semibold text-white">Google Gemini 3.8 Live (Aoede Voice)</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">Speech Recognition:</span>
-                    <span className="font-semibold text-white">Google Speech (Built-in)</span>
+                    <span className="text-slate-400">Speech Input:</span>
+                    <span className="font-semibold text-white">Direct 16kHz PCM Stream (Gemini Live Audio)</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
                     <span className="text-slate-400">Knowledge:</span>

@@ -1558,6 +1558,7 @@ export interface CustomerVoiceUsage {
   usedMinutes: number;
   remainingMinutes: number;
   percentageUsed: number;
+  minuteLimitReached?: boolean;
   // Call-count–based usage (new authoritative limit)
   maxMonthlyCalls: number;
   usedCalls: number;

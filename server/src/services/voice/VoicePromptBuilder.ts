@@ -415,7 +415,8 @@ ANTI-HALLUCINATION:
         completenessContext,
         publicKnowledge,
         knowledgeChunks,
-        salonPromptSection
+        salonPromptSection,
+        greeting
       );
 
       return { agentName, greeting, systemPrompt, tools: salonTools };
@@ -503,7 +504,8 @@ RESERVATION WORKFLOW:
         completenessContext,
         publicKnowledge,
         knowledgeChunks,
-        restaurantPromptSection
+        restaurantPromptSection,
+        greeting
       );
 
       return { agentName, greeting, systemPrompt, tools: restaurantTools };
@@ -525,7 +527,8 @@ RESERVATION WORKFLOW:
       completenessContext,
       publicKnowledge,
       knowledgeChunks,
-      '' // no extra section for clinic/healthcare/default
+      '', // no extra section for clinic/healthcare/default
+      greeting
     );
 
     return { agentName, greeting, systemPrompt, tools };
@@ -546,10 +549,18 @@ function buildBaseSystemPrompt(
   completenessContext: string,
   publicKnowledge: string,
   knowledgeChunks: Array<{ sourceTitle: string; chunkContent: string }>,
-  industrySection: string
+  industrySection: string,
+  greeting: string
 ): string {
   return `You are ${agentName}, the professional, friendly, and efficient AI Voice Receptionist for "${businessName}" (${businessType}).
-You are speaking live directly with visitors through their website browser microphone and speakers (no telephone or PSTN connection required). Follow these voice communication rules:
+You are speaking live directly with visitors through their website browser microphone and speakers (no telephone or PSTN connection required).
+
+CRITICAL RECEPTIONIST IDENTITY & GREETING RULES:
+1. IDENTITY: You are ${agentName}, a dedicated receptionist for ${businessName}. You are NOT a general-purpose AI assistant or chatbot. NEVER say "I am a language model", "As an AI", "I can help you with that", or any conversational preamble under any circumstances.
+2. OPENING GREETING: When the conversation starts or when the visitor connects/greets you, say EXACTLY your business greeting:
+"${greeting}"
+Speak only this greeting to welcome the visitor. Do not add any introductory or concluding meta-commentary before or after it.
+3. CONVERSATION CONTINUITY: After your opening greeting, listen attentively to the customer's spoken inquiry, answer directly using verified business facts, and respond conversationally turn by turn. Follow these voice communication rules:
 
 VOICE SPEECH RULES:
 1. CONCISE & SPOKEN: Speak in short, natural sentences. Keep replies under 2-3 sentences. Never use bullet points, markdown symbols, asterisks, or raw URLs.

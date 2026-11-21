@@ -2541,6 +2541,7 @@ export class VoiceService {
       usedMinutes,
       remainingMinutes,
       percentageUsed,
+      minuteLimitReached,
       maxMonthlyCalls,
       usedCalls,
       remainingCalls,
@@ -2647,10 +2648,12 @@ export class VoiceService {
     let connectionTestStatus: 'NOT_TESTED' | 'TESTING' | 'CONNECTED' | 'FAILED' = 'NOT_TESTED';
     let provisioningStatus: VoiceProvisioningStatus = VoiceProvisioningStatus.NOT_CONFIGURED;
 
+    const minuteExhausted = voiceUsage.remainingMinutes <= 0 || voiceUsage.usedMinutes >= voiceUsage.includedMinutes;
+
     if (isSubExpired) {
       setupState = 'EXPIRED';
       provisioningStatus = VoiceProvisioningStatus.FAILED;
-    } else if (voiceUsage.limitReached) {
+    } else if (minuteExhausted) {
       setupState = 'PAUSED';
       provisioningStatus = VoiceProvisioningStatus.ACTIVE;
       connectionTestStatus = 'CONNECTED';
@@ -2680,7 +2683,7 @@ export class VoiceService {
     const embedSnippet = `<!-- ONCEClic AI Receptionist (Voice & Chat) -->\n<script>\n  window.ONCECLIC_CONFIG = { orgSlug: "${orgSlug}" };\n</script>\n<script src="${origin}/widget.js" async></script>`;
 
     return {
-      receptionistActive: (isVoiceReady || !!activeNum) && !voiceUsage.limitReached && !isSubExpired,
+      receptionistActive: (isVoiceReady || !!activeNum) && !minuteExhausted && !isSubExpired,
       phoneNumbers,
       activeNumber: activeNum?.phoneNumber,
       connectionMethod: activeNum?.connectionMethod,
@@ -2722,13 +2725,28 @@ export class VoiceService {
       [organizationId]
     );
 
+    const now = new Date();
+    const isTrial = !sub?.status || sub.status === SubscriptionStatus.TRIALING;
+    const isTrialExpired = isTrial && sub?.trial_ends_at && new Date(sub.trial_ends_at) < now;
+
+    if (isTrialExpired) {
+      return {
+        allowed: false,
+        reason: 'Your 14-day free trial has expired. Please upgrade to an ONCEClic paid plan to continue using the AI voice receptionist.',
+        remainingMinutes: 0,
+        maxDurationSeconds: 0,
+        maxConversationSeconds: 180,
+        appointmentReminderSeconds: 120,
+      };
+    }
+
     if (
       sub?.status === SubscriptionStatus.EXPIRED ||
-      (sub?.status === SubscriptionStatus.TRIALING && sub.trial_ends_at && new Date(sub.trial_ends_at) < new Date())
+      sub?.status === SubscriptionStatus.CANCELED
     ) {
       return {
         allowed: false,
-        reason: 'Subscription or trial expired. Please renew or upgrade your subscription to use the AI voice receptionist.',
+        reason: 'Subscription expired. Please renew or upgrade your subscription to use the AI voice receptionist.',
         remainingMinutes: 0,
         maxDurationSeconds: 0,
         maxConversationSeconds: 180,
@@ -2737,7 +2755,7 @@ export class VoiceService {
     }
 
     const voiceUsage = await this.getVoiceUsage(organizationId);
-    if (voiceUsage.limitReached || voiceUsage.remainingMinutes <= 0) {
+    if (voiceUsage.remainingMinutes <= 0 || voiceUsage.minuteLimitReached || voiceUsage.usedMinutes >= voiceUsage.includedMinutes) {
       return {
         allowed: false,
         reason: voiceUsage.planTier === 'TRIAL'
@@ -2750,12 +2768,19 @@ export class VoiceService {
       };
     }
 
-    // Concurrent session protection:
-    // Check in-flight active calls for this organization to prevent concurrent sessions exceeding allowance
+    // Concurrent session protection & cleanup of expired active calls:
+    const nowMs = Date.now();
+    for (const [activeCallId, active] of this.activeCalls.entries()) {
+      const elapsedSec = Math.floor((nowMs - active.startedAt) / 1000);
+      if (active.terminated || elapsedSec > ((active.maxDurationSeconds || 180) + 30)) {
+        this.activeCalls.delete(activeCallId);
+      }
+    }
+
     let activeInFlightMinutes = 0;
     for (const active of this.activeCalls.values()) {
       if (active.organizationId === organizationId && !active.terminated) {
-        const elapsedSec = Math.floor((Date.now() - active.startedAt) / 1000);
+        const elapsedSec = Math.floor((nowMs - active.startedAt) / 1000);
         activeInFlightMinutes += Math.max(1, Math.ceil(elapsedSec / 60));
       }
     }

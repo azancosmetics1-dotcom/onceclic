@@ -108,13 +108,29 @@ export class GeminiLiveBridgeService {
       [organizationId]
     );
 
+    const now = new Date();
+    const isTrial = !sub?.status || sub.status === SubscriptionStatus.TRIALING;
+    const isTrialExpired = isTrial && sub?.trial_ends_at && new Date(sub.trial_ends_at) < now;
+
+    if (isTrialExpired) {
+      return {
+        allowed: false,
+        reason: 'Your 14-day free trial has expired. Please upgrade to an ONCEClic paid plan to continue using the AI voice receptionist.',
+        remainingMinutes: 0,
+        maxConversationSeconds: 180,
+        appointmentReminderSeconds: 120,
+        provider: 'gemini_live',
+      };
+    }
+
     if (
       sub?.status === SubscriptionStatus.EXPIRED ||
-      (sub?.status === SubscriptionStatus.TRIALING && sub.trial_ends_at && new Date(sub.trial_ends_at) < new Date())
+      sub?.status === SubscriptionStatus.CANCELED
     ) {
       return {
         allowed: false,
-        reason: 'Subscription or trial expired. Please renew or upgrade your subscription to use the AI voice receptionist.',
+        reason: 'Subscription expired. Please renew or upgrade your subscription to use the AI voice receptionist.',
+        remainingMinutes: 0,
         maxConversationSeconds: 180,
         appointmentReminderSeconds: 120,
         provider: 'gemini_live',
@@ -123,7 +139,7 @@ export class GeminiLiveBridgeService {
 
     // 2. Usage verification
     const voiceUsage = await VoiceService.getVoiceUsage(organizationId);
-    if (voiceUsage.limitReached || voiceUsage.remainingMinutes <= 0) {
+    if (voiceUsage.remainingMinutes <= 0 || voiceUsage.minuteLimitReached || voiceUsage.usedMinutes >= voiceUsage.includedMinutes) {
       return {
         allowed: false,
         reason: voiceUsage.planTier === 'TRIAL'
@@ -136,11 +152,19 @@ export class GeminiLiveBridgeService {
       };
     }
 
-    // 3. Concurrency check (reserve in-flight minutes)
+    // 3. Concurrency check (reserve in-flight minutes & prune expired calls)
+    const nowMs = Date.now();
+    for (const [activeCallId, active] of VoiceService.activeCalls.entries()) {
+      const elapsedSec = Math.floor((nowMs - active.startedAt) / 1000);
+      if (active.terminated || elapsedSec > ((active.maxDurationSeconds || 180) + 30)) {
+        VoiceService.activeCalls.delete(activeCallId);
+      }
+    }
+
     let activeInFlightMinutes = 0;
     for (const active of VoiceService.activeCalls.values()) {
       if (active.organizationId === organizationId && !active.terminated) {
-        const elapsedSec = Math.floor((Date.now() - active.startedAt) / 1000);
+        const elapsedSec = Math.floor((nowMs - active.startedAt) / 1000);
         activeInFlightMinutes += Math.max(1, Math.ceil(elapsedSec / 60));
       }
     }
@@ -191,8 +215,21 @@ export class GeminiLiveBridgeService {
    * Handle incoming browser client WebSocket connection
    */
   static async handleClientConnection(clientWs: WebSocket, request: any): Promise<void> {
-    const url = new URL(request.url || '', `http://${request.headers.host || 'localhost'}`);
-    const ticket = url.searchParams.get('ticket');
+    let ticket: string | null = null;
+    if (typeof request === 'string') {
+      ticket = request.includes('ticket=')
+        ? new URL(request, 'http://localhost').searchParams.get('ticket')
+        : request;
+    } else if (request) {
+      const host = request.headers?.host || 'localhost';
+      const reqUrl = request.url || '';
+      try {
+        const parsed = new URL(reqUrl, `http://${host}`);
+        ticket = parsed.searchParams.get('ticket') || request.ticket;
+      } catch {
+        ticket = request.ticket || null;
+      }
+    }
 
     if (!ticket) {
       clientWs.close(4401, 'Session ticket required');
@@ -211,7 +248,7 @@ export class GeminiLiveBridgeService {
 
     // Verify tenant still has valid allowance
     const voiceUsage = await VoiceService.getVoiceUsage(organizationId);
-    if (voiceUsage.limitReached || voiceUsage.remainingMinutes <= 0) {
+    if (voiceUsage.remainingMinutes <= 0 || voiceUsage.minuteLimitReached || voiceUsage.usedMinutes >= voiceUsage.includedMinutes) {
       clientWs.send(JSON.stringify({ type: 'error', error: 'Minute allowance exhausted' }));
       clientWs.close(4403, 'Minute allowance exhausted');
       return;
@@ -284,9 +321,6 @@ export class GeminiLiveBridgeService {
       activeCallDurationSec = Math.min(180, Math.max(0, elapsedSec));
       const durationMinutes = Math.round((activeCallDurationSec / 60) * 10) / 10;
 
-      // Clean up in-flight tracker
-      VoiceService.activeCalls.delete(callId);
-
       // Record completed call and consume allowance ONLY if actual audio duration occurred
       if (activeCallDurationSec > 0) {
         try {
@@ -310,6 +344,9 @@ export class GeminiLiveBridgeService {
           console.warn('[GeminiLiveBridge] Error recording completed call record:', err?.message || err);
         }
       }
+
+      // Clean up in-flight tracker
+      VoiceService.activeCalls.delete(callId);
 
       try {
         if (clientWs.readyState === WebSocket.OPEN) {
@@ -411,6 +448,8 @@ export class GeminiLiveBridgeService {
 
     let sessionStage: 'INITIALIZING' | 'CONNECTING_GEMINI' | 'SETUP_SENT' | 'SETUP_COMPLETE' | 'ACTIVE' | 'CLOSING' = 'CONNECTING_GEMINI';
     let setupCompleteReceived = false;
+    let clientAudioFramesCount = 0;
+    let upstreamAudioChunksCount = 0;
 
     console.log(`[GeminiLiveBridge] [callId=${callId}] Connecting to Gemini Live API (model=${liveModel}, voice=${liveVoice}, org=${organizationId})`);
 
@@ -463,14 +502,13 @@ export class GeminiLiveBridgeService {
 
           // Trigger immediate spoken greeting from Gemini Live
           if (upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
-            const initialGreeting = promptData.greeting || `Hello, thank you for calling. How can I assist you today?`;
             upstreamWs.send(
               JSON.stringify({
                 clientContent: {
                   turns: [
                     {
                       role: 'user',
-                      parts: [{ text: `The customer has joined the session. Speak your initial greeting aloud now: "${initialGreeting}"` }],
+                      parts: [{ text: `Hello` }],
                     },
                   ],
                   turnComplete: true,
@@ -484,12 +522,14 @@ export class GeminiLiveBridgeService {
         // Server content (audio, transcript, interruption)
         if (msg.serverContent) {
           if (msg.serverContent.interrupted) {
+            console.log(`[GeminiLiveBridge] [callId=${callId}] Gemini Live user interruption detected (barge-in).`);
             if (clientWs.readyState === WebSocket.OPEN) {
               clientWs.send(JSON.stringify({ type: 'interrupted' }));
             }
           }
 
           if (msg.serverContent.turnComplete) {
+            console.log(`[GeminiLiveBridge] [callId=${callId}] Gemini Live model turn complete.`);
             if (clientWs.readyState === WebSocket.OPEN) {
               clientWs.send(JSON.stringify({ type: 'turn_complete' }));
             }
@@ -498,6 +538,10 @@ export class GeminiLiveBridgeService {
           const parts = msg.serverContent.modelTurn?.parts || [];
           for (const part of parts) {
             if (part.inlineData?.data) {
+              upstreamAudioChunksCount++;
+              if (upstreamAudioChunksCount === 1 || upstreamAudioChunksCount % 25 === 0) {
+                console.log(`[GeminiLiveBridge] [callId=${callId}] Relayed Gemini audio chunk #${upstreamAudioChunksCount} (${part.inlineData.data.length} b64 chars) to client.`);
+              }
               if (clientWs.readyState === WebSocket.OPEN) {
                 clientWs.send(JSON.stringify({ type: 'audio', data: part.inlineData.data }));
               }
@@ -612,6 +656,10 @@ export class GeminiLiveBridgeService {
         const msg = JSON.parse(data.toString());
         if (msg.type === 'audio' && msg.data) {
           if (setupCompleteReceived && upstreamWs && upstreamWs.readyState === WebSocket.OPEN) {
+            clientAudioFramesCount++;
+            if (clientAudioFramesCount === 1 || clientAudioFramesCount % 50 === 0) {
+              console.log(`[GeminiLiveBridge] [callId=${callId}] Relayed audio frame #${clientAudioFramesCount} to Gemini Live API.`);
+            }
             upstreamWs.send(
               JSON.stringify({
                 realtimeInput: {
