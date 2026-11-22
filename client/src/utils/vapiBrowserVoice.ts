@@ -36,7 +36,7 @@ export type VoiceSessionStatus =
 export interface BrowserVoiceCallbacks {
   onStatusChange?: (status: VoiceSessionStatus, error?: string) => void;
   onVolumeLevel?: (volume: number) => void;
-  onTranscript?: (role: 'user' | 'assistant', text: string) => void;
+  onTranscript?: (role: 'user' | 'assistant', text: string, turnId?: string, isNewTurn?: boolean) => void;
   onAppointmentReminder?: () => void;
   onTimerTick?: (elapsedSeconds: number, remainingSeconds: number) => void;
 }

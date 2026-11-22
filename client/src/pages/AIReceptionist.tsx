@@ -114,6 +114,13 @@ export const AIReceptionistPage: React.FC = () => {
   }, []);
 
   const handleStartBrowserVoiceTest = async () => {
+    if (browserVoiceStatus === 'connecting' || browserVoiceStatus === 'active' || browserVoiceStatus === 'listening' || browserVoiceStatus === 'speaking') {
+      return;
+    }
+    if (browserVoiceSessionRef.current) {
+      browserVoiceSessionRef.current.stop();
+      browserVoiceSessionRef.current = null;
+    }
     try {
       setBrowserVoiceError(null);
       setBrowserTranscripts([]);
@@ -142,13 +149,31 @@ export const AIReceptionistPage: React.FC = () => {
             if (err) setBrowserVoiceError(err);
           },
           onAppointmentReminder: () => {
-            setBrowserTranscripts((prev) => [
-              ...prev,
-              { role: 'assistant', text: 'Would you like me to book an appointment for you before we finish?' },
-            ]);
+            // Keep reminder as an internal signal without injecting synthetic text
           },
-          onTranscript: (role, text) => {
-            setBrowserTranscripts((prev) => [...prev, { role, text }]);
+          onTranscript: (role, text, turnId) => {
+            const cleanText = text?.trim();
+            if (!cleanText) return;
+
+            setBrowserTranscripts((prev) => {
+              const effectiveId = turnId || `turn_${role}`;
+              const existingIdx = prev.findIndex((t: any) => t.id === effectiveId);
+              if (existingIdx >= 0) {
+                const updated = [...prev];
+                updated[existingIdx] = { role, text: cleanText, id: effectiveId } as any;
+                return updated;
+              }
+              const last = prev[prev.length - 1];
+              if (last && last.role === role) {
+                if (last.text.trim() === cleanText) return prev;
+                if (cleanText.startsWith(last.text.trim()) || last.text.trim().startsWith(cleanText)) {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = { role, text: cleanText, id: effectiveId } as any;
+                  return updated;
+                }
+              }
+              return [...prev, { role, text: cleanText, id: effectiveId } as any];
+            });
           },
         },
       });

@@ -87,6 +87,16 @@ export class DeepgramVoiceClient {
   private reminderTriggered: boolean = false;
   private conversationTranscripts: Array<{ role: 'user' | 'assistant'; text: string }> = [];
 
+  // Turn management & deduplication
+  private currentTurnId: string | null = null;
+  private currentTurnRole: 'user' | 'assistant' | null = null;
+  private currentTurnText: string = '';
+  private turnSequence: number = 0;
+  private lastEmittedRole: string = '';
+  private lastEmittedText: string = '';
+  private lastEmittedTime: number = 0;
+  private pendingCallEnd: boolean = false;
+
   constructor(options: DeepgramVoiceClientOptions) {
     this.deepgramToken = options.deepgramToken;
     this.wsUrl = options.deepgramWsUrl || 'wss://agent.deepgram.com/v1/agent/converse';
@@ -300,10 +310,22 @@ export class DeepgramVoiceClient {
         this.diagnostics.interruptionsDetected++;
         this.interruptPlayback();
         this.setStatus('listening');
+        if (this.currentTurnRole !== 'user') {
+          this.turnSequence++;
+          this.currentTurnRole = 'user';
+          this.currentTurnId = `turn_user_${this.turnSequence}_${Date.now()}`;
+          this.currentTurnText = '';
+        }
         break;
 
       case 'AgentStartedSpeaking':
         this.setStatus('speaking');
+        if (this.currentTurnRole !== 'assistant') {
+          this.turnSequence++;
+          this.currentTurnRole = 'assistant';
+          this.currentTurnId = `turn_assistant_${this.turnSequence}_${Date.now()}`;
+          this.currentTurnText = '';
+        }
         break;
 
       case 'AgentThinking':
@@ -313,17 +335,72 @@ export class DeepgramVoiceClient {
       case 'AgentAudioDone':
         // Agent finished sending audio; return to listening when audio queue finishes
         setTimeout(() => {
+          if (this.pendingCallEnd) {
+            this.stop('NORMAL_END');
+            return;
+          }
           if (this.status === 'speaking') {
             this.setStatus('listening');
           }
-        }, 200);
+        }, 500);
         break;
 
       case 'ConversationText':
         if (msg.role && msg.content) {
           const role: 'user' | 'assistant' = msg.role === 'user' ? 'user' : 'assistant';
-          this.conversationTranscripts.push({ role, text: msg.content });
-          this.callbacks.onTranscript?.(role, msg.content);
+          const rawText = typeof msg.content === 'string' ? msg.content.trim() : '';
+          if (!rawText) break;
+
+          let isNewTurn = false;
+          if (this.currentTurnRole !== role || !this.currentTurnId) {
+            this.turnSequence++;
+            this.currentTurnRole = role;
+            this.currentTurnId = `turn_${role}_${this.turnSequence}_${Date.now()}`;
+            this.currentTurnText = '';
+            isNewTurn = true;
+          }
+
+          // Exact duplicate within current turn -> ignore
+          if (rawText === this.currentTurnText) {
+            break;
+          }
+
+          // Shorter partial arriving out-of-order -> ignore
+          if (
+            this.currentTurnText &&
+            this.currentTurnText.startsWith(rawText) &&
+            this.currentTurnText.length > rawText.length + 3
+          ) {
+            break;
+          }
+
+          // Duplicate message repeated rapidly across turns -> ignore
+          const now = Date.now();
+          if (
+            this.lastEmittedRole === role &&
+            this.lastEmittedText.toLowerCase() === rawText.toLowerCase() &&
+            now - this.lastEmittedTime < 3000
+          ) {
+            break;
+          }
+
+          this.currentTurnText = rawText;
+          this.lastEmittedRole = role;
+          this.lastEmittedText = rawText;
+          this.lastEmittedTime = now;
+
+          if (isNewTurn || this.conversationTranscripts.length === 0) {
+            this.conversationTranscripts.push({ role, text: rawText });
+          } else {
+            const last = this.conversationTranscripts[this.conversationTranscripts.length - 1];
+            if (last && last.role === role) {
+              last.text = rawText;
+            } else {
+              this.conversationTranscripts.push({ role, text: rawText });
+            }
+          }
+
+          this.callbacks.onTranscript?.(role, rawText, this.currentTurnId, isNewTurn);
         }
         break;
 
@@ -378,6 +455,10 @@ export class DeepgramVoiceClient {
 
         const data = await response.json();
         const toolResult = data.result !== undefined ? data.result : data;
+
+        if (toolResult?.callEnded || toolName === 'end_call') {
+          this.pendingCallEnd = true;
+        }
 
         // Send FunctionCallResponse back to Deepgram
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {

@@ -52,6 +52,13 @@ export const HostedChat: React.FC = () => {
 
   const handleStartVoiceCall = async () => {
     if (!orgSlug) return;
+    if (voiceStatus === 'connecting' || voiceStatus === 'active' || voiceStatus === 'listening' || voiceStatus === 'speaking') {
+      return;
+    }
+    if (voiceSessionRef.current) {
+      voiceSessionRef.current.stop();
+      voiceSessionRef.current = null;
+    }
     try {
       setVoiceError(null);
       const session = await api.getPublicVoiceSession(orgSlug);
@@ -79,36 +86,78 @@ export const HostedChat: React.FC = () => {
             if (err) setVoiceError(err);
           },
           onAppointmentReminder: () => {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `reminder_${Date.now()}`,
-                conversationId: conversationId || '',
-                organizationId: orgData?.organization?.id || '',
-                role: 'AI' as any,
-                content: 'Would you like me to book an appointment for you before we finish?',
-                status: 'DELIVERED',
-                grounded: true,
-                handoffRequired: false,
-                createdAt: new Date().toISOString(),
-              },
-            ]);
+            // Keep reminder as an internal signal without injecting synthetic AI chat text
           },
-          onTranscript: (role, text) => {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: `voice_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-                conversationId: conversationId || '',
-                organizationId: orgData?.organization?.id || '',
-                role: (role === 'user' ? 'CUSTOMER' : 'AI') as any,
-                content: text,
-                status: 'DELIVERED',
-                grounded: true,
-                handoffRequired: false,
-                createdAt: new Date().toISOString(),
-              },
-            ]);
+          onTranscript: (role, text, turnId) => {
+            const cleanText = text?.trim();
+            if (!cleanText) return;
+
+            setMessages((prev) => {
+              const expectedRole = role === 'user' ? 'CUSTOMER' : 'AI';
+
+              // 1. Greeting deduplication: if assistant speaks greeting and welcome message already exists
+              if (role === 'assistant') {
+                const isGreetingMatch = prev.some((m) => {
+                  if (m.role !== 'AI') return false;
+                  const mText = m.content.toLowerCase().trim();
+                  const inText = cleanText.toLowerCase();
+                  return (
+                    mText === inText ||
+                    (mText.length > 15 && inText.includes(mText)) ||
+                    (inText.length > 15 && mText.includes(inText))
+                  );
+                });
+                if (isGreetingMatch && prev.length <= 2) {
+                  return prev;
+                }
+              }
+
+              // 2. Stable turn-based update (if this turn was already rendered)
+              const effectiveTurnId = turnId || `voice_${role}_${Date.now()}`;
+              const existingIndex = prev.findIndex((m) => m.id === effectiveTurnId);
+
+              if (existingIndex >= 0) {
+                const updated = [...prev];
+                updated[existingIndex] = {
+                  ...updated[existingIndex],
+                  content: cleanText,
+                };
+                return updated;
+              }
+
+              // 3. Refinement of last message if same role and extending text
+              const lastMsg = prev[prev.length - 1];
+              if (lastMsg && lastMsg.role === expectedRole) {
+                const lastContent = lastMsg.content.trim();
+                if (lastContent === cleanText) {
+                  return prev; // exact duplicate, drop
+                }
+                if (cleanText.startsWith(lastContent) || lastContent.startsWith(cleanText)) {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = {
+                    ...lastMsg,
+                    content: cleanText,
+                  };
+                  return updated;
+                }
+              }
+
+              // 4. Distinct new turn
+              return [
+                ...prev,
+                {
+                  id: effectiveTurnId,
+                  conversationId: conversationId || '',
+                  organizationId: orgData?.organization?.id || '',
+                  role: expectedRole as any,
+                  content: cleanText,
+                  status: 'DELIVERED',
+                  grounded: true,
+                  handoffRequired: false,
+                  createdAt: new Date().toISOString(),
+                },
+              ];
+            });
           },
         },
       });

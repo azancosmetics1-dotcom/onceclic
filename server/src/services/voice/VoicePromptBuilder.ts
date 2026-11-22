@@ -84,6 +84,21 @@ export class VoicePromptBuilder {
       },
     };
 
+    const endCallTool = {
+      name: 'end_call',
+      description: 'Politely conclude and end the voice session when the visitor says goodbye, thanks you, or asks to end the call.',
+      parameters: {
+        type: 'object',
+        properties: {
+          reason: {
+            type: 'string',
+            description: 'Reason for concluding the call (e.g. "Visitor finished booking", "Visitor said goodbye")',
+          },
+        },
+        required: [],
+      },
+    };
+
     // ----------------------------------------------------------------
     // Base appointment tools (clinic / healthcare / default)
     // ----------------------------------------------------------------
@@ -126,11 +141,11 @@ export class VoicePromptBuilder {
             },
             customerPhone: {
               type: 'string',
-              description: "Customer's phone number",
+              description: "Customer's phone number if provided (optional if email is provided)",
             },
             customerEmail: {
               type: 'string',
-              description: "Customer's email address if provided",
+              description: "Customer's email address (required if phone number is not provided)",
             },
             startTime: {
               type: 'string',
@@ -141,7 +156,7 @@ export class VoicePromptBuilder {
               description: 'Optional notes, party size, or specific requests',
             },
           },
-          required: ['serviceName', 'customerName', 'customerPhone', 'startTime'],
+          required: ['serviceName', 'customerName', 'startTime'],
         },
       },
       {
@@ -204,11 +219,11 @@ export class VoicePromptBuilder {
             },
             customerPhone: {
               type: 'string',
-              description: "Customer's phone number",
+              description: "Customer's phone number if provided (optional if email is provided)",
             },
             customerEmail: {
               type: 'string',
-              description: "Customer's email address if provided",
+              description: "Customer's email address (required if phone number is not provided)",
             },
             startTime: {
               type: 'string',
@@ -219,7 +234,7 @@ export class VoicePromptBuilder {
               description: 'Optional notes, party size, or specific requests',
             },
           },
-          required: ['serviceName', 'customerName', 'customerPhone', 'startTime'],
+          required: ['serviceName', 'customerName', 'startTime'],
         },
       },
       {
@@ -337,11 +352,11 @@ export class VoicePromptBuilder {
             },
             customerPhone: {
               type: 'string',
-              description: "Customer's phone number",
+              description: "Customer's phone number if provided (optional if email is provided)",
             },
             customerEmail: {
               type: 'string',
-              description: "Customer's email address if provided",
+              description: "Customer's email address (required if phone number is not provided)",
             },
             startTime: {
               type: 'string',
@@ -356,7 +371,7 @@ export class VoicePromptBuilder {
               description: 'Optional notes or specific requests',
             },
           },
-          required: ['serviceName', 'customerName', 'customerPhone', 'startTime'],
+          required: ['serviceName', 'customerName', 'startTime'],
         },
       };
 
@@ -382,6 +397,7 @@ export class VoicePromptBuilder {
         baseAppointmentTools[3], // cancel_appointment
         checkStaffAvailabilityTool,
         transferCallTool,
+        endCallTool,
       ];
 
       const salonPromptSection = `
@@ -475,6 +491,7 @@ ANTI-HALLUCINATION:
         baseAppointmentTools[2], // reschedule_appointment
         baseAppointmentTools[3], // cancel_appointment
         transferCallTool,
+        endCallTool,
       ];
 
       const restaurantPromptSection = `
@@ -488,7 +505,7 @@ RESERVATION WORKFLOW:
 3. Ask for preferred date and time.
 4. Use check_reservation_availability to verify the slot.
 5. If unavailable, suggest alternative times.
-6. Collect customer name and phone number.
+6. Collect customer name and contact info (phone number or email).
 7. Ask for any seating preference or special requests.
 8. Confirm all details before booking.
 9. Use book_reservation tool and only confirm AFTER tool returns success.`;
@@ -514,7 +531,7 @@ RESERVATION WORKFLOW:
     // ----------------------------------------------------------------
     // Industry: CLINIC / HEALTHCARE (default — existing behavior)
     // ----------------------------------------------------------------
-    const tools = [...baseAppointmentTools, transferCallTool];
+    const tools = [...baseAppointmentTools, transferCallTool, endCallTool];
 
     const systemPrompt = buildBaseSystemPrompt(
       agentName,
@@ -552,15 +569,91 @@ function buildBaseSystemPrompt(
   industrySection: string,
   greeting: string
 ): string {
+  const now = new Date();
+  const orgTimezone = timezone || 'UTC';
+  let currentDateStr: string;
+  let currentYearStr: string;
+  let currentIsoDate: string;
+  let currentTimeStr: string;
+  try {
+    currentDateStr = now.toLocaleDateString('en-US', {
+      timeZone: orgTimezone,
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+    currentYearStr = new Intl.DateTimeFormat('en-US', {
+      timeZone: orgTimezone,
+      year: 'numeric',
+    }).format(now);
+    currentIsoDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: orgTimezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+    currentTimeStr = now.toLocaleTimeString('en-US', {
+      timeZone: orgTimezone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+    });
+  } catch {
+    currentDateStr = now.toDateString();
+    currentYearStr = String(now.getUTCFullYear());
+    currentIsoDate = now.toISOString().split('T')[0];
+    currentTimeStr = now.toTimeString().split(' ')[0];
+  }
+
   return `You are ${agentName}, the professional, friendly, and efficient AI Voice Receptionist for "${businessName}" (${businessType}).
 You are speaking live directly with visitors through their website browser microphone and speakers (no telephone or PSTN connection required).
+
+CURRENT DATE & CALENDAR ANCHOR:
+- Today is: ${currentDateStr} (${currentIsoDate})
+- Current Time: ${currentTimeStr} (${orgTimezone})
+- Current Year: ${currentYearStr}
+- Business Timezone: ${orgTimezone}
+
+CRITICAL DATE & CALENDAR RULES:
+1. Today's date is strictly ${currentDateStr}. The current year is ${currentYearStr}.
+2. NEVER assume 2023, 2024, or any past year under any circumstances.
+3. When the visitor mentions a day or date (e.g. "Friday", "tomorrow", "November 27th"), ALWAYS compute the date relative to TODAY (${currentDateStr}) in the year ${currentYearStr}.
+4. NEVER offer, suggest, or book a date or time that is in the past.
+5. NEVER silently change the year or date requested by the visitor. If a requested date has already passed, politely clarify: "That date has already passed. Would you like to check [upcoming date]?"
+6. When checking availability with tools, ALWAYS pass the date in YYYY-MM-DD format using the current year (${currentYearStr}) or an explicitly requested future year.
+
+BOOKING CONVERSATION STATE MACHINE (STRICT STATE PERSISTENCE):
+You must maintain active conversation memory for booking across all conversation turns:
+- Track: [Service], [Requested Date], [Chosen Time Slot], [Customer Name], [Contact Info: Phone or Email].
+- STATE PERSISTENCE: Once the visitor provides any of these details (e.g. they say "I want a haircut on Friday"), that detail is LOCKED IN. NEVER ask for it again.
+- ASK ONLY FOR MISSING DETAILS:
+  1. Service & Date: If missing, ask only for the missing detail. Once both are known, IMMEDIATELY call "check_calendar_availability" (or "check_availability").
+  2. Time Slot: Offer 2-3 specific available times returned by the tool. Ask which one they prefer.
+  3. Customer Name & Contact: Once a time is chosen, ask for their full name and contact info (phone number or email address).
+     - If the visitor provides an email address OR a phone number, accept it. DO NOT insist on a phone number if an email is provided, and do NOT insist on an email if a phone number is provided.
+     - If the visitor says they prefer not to provide a phone number, politely ask for their email address instead.
+     - Only if NEITHER is provided, explain once: "We need either a phone number or an email address to send your confirmation."
+  4. Call Booking Tool: Once you have Name, Contact, Service, and Time Slot, IMMEDIATELY call "create_appointment" (or "book_appointment").
+  5. CONFIRMATION INTEGRITY:
+     - ONLY say "Your appointment is booked" or "You're all set" AFTER the tool returns a verified success response with an appointmentId.
+     - Confirm the EXACT backend-confirmed appointment details (service, date, and time).
+     - If booking fails, explain clearly that it could not be completed and offer an alternative.
+     - NEVER invent a booking or confirmation code.
+
+CONVERSATION PACING & EFFICIENCY:
+- Answer the customer's question directly, clearly, and concisely (under 2-3 sentences).
+- Do NOT repeat the same sentence or conversational fillers.
+- Do NOT repeatedly ask "Would you like me to book an appointment for you?" if the visitor is already in the process of booking, has already booked, or did not express interest.
+- Conclude gracefully: When the visitor indicates they are finished, says goodbye, or thanks you ("That's all", "Thank you, goodbye", "That's everything"):
+  Say a warm closing (e.g. "You're all set! Have a wonderful day. Goodbye!") and IMMEDIATELY call the "end_call" tool to conclude the session.
 
 CRITICAL RECEPTIONIST IDENTITY & GREETING RULES:
 1. IDENTITY: You are ${agentName}, a dedicated receptionist for ${businessName}. You are NOT a general-purpose AI assistant or chatbot. NEVER say "I am a language model", "As an AI", "I can help you with that", or any conversational preamble under any circumstances.
 2. OPENING GREETING: The official opening greeting for ${businessName} is:
 "${greeting}"
 This opening greeting is delivered automatically when the visitor connects. Do NOT repeat this entire opening greeting unless the visitor explicitly asks for your name, business name, or who they are speaking with.
-3. CONVERSATION CONTINUITY: After the opening greeting, listen attentively to the customer's spoken inquiry, answer directly using verified business facts, and respond conversationally turn by turn. Follow these voice communication rules:
+3. CONVERSATION CONTINUITY: After the opening greeting, listen attentively to the customer's spoken inquiry, answer directly using verified business facts, and respond conversationally turn by turn.
 
 VOICE SPEECH RULES:
 1. CONCISE & SPOKEN: Speak in short, natural sentences. Keep replies under 2-3 sentences. Never use bullet points, markdown symbols, asterisks, or raw URLs.
@@ -585,28 +678,11 @@ ${publicKnowledge}
 VERIFIED KNOWLEDGE BASE FACTS:
 ${knowledgeChunks.map((c, i) => `[Fact ${i + 1} - ${c.sourceTitle}]: ${c.chunkContent}`).join('\n')}
 
-APPOINTMENT BOOKING WORKFLOW:
-1. When visitor requests to book, reserve, or inquire about availability, ask for their preferred date and requested service.
-2. Call the backend tool "check_calendar_availability" (or "check_availability") for that date.
-3. Only offer times that are strictly verified available by the backend tool against the business calendar.
-4. Offer 2 or 3 available times. Example: "I have 2:00 PM and 4:30 PM available on that day. Which works best for you?"
-5. When the visitor chooses a time, collect their full name and phone number (and email if available).
-6. Call the tool "create_appointment" (or "book_appointment").
-7. ONLY AFTER the tool returns a verified success confirmation from the database, confirm: "You're all set! I've booked your [Service] for [Date] at [Time]. We look forward to seeing you!"
-8. NEVER claim or promise an appointment was booked until the tool confirms successful creation.
-9. If visitor asks to look up an existing appointment, call the tool "get_appointment".
-
-CONVERSATION DURATION & 120-SECOND APPOINTMENT REMINDER:
-- Every voice conversation has a hard maximum ceiling of 180 seconds (3 minutes).
-- Around 120 seconds into the conversation, or after answering the visitor's core question, politely ask: "Would you like me to book an appointment for you before we finish?"
-- If the visitor agrees, prioritize booking immediately: check calendar availability, offer verified slots, collect their contact details, and create the appointment.
-- If time runs out before 180s, never invent a booking; provide the website booking link or invite them to book online, and conclude politely.
 ${industrySection}
+
 SILENCE & CALL EFFICIENCY:
 - If caller is silent for a moment: Say "Are you still there?"
 - If caller remains silent: Say "I'll end the call for now. Please call back whenever you're ready." and conclude the call.
-- When caller indicates they are done ("That's all", "Thank you, goodbye", "No, that's everything"): Say "You're welcome. Have a great day!" and conclude the call.
-- If caller asks an irrelevant or off-topic question (first time): Say "I'm here to help with the business, appointments, and services. How can I help with that?"
 - If caller repeats irrelevant questions, spam, or nonsense: Say "I'm only able to help with business-related questions and appointments. Thank you for calling." and gracefully conclude the call.
 - Do NOT prematurely end calls when customers ask legitimate questions about services, prices, business hours, directions, or appointments.
 

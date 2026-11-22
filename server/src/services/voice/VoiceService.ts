@@ -2948,11 +2948,42 @@ export class VoiceService {
     console.log(`[VoiceService] Executing tool "${toolName}" for organization ${orgId}`);
 
     try {
+      // 0. Tool: end_call
+      if (toolName === 'end_call') {
+        return {
+          success: true,
+          callEnded: true,
+          message: 'Call concluded. Thank the visitor warmly and say goodbye.',
+        };
+      }
+
       // 1. Tool: check_calendar_availability / check_availability
       if (toolName === 'check_calendar_availability' || toolName === 'check_availability') {
         const dateStr = args.date || args.dateStr;
         if (!dateStr) {
           return { error: 'Date is required in YYYY-MM-DD format.' };
+        }
+
+        // Validate YYYY-MM-DD format
+        const dateMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (!dateMatch) {
+          return { error: 'Date must be formatted as YYYY-MM-DD (e.g. 2026-11-27).' };
+        }
+
+        const reqYear = parseInt(dateMatch[1], 10);
+        const currentYear = new Date().getFullYear();
+        if (reqYear < currentYear) {
+          return {
+            error: `Date ${dateStr} is in the past (year ${reqYear}). The current year is ${currentYear}. Please ask the visitor to clarify their requested date for ${currentYear}.`,
+          };
+        }
+
+        // Check if date is before today (UTC / business date)
+        const todayIso = new Date().toISOString().split('T')[0];
+        if (dateStr < todayIso) {
+          return {
+            error: `Date ${dateStr} is in the past. Today is ${todayIso}. Please choose today or a future date.`,
+          };
         }
 
         const duration = args.durationMinutes || args.duration || 30;
@@ -2998,11 +3029,51 @@ export class VoiceService {
         const { serviceName, customerName, customerPhone, customerEmail, startTime, date, time, dateTime, notes, staffId, durationMinutes } = args;
         const effectiveStartTime = startTime || dateTime || (date && time ? `${date}T${time}:00Z` : undefined);
 
-        if (!serviceName || !customerName || !customerPhone || !effectiveStartTime) {
+        if (!serviceName || !customerName || (!customerPhone && !customerEmail) || !effectiveStartTime) {
           return {
-            error: 'Missing required booking fields: serviceName, customerName, customerPhone, and startTime (or date & time) are required.',
+            error: 'Missing required booking fields: serviceName, customerName, at least one contact method (phone number or email), and startTime are required.',
           };
         }
+
+        // Validate that requested start time is in the future
+        const startMs = new Date(effectiveStartTime).getTime();
+        if (isNaN(startMs)) {
+          return { error: 'Invalid appointment start time format.' };
+        }
+        if (startMs < Date.now() - 5 * 60 * 1000) {
+          return {
+            error: `Appointment time ${effectiveStartTime} is in the past. Today is ${new Date().toISOString().split('T')[0]}. Please select a future date and time.`,
+          };
+        }
+
+        // Idempotent duplicate check: If the same customer already booked this slot in this session
+        const existingAppt = await db.getOne<any>(
+          `SELECT id, service_name as "serviceName", customer_name as "customerName",
+                  customer_email as "customerEmail", customer_phone as "customerPhone",
+                  start_time as "startTime", status
+           FROM appointments
+           WHERE organization_id = $1
+             AND start_time = $2
+             AND status IN ('CONFIRMED', 'REQUESTED')
+             AND (customer_name ILIKE $3 OR conversation_id = $4)
+           LIMIT 1`,
+          [orgId, effectiveStartTime, customerName.trim(), params.callId || '']
+        );
+
+        if (existingAppt) {
+          console.log(`[VoiceService] Idempotent booking hit for appointment ${existingAppt.id} (${customerName} at ${effectiveStartTime})`);
+          return {
+            success: true,
+            appointmentId: existingAppt.id,
+            serviceName: existingAppt.serviceName,
+            customerName: existingAppt.customerName,
+            startTime: existingAppt.startTime,
+            status: existingAppt.status,
+            message: `Appointment successfully confirmed for ${existingAppt.customerName} on ${new Date(existingAppt.startTime).toLocaleString('en-US', { timeZone: 'UTC' })}.`,
+          };
+        }
+
+        const effectiveEmail = customerEmail || (customerPhone ? `${customerPhone.replace(/[^\d]/g, '')}@voice-visitor.onceclic.com` : `visitor_${Date.now()}@voice-visitor.onceclic.com`);
 
         // If staffId is provided (salon flow), use SalonService for double-booking prevention
         if (staffId) {
@@ -3011,8 +3082,8 @@ export class VoiceService {
             staffId,
             serviceName,
             customerName,
-            customerPhone,
-            customerEmail: customerEmail || `${customerPhone.replace(/[^\d]/g, '')}@voice-visitor.onceclic.com`,
+            customerPhone: customerPhone || undefined,
+            customerEmail: effectiveEmail,
             startTime: effectiveStartTime,
             durationMinutes: durationMinutes || 30,
             notes: notes ? `Voice Booking. Notes: ${notes}` : 'Booked via ONCEClic AI Voice Receptionist',
@@ -3035,10 +3106,11 @@ export class VoiceService {
           organizationId: orgId,
           serviceName,
           customerName,
-          customerPhone,
-          customerEmail: customerEmail || `${customerPhone.replace(/[^\d]/g, '')}@voice-visitor.onceclic.com`,
+          customerPhone: customerPhone || undefined,
+          customerEmail: effectiveEmail,
           startTime: effectiveStartTime,
           notes: notes ? `Voice Booking. Notes: ${notes}` : 'Booked via ONCEClic AI Voice Receptionist',
+          conversationId: params.callId,
         });
 
         return {
@@ -3048,7 +3120,7 @@ export class VoiceService {
           customerName: appointment.customerName,
           startTime: appointment.startTime,
           status: appointment.status,
-          message: `Appointment successfully confirmed for ${customerName} on ${new Date(startTime).toLocaleString('en-US', { timeZone: 'UTC' })}.`,
+          message: `Appointment successfully confirmed for ${customerName} on ${new Date(appointment.startTime).toLocaleString('en-US', { timeZone: 'UTC' })}.`,
         };
       }
 

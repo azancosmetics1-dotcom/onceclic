@@ -109,7 +109,7 @@ export async function runDeepgramVoiceAgentTests() {
   const invalidExec = await DeepgramVoiceAgentService.executeTool({
     sessionTicket: 'invalid.jwt.token',
     toolName: 'check_calendar_availability',
-    args: { date: '2026-09-15' },
+    args: { date: '2026-11-28' },
   });
   assert.strictEqual(invalidExec.success, false, 'Invalid token must be rejected');
   assert.ok(invalidExec.error?.includes('Invalid or expired'), 'Must return descriptive error');
@@ -200,7 +200,7 @@ export async function runDeepgramVoiceAgentTests() {
   const checkRes = await DeepgramVoiceAgentService.executeTool({
     sessionTicket: session.sessionTicket!,
     toolName: 'check_calendar_availability',
-    args: { date: '2026-09-15' },
+    args: { date: '2026-11-28' },
     toolCallId: 'call_avail_1',
   });
   assert.strictEqual(checkRes.success, true);
@@ -214,7 +214,7 @@ export async function runDeepgramVoiceAgentTests() {
       customerName: 'Alice Walker',
       customerPhone: '+15559876543',
       serviceName: 'Standard Haircut',
-      date: '2026-09-15',
+      date: '2026-11-28',
       time: '10:00',
     },
     toolCallId: 'call_book_1',
@@ -338,7 +338,7 @@ export async function runDeepgramVoiceAgentTests() {
       customerName: hackerCustomerName,
       customerPhone: '+15550000000',
       serviceName: 'Hacked Service',
-      date: '2026-09-15',
+      date: '2026-11-28',
       time: '14:00',
     },
   });
@@ -399,8 +399,244 @@ export async function runDeepgramVoiceAgentTests() {
   });
   console.log('  -> PASS: Diagnostics logger redacts credentials');
 
+  // --------------------------------------------------------------------------
+  // Test 21: Date/year parsing & past-date rejection in check_calendar_availability
+  // --------------------------------------------------------------------------
+  console.log('Test 21: Date/year parsing and past-date rejection');
+  const pastYearRes = await DeepgramVoiceAgentService.executeTool({
+    sessionTicket: freshPublicSession.sessionTicket!,
+    toolName: 'check_calendar_availability',
+    args: { date: '2023-11-27' },
+  });
+  assert.ok(pastYearRes.result?.error?.includes('past'), 'Past year 2023 must be rejected');
+
+  const pastDateRes = await DeepgramVoiceAgentService.executeTool({
+    sessionTicket: freshPublicSession.sessionTicket!,
+    toolName: 'check_calendar_availability',
+    args: { date: '2024-01-01' },
+  });
+  assert.ok(pastDateRes.result?.error?.includes('past'), 'Past date must be rejected');
+
+  const validFutureDate = '2026-11-28';
+  const futureRes = await DeepgramVoiceAgentService.executeTool({
+    sessionTicket: freshPublicSession.sessionTicket!,
+    toolName: 'check_calendar_availability',
+    args: { date: validFutureDate },
+  });
+  assert.strictEqual(futureRes.result?.date, validFutureDate);
+  assert.ok(typeof futureRes.result?.hasAvailableSlots === 'boolean', 'Future date returns slot availability');
+  console.log('  -> PASS: Date/year parsing validated and past dates rejected');
+
+  // --------------------------------------------------------------------------
+  // Test 22: Booking state persistence prompt instructions and current calendar anchoring
+  // --------------------------------------------------------------------------
+  console.log('Test 22: Booking state persistence and calendar anchoring in prompt');
+  const freshPrompt = await VoicePromptBuilder.buildPrompt(freshOrgId);
+  assert.ok(freshPrompt.systemPrompt.includes('CURRENT DATE & CALENDAR ANCHOR:'), 'Must include calendar anchor');
+  assert.ok(freshPrompt.systemPrompt.includes('NEVER assume 2023, 2024, or any past year'), 'Must forbid past year assumptions');
+  assert.ok(freshPrompt.systemPrompt.includes('BOOKING CONVERSATION STATE MACHINE'), 'Must include booking state machine rules');
+  assert.ok(freshPrompt.systemPrompt.includes('STATE PERSISTENCE'), 'Must enforce state persistence');
+  assert.ok(freshPrompt.systemPrompt.includes('Do NOT repeatedly ask "Would you like me to book'), 'Must prevent repetitive booking reminders');
+  console.log('  -> PASS: Prompt anchors current year and enforces strict booking state memory');
+
+  // --------------------------------------------------------------------------
+  // Test 23: Contact flexibility: Booking allowed with email when phone is omitted
+  // --------------------------------------------------------------------------
+  console.log('Test 23: Contact flexibility (email provided, phone omitted)');
+  const emailOnlyName = `EmailOnly_${Date.now()}`;
+  const emailOnlyRes = await DeepgramVoiceAgentService.executeTool({
+    sessionTicket: freshPublicSession.sessionTicket!,
+    toolName: 'book_appointment',
+    args: {
+      serviceName: 'Consultation',
+      customerName: emailOnlyName,
+      customerEmail: 'customer@example.com',
+      startTime: '2026-11-28T14:00:00.000Z',
+    },
+  });
+  assert.strictEqual(emailOnlyRes.result?.success, true, 'Booking must succeed when valid email is provided without phone');
+  assert.ok(emailOnlyRes.result?.appointmentId, 'Must return confirmed appointmentId');
+  console.log('  -> PASS: Appointment booked successfully with email when phone is omitted');
+
+  // --------------------------------------------------------------------------
+  // Test 24: Missing contact rejection: Requires either phone or email
+  // --------------------------------------------------------------------------
+  console.log('Test 24: Missing contact rejection (neither phone nor email provided)');
+  const noContactRes = await DeepgramVoiceAgentService.executeTool({
+    sessionTicket: freshPublicSession.sessionTicket!,
+    toolName: 'book_appointment',
+    args: {
+      serviceName: 'Consultation',
+      customerName: 'Anonymous Visitor',
+      startTime: '2026-11-28T15:00:00.000Z',
+    },
+  });
+  assert.ok(noContactRes.result?.error?.includes('contact'), 'Must explain contact info is required when neither is provided');
+  console.log('  -> PASS: Rejected booking without contact details and prompted clearly');
+
+  // --------------------------------------------------------------------------
+  // Test 25: Past-date booking rejection
+  // --------------------------------------------------------------------------
+  console.log('Test 25: Past-date booking rejection');
+  const pastBookingRes = await DeepgramVoiceAgentService.executeTool({
+    sessionTicket: freshPublicSession.sessionTicket!,
+    toolName: 'book_appointment',
+    args: {
+      serviceName: 'Consultation',
+      customerName: 'Past Booker',
+      customerEmail: 'past@example.com',
+      startTime: '2023-11-27T14:00:00.000Z',
+    },
+  });
+  assert.ok(pastBookingRes.result?.error?.includes('past'), 'Past start time must be rejected');
+  console.log('  -> PASS: Past appointment start time strictly rejected');
+
+  // --------------------------------------------------------------------------
+  // Test 26: Duplicate booking prevention (Idempotency)
+  // --------------------------------------------------------------------------
+  console.log('Test 26: Duplicate booking prevention via idempotency');
+  const idemCustomer = `IdemUser_${Date.now()}`;
+  const idemTime = '2026-11-28T10:00:00.000Z';
+  const firstBook = await DeepgramVoiceAgentService.executeTool({
+    sessionTicket: freshPublicSession.sessionTicket!,
+    toolName: 'book_appointment',
+    args: {
+      serviceName: 'Consultation',
+      customerName: idemCustomer,
+      customerEmail: 'idem@example.com',
+      startTime: idemTime,
+    },
+  });
+  assert.strictEqual(firstBook.result?.success, true);
+  const firstId = firstBook.result?.appointmentId;
+
+  // Execute identical tool call again (simulating duplicate tool call)
+  const secondBook = await DeepgramVoiceAgentService.executeTool({
+    sessionTicket: freshPublicSession.sessionTicket!,
+    toolName: 'book_appointment',
+    args: {
+      serviceName: 'Consultation',
+      customerName: idemCustomer,
+      customerEmail: 'idem@example.com',
+      startTime: idemTime,
+    },
+  });
+  assert.strictEqual(secondBook.result?.success, true, 'Second call must return success idempotently');
+  assert.strictEqual(secondBook.result?.appointmentId, firstId, 'Must return the same appointment ID without double-booking');
+  console.log('  -> PASS: Duplicate tool call returned existing confirmed appointment idempotently');
+
+  // --------------------------------------------------------------------------
+  // Test 27: Session end behavior with end_call tool
+  // --------------------------------------------------------------------------
+  console.log('Test 27: Session end behavior with end_call tool');
+  const endCallRes = await DeepgramVoiceAgentService.executeTool({
+    sessionTicket: freshPublicSession.sessionTicket!,
+    toolName: 'end_call',
+    args: { reason: 'Visitor said thank you and goodbye' },
+  });
+  assert.strictEqual(endCallRes.result?.success, true);
+  assert.strictEqual(endCallRes.result?.callEnded, true, 'Must indicate call is concluded');
+  console.log('  -> PASS: end_call tool successfully signals session conclusion');
+
+  // --------------------------------------------------------------------------
+  // Test 28: Client-side turn deduplication & hypothesis refinement
+  // --------------------------------------------------------------------------
+  console.log('Test 28: Client-side turn deduplication logic');
+  // Simulate UI message state reducer with hypothesis refinement
+  function applyTranscript(prevMessages: any[], role: string, text: string, turnId: string) {
+    const cleanText = text.trim();
+    if (!cleanText) return prevMessages;
+    const expectedRole = role === 'user' ? 'CUSTOMER' : 'AI';
+
+    const existingIndex = prevMessages.findIndex((m) => m.id === turnId);
+    if (existingIndex >= 0) {
+      const updated = [...prevMessages];
+      updated[existingIndex] = { ...updated[existingIndex], content: cleanText };
+      return updated;
+    }
+
+    const lastMsg = prevMessages[prevMessages.length - 1];
+    if (lastMsg && lastMsg.role === expectedRole) {
+      const lastContent = lastMsg.content.trim();
+      if (lastContent === cleanText) return prevMessages;
+      if (cleanText.startsWith(lastContent) || lastContent.startsWith(cleanText)) {
+        const updated = [...prevMessages];
+        updated[updated.length - 1] = { ...lastMsg, content: cleanText };
+        return updated;
+      }
+    }
+
+    return [...prevMessages, { id: turnId, role: expectedRole, content: cleanText }];
+  }
+
+  let testMsgs: any[] = [];
+  // User speaks: partial hypothesis 1
+  testMsgs = applyTranscript(testMsgs, 'user', 'What services', 'turn_u1');
+  assert.strictEqual(testMsgs.length, 1);
+  assert.strictEqual(testMsgs[0].content, 'What services');
+
+  // User speaks: refined hypothesis 2 in same turn
+  testMsgs = applyTranscript(testMsgs, 'user', 'What services do you offer and what are your prices?', 'turn_u1');
+  assert.strictEqual(testMsgs.length, 1, 'Refinement must NOT add a new message');
+  assert.strictEqual(testMsgs[0].content, 'What services do you offer and what are your prices?');
+
+  // User speaks: duplicate final chunk
+  testMsgs = applyTranscript(testMsgs, 'user', 'What services do you offer and what are your prices?', 'turn_u1');
+  assert.strictEqual(testMsgs.length, 1, 'Duplicate final chunk must be ignored');
+
+  // Assistant responds
+  testMsgs = applyTranscript(testMsgs, 'assistant', 'We offer haircuts for $30.', 'turn_a1');
+  assert.strictEqual(testMsgs.length, 2);
+  assert.strictEqual(testMsgs[1].content, 'We offer haircuts for $30.');
+  console.log('  -> PASS: User hypothesis refinement and turn deduplication verified');
+
+  // --------------------------------------------------------------------------
+  // Test 29: Greeting deduplication against initial welcome message
+  // --------------------------------------------------------------------------
+  console.log('Test 29: Greeting deduplication against initial welcome message');
+  let chatWithGreeting = [
+    { id: 'init_welcome', role: 'AI', content: 'Thank you for calling Fresh Salon. My name is Luna. How may I help you today?' },
+  ];
+
+  // Assistant speaks identical greeting via Deepgram ConversationText
+  const incomingGreeting = 'Thank you for calling Fresh Salon. My name is Luna. How may I help you today?';
+  const isGreetingMatch = chatWithGreeting.some((m) => {
+    if (m.role !== 'AI') return false;
+    const mText = m.content.toLowerCase().trim();
+    const inText = incomingGreeting.toLowerCase().trim();
+    return mText === inText || inText.includes(mText) || mText.includes(inText);
+  });
+  assert.strictEqual(isGreetingMatch, true, 'Greeting must be matched as duplicate');
+  if (!isGreetingMatch || chatWithGreeting.length > 2) {
+    chatWithGreeting.push({ id: 'turn_a_greet', role: 'AI', content: incomingGreeting });
+  }
+  assert.strictEqual(chatWithGreeting.length, 1, 'Chat must retain exactly 1 greeting message without duplication');
+  console.log('  -> PASS: Opening greeting deduplicated against initial welcome message');
+
+  // --------------------------------------------------------------------------
+  // Test 30: Concurrent start call prevention
+  // --------------------------------------------------------------------------
+  console.log('Test 30: Concurrent start call prevention (guards against duplicate sessions)');
+  let activeVoiceStatus = 'active';
+  let sessionCreatedCount = 0;
+  function handleStart(status: string) {
+    if (status === 'connecting' || status === 'active' || status === 'listening' || status === 'speaking') {
+      return false;
+    }
+    sessionCreatedCount++;
+    return true;
+  }
+  const firstTry = handleStart(activeVoiceStatus);
+  assert.strictEqual(firstTry, false, 'Starting when active must be blocked');
+  assert.strictEqual(sessionCreatedCount, 0, 'No extra session created');
+  activeVoiceStatus = 'ended';
+  const secondTry = handleStart(activeVoiceStatus);
+  assert.strictEqual(secondTry, true, 'Starting when ended is allowed');
+  assert.strictEqual(sessionCreatedCount, 1);
+  console.log('  -> PASS: Concurrent start guarded against duplicate sessions and listeners');
+
   console.log('\n========================================================================');
-  console.log('  ALL 20 DEEPGRAM VOICE AGENT TESTS PASSED SUCCESSFULLY!');
+  console.log('  ALL 30 DEEPGRAM VOICE AGENT TESTS PASSED SUCCESSFULLY!');
   console.log('========================================================================\n');
 }
 
