@@ -202,9 +202,12 @@ export class DeepgramVoiceClient {
   private connectWebSocket(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
-        // Deepgram token authentication in browsers uses the 'token' subprotocol
-        // wss://agent.deepgram.com/v1/agent/converse with subprotocol ['token', deepgramToken]
-        const protocols = this.deepgramToken ? ['token', this.deepgramToken] : [];
+        // Deepgram token authentication in browsers:
+        // Temporary JWT tokens minted via /v1/auth/grant use the 'bearer' subprotocol
+        // wss://agent.deepgram.com/v1/agent/converse with subprotocol ['bearer', deepgramToken]
+        const isJwt = this.deepgramToken?.startsWith('eyJ');
+        const tokenPrefix = isJwt ? 'bearer' : 'token';
+        const protocols = this.deepgramToken ? [tokenPrefix, this.deepgramToken] : [];
         const ws = new WebSocket(this.wsUrl, protocols);
         this.ws = ws;
         ws.binaryType = 'arraybuffer';

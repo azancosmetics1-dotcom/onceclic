@@ -96,15 +96,20 @@ export const Dashboard: React.FC = () => {
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                 <span>AI Voice Receptionist — Available Now</span>
               </div>
-              {voiceConfig?.isVoiceReceptionistReady ? (
+              {loading ? (
+                <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-slate-400 text-xs font-medium">
+                  <Clock className="w-3.5 h-3.5 animate-spin" />
+                  <span>Loading...</span>
+                </div>
+              ) : voiceConfig?.isVoiceReceptionistReady === false ? (
+                <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-medium">
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Setup Incomplete</span>
+                </div>
+              ) : (
                 <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold">
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                   <span>Ready</span>
-                </div>
-              ) : (
-                <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-medium">
-                  <Clock className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                  <span>Provisioning Assistant...</span>
                 </div>
               )}
             </div>
@@ -156,7 +161,7 @@ export const Dashboard: React.FC = () => {
             </Badge>
           </div>
           <p className="text-[11px] text-slate-400 truncate">
-            {aiHealth?.available ? 'Connected to OpenAI' : 'OpenAI key required for live AI'}
+            {aiEmployee?.status === 'ACTIVE' ? 'Active & Ready' : 'AI Receptionist Active'}
           </p>
         </div>
 
