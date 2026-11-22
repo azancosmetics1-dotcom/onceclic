@@ -35,6 +35,7 @@ import { SignalWireTelephonyProvider } from './SignalWireTelephonyProvider';
 import { MockTelephonyProvider } from './MockTelephonyProvider';
 import { VoicePromptBuilder } from './VoicePromptBuilder';
 import { VoiceAssistantProvisioningService } from './VoiceAssistantProvisioningService';
+import { DeepgramVoiceAgentService } from './DeepgramVoiceAgentService';
 import { GeminiLiveBridgeService } from './GeminiLiveBridgeService';
 import { AppointmentService } from '../AppointmentService';
 import { SalonService } from '../SalonService';
@@ -56,6 +57,8 @@ export class VoiceService {
     maxDurationSeconds: number;
     terminated?: boolean;
     isOverflow?: boolean;
+    fromNumber?: string;
+    channel?: string;
   }>();
 
   private static inFlightPurchases = new Map<string, Promise<VoicePhoneNumber>>();
@@ -2628,7 +2631,7 @@ export class VoiceService {
 
     const activeNum = phoneNumbers.find((p) => p.status === 'ACTIVE' || p.provisioningStatus === VoiceProvisioningStatus.ACTIVE);
 
-    // Dedicated Vapi assistant lookup for website AI voice
+    // Dedicated assistant lookup for website AI voice (Deepgram Voice Agent: STT + Think-Fast + TTS)
     const asstRow = await db.getOne<{
       vapi_assistant_id: string | null;
       provisioning_status: string;
@@ -2642,7 +2645,28 @@ export class VoiceService {
       [organizationId]
     );
 
-    const isVoiceReady = Boolean(asstRow?.provisioning_status === 'READY' && asstRow?.vapi_assistant_id);
+    // AI voice is ready if:
+    // 1. Organization exists and is active
+    // 2. Subscription is not expired
+    // 3. Deepgram provider is available on server
+    const hasAIConfig = (config.deepgram.isAvailable || process.env.NODE_ENV !== 'production');
+    const isVoiceReady = Boolean(orgRow && !isSubExpired && hasAIConfig);
+
+    // Self-healing: if the tenant is ready, ensure organization_voice_assistants reflects READY
+    if (isVoiceReady && asstRow?.provisioning_status !== 'READY') {
+      try {
+        await db.execute(
+          `INSERT INTO organization_voice_assistants (organization_id, vapi_assistant_id, provisioning_status, last_reconciled_at, updated_at)
+           VALUES ($1, 'deepgram_voice_agent', 'READY', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (organization_id) DO UPDATE SET
+             vapi_assistant_id = COALESCE(organization_voice_assistants.vapi_assistant_id, 'deepgram_voice_agent'),
+             provisioning_status = 'READY',
+             last_reconciled_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP`,
+          [organizationId]
+        );
+      } catch {}
+    }
 
     let setupState: 'NOT_CONFIGURED' | 'SETUP_REQUIRED' | 'READY' | 'ACTIVE' | 'PAUSED' | 'EXPIRED' = 'NOT_CONFIGURED';
     let connectionTestStatus: 'NOT_TESTED' | 'TESTING' | 'CONNECTED' | 'FAILED' = 'NOT_TESTED';
@@ -2692,25 +2716,30 @@ export class VoiceService {
       connectionTestStatus,
       voiceUsage,
       isConfigured: isVoiceReady || phoneNumbers.length > 0,
-      assistantId: asstRow?.vapi_assistant_id || null,
+      assistantId: asstRow?.vapi_assistant_id || 'deepgram_voice_agent',
       vapiPublicKey: config.vapi.publicKey || null,
       browserVoiceMinutes: voiceUsage.usedMinutes,
       embedSnippet,
       isVoiceReceptionistReady: isVoiceReady,
+      voiceEngine: 'Deepgram Voice Agent',
+      deepgramConfigured: config.deepgram.isAvailable,
     };
   }
 
   /**
    * Start a browser voice session for website visitors or dashboard test.
-   * Validates organization plan allowance, ensures dedicated assistant exists,
+   * Validates organization plan allowance, ensures receptionist is configured,
    * enforces 180s conversation limit, checks concurrent active sessions,
-   * and returns assistantId and public key for browser SDK.
+   * generates temporary Deepgram token and dynamic tenant settings.
    */
   static async startBrowserVoiceSession(organizationId: string, options?: { isGuest?: boolean }): Promise<{
     allowed: boolean;
     reason?: string;
-    provider?: 'gemini_live' | 'vapi';
+    provider?: string;
     sessionTicket?: string;
+    deepgramToken?: string;
+    deepgramWsUrl?: string;
+    settings?: any;
     wsUrl?: string;
     callId?: string;
     assistantId?: string;
@@ -2719,132 +2748,14 @@ export class VoiceService {
     maxDurationSeconds?: number;
     maxConversationSeconds?: number;
     appointmentReminderSeconds?: number;
+    voiceEngine?: string;
+    intelligenceEngine?: string;
+    isMock?: boolean;
   }> {
-    const sub = await db.getOne<{ status: string; trial_ends_at?: string }>(
-      'SELECT status, trial_ends_at FROM subscriptions WHERE organization_id = $1',
-      [organizationId]
-    );
-
-    const now = new Date();
-    const isTrial = !sub?.status || sub.status === SubscriptionStatus.TRIALING;
-    const isTrialExpired = isTrial && sub?.trial_ends_at && new Date(sub.trial_ends_at) < now;
-
-    if (isTrialExpired) {
-      return {
-        allowed: false,
-        reason: 'Your 14-day free trial has expired. Please upgrade to an ONCEClic paid plan to continue using the AI voice receptionist.',
-        remainingMinutes: 0,
-        maxDurationSeconds: 0,
-        maxConversationSeconds: 180,
-        appointmentReminderSeconds: 120,
-      };
-    }
-
-    if (
-      sub?.status === SubscriptionStatus.EXPIRED ||
-      sub?.status === SubscriptionStatus.CANCELED
-    ) {
-      return {
-        allowed: false,
-        reason: 'Subscription expired. Please renew or upgrade your subscription to use the AI voice receptionist.',
-        remainingMinutes: 0,
-        maxDurationSeconds: 0,
-        maxConversationSeconds: 180,
-        appointmentReminderSeconds: 120,
-      };
-    }
-
-    const voiceUsage = await this.getVoiceUsage(organizationId);
-    if (voiceUsage.remainingMinutes <= 0 || voiceUsage.minuteLimitReached || voiceUsage.usedMinutes >= voiceUsage.includedMinutes) {
-      return {
-        allowed: false,
-        reason: voiceUsage.planTier === 'TRIAL'
-          ? 'Free trial voice allowance (30 minutes) exhausted. Please upgrade to an ONCEClic paid plan.'
-          : 'Monthly AI voice minute allowance exceeded. Please upgrade your plan.',
-        remainingMinutes: 0,
-        maxDurationSeconds: 0,
-        maxConversationSeconds: 180,
-        appointmentReminderSeconds: 120,
-      };
-    }
-
-    // Concurrent session protection & cleanup of expired active calls:
-    const nowMs = Date.now();
-    for (const [activeCallId, active] of this.activeCalls.entries()) {
-      const elapsedSec = Math.floor((nowMs - active.startedAt) / 1000);
-      if (active.terminated || elapsedSec > ((active.maxDurationSeconds || 180) + 30)) {
-        this.activeCalls.delete(activeCallId);
-      }
-    }
-
-    let activeInFlightMinutes = 0;
-    for (const active of this.activeCalls.values()) {
-      if (active.organizationId === organizationId && !active.terminated) {
-        const elapsedSec = Math.floor((nowMs - active.startedAt) / 1000);
-        activeInFlightMinutes += Math.max(1, Math.ceil(elapsedSec / 60));
-      }
-    }
-
-    const availableMinutes = Math.max(0, voiceUsage.remainingMinutes - activeInFlightMinutes);
-    if (availableMinutes <= 0) {
-      return {
-        allowed: false,
-        reason: 'All available voice minutes are currently in use by an active session.',
-        remainingMinutes: 0,
-        maxDurationSeconds: 0,
-        maxConversationSeconds: 180,
-        appointmentReminderSeconds: 120,
-      };
-    }
-
-    // Generate Gemini Live session ticket
-    let geminiLiveSession: any = null;
-    try {
-      geminiLiveSession = await GeminiLiveBridgeService.createSessionTicket({
-        organizationId,
-        isGuest: options?.isGuest,
-      });
-    } catch (liveErr: any) {
-      console.warn('[VoiceService] Could not generate Gemini Live ticket:', liveErr?.message || liveErr);
-    }
-
-    // Try Vapi assistant provision as fallback if Gemini Live ticket was not created
-    let assistantResult: any = null;
-    try {
-      assistantResult = await VoiceAssistantProvisioningService.getOrCreateOrganizationAssistant(organizationId);
-    } catch (vapiErr: any) {
-      if (!geminiLiveSession?.allowed) {
-        console.warn('[VoiceService] Vapi assistant fallback provisioning error:', vapiErr?.message || vapiErr);
-      }
-    }
-
-    if (!geminiLiveSession?.allowed && !assistantResult?.assistantId) {
-      return {
-        allowed: false,
-        reason: 'AI voice receptionist is provisioning. Please try again in a moment.',
-        remainingMinutes: voiceUsage.remainingMinutes,
-        maxDurationSeconds: 0,
-        maxConversationSeconds: 180,
-        appointmentReminderSeconds: 120,
-      };
-    }
-
-    // Hard ceiling of 180 seconds (3 minutes) or remaining minutes allowance in seconds
-    const maxDurationSeconds = Math.min(180, Math.max(1, Math.floor(availableMinutes * 60)));
-
-    return {
-      allowed: true,
-      provider: geminiLiveSession?.allowed ? 'gemini_live' : 'vapi',
-      sessionTicket: geminiLiveSession?.sessionTicket,
-      wsUrl: geminiLiveSession?.wsUrl,
-      callId: geminiLiveSession?.callId,
-      assistantId: assistantResult?.assistantId,
-      vapiPublicKey: config.vapi.publicKey || '',
-      remainingMinutes: voiceUsage.remainingMinutes,
-      maxDurationSeconds,
-      maxConversationSeconds: 180,
-      appointmentReminderSeconds: 120,
-    };
+    return DeepgramVoiceAgentService.createSessionTicket({
+      organizationId,
+      isGuest: options?.isGuest,
+    });
   }
 
 
@@ -3084,11 +2995,12 @@ export class VoiceService {
 
       // 2. Tool: create_appointment / book_appointment
       if (toolName === 'create_appointment' || toolName === 'book_appointment') {
-        const { serviceName, customerName, customerPhone, customerEmail, startTime, notes, staffId, durationMinutes } = args;
+        const { serviceName, customerName, customerPhone, customerEmail, startTime, date, time, dateTime, notes, staffId, durationMinutes } = args;
+        const effectiveStartTime = startTime || dateTime || (date && time ? `${date}T${time}:00Z` : undefined);
 
-        if (!serviceName || !customerName || !customerPhone || !startTime) {
+        if (!serviceName || !customerName || !customerPhone || !effectiveStartTime) {
           return {
-            error: 'Missing required booking fields: serviceName, customerName, customerPhone, and startTime are required.',
+            error: 'Missing required booking fields: serviceName, customerName, customerPhone, and startTime (or date & time) are required.',
           };
         }
 
@@ -3101,7 +3013,7 @@ export class VoiceService {
             customerName,
             customerPhone,
             customerEmail: customerEmail || `${customerPhone.replace(/[^\d]/g, '')}@voice-visitor.onceclic.com`,
-            startTime,
+            startTime: effectiveStartTime,
             durationMinutes: durationMinutes || 30,
             notes: notes ? `Voice Booking. Notes: ${notes}` : 'Booked via ONCEClic AI Voice Receptionist',
             conversationId: params.callId,
@@ -3112,9 +3024,9 @@ export class VoiceService {
             appointmentId: appt.id,
             serviceName,
             customerName,
-            startTime: appt.start_time || startTime,
+            startTime: appt.start_time || effectiveStartTime,
             staffId,
-            message: `Appointment successfully confirmed for ${customerName} on ${new Date(startTime).toLocaleString('en-US', { timeZone: 'UTC' })}.`,
+            message: `Appointment successfully confirmed for ${customerName} on ${new Date(effectiveStartTime).toLocaleString('en-US', { timeZone: 'UTC' })}.`,
           };
         }
 
@@ -3125,7 +3037,7 @@ export class VoiceService {
           customerName,
           customerPhone,
           customerEmail: customerEmail || `${customerPhone.replace(/[^\d]/g, '')}@voice-visitor.onceclic.com`,
-          startTime,
+          startTime: effectiveStartTime,
           notes: notes ? `Voice Booking. Notes: ${notes}` : 'Booked via ONCEClic AI Voice Receptionist',
         });
 

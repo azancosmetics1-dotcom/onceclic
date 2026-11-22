@@ -118,14 +118,19 @@ export const AIReceptionistPage: React.FC = () => {
       setBrowserVoiceError(null);
       setBrowserTranscripts([]);
       const session = await api.startBrowserVoiceSession();
-      if (!session?.sessionTicket && (!session?.assistantId || !session?.vapiPublicKey)) {
+      if (!session?.sessionTicket && !session?.deepgramToken && (!session?.assistantId || !session?.vapiPublicKey)) {
         setBrowserVoiceError('AI voice receptionist assistant is not ready yet.');
         return;
       }
 
       const voice = new BrowserVoiceSession({
-        provider: session.provider || (session.sessionTicket ? 'gemini_live' : 'vapi'),
+        provider: session.provider || (session.deepgramToken ? 'deepgram_voice_agent' : session.sessionTicket ? 'gemini_live' : 'vapi'),
         sessionTicket: session.sessionTicket,
+        deepgramToken: session.deepgramToken,
+        deepgramWsUrl: session.deepgramWsUrl,
+        settings: session.settings,
+        toolEndpointUrl: '/api/voice/tools/execute',
+        sessionEndUrl: '/api/voice/session/end',
         wsUrl: session.wsUrl,
         assistantId: session.assistantId,
         publicKey: session.vapiPublicKey,
@@ -419,40 +424,44 @@ export const AIReceptionistPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Gemini Live Architecture Card */}
+            {/* Deepgram Voice Agent & Gemini Architecture Card */}
             <div className="p-6 rounded-2xl bg-slate-900 border border-slate-800 flex flex-col justify-between">
               <div>
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center space-x-1.5">
                   <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>Gemini Live Architecture</span>
+                  <span>Voice Agent Architecture</span>
                 </span>
 
                 <div className="mt-4 space-y-2 text-xs">
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">Chat / LLM Model:</span>
-                    <span className="font-semibold text-white">Google Gemini 3.5 Flash-Lite</span>
+                    <span className="text-slate-400">Voice Engine:</span>
+                    <span className="font-semibold text-white">Deepgram Voice Agent</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">Live Voice Model:</span>
-                    <span className="font-semibold text-white">Google Gemini 3.8 Live (Aoede Voice)</span>
+                    <span className="text-slate-400">Voice Intelligence (LLM):</span>
+                    <span className="font-semibold text-white">Deepgram Managed OpenAI (GPT-4o-mini)</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">Speech Input:</span>
-                    <span className="font-semibold text-white">Direct 16kHz PCM Stream (Gemini Live Audio)</span>
+                    <span className="text-slate-400">Speech Recognition (STT):</span>
+                    <span className="font-semibold text-white">Deepgram Flux STT (flux-general-en)</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">Knowledge:</span>
-                    <span className="font-semibold text-emerald-400">Connected to Business KB</span>
+                    <span className="text-slate-400">Speech Generation (TTS):</span>
+                    <span className="font-semibold text-white">Deepgram Aura (aura-2-thalia-en)</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-800/60">
+                    <span className="text-slate-400">Text AI & Knowledge:</span>
+                    <span className="font-semibold text-white">Google Gemini (Chat & Embeddings)</span>
                   </div>
                   <div className="flex justify-between py-1">
-                    <span className="text-slate-400">Calendar Verification:</span>
+                    <span className="text-slate-400">Calendar & Tools:</span>
                     <span className="font-semibold text-emerald-400">Real-Time DB Guaranteed</span>
                   </div>
                 </div>
               </div>
 
               <div className="mt-4 pt-3 border-t border-slate-800 text-[11px] text-slate-500">
-                Tenant isolation enforced &bull; Powered by Google Gemini Live
+                Tenant isolation enforced &bull; Voice: Deepgram Voice Agent (Flux, Managed GPT-4o-mini, Aura) &bull; Text: Google Gemini
               </div>
             </div>
           </div>
@@ -502,16 +511,16 @@ export const AIReceptionistPage: React.FC = () => {
                     <div>
                       <p className="text-xs font-bold text-white">
                         {browserVoiceStatus === 'requesting_microphone' && 'Requesting microphone permission...'}
-                        {browserVoiceStatus === 'connecting' && 'Connecting to Google Gemini Live API...'}
-                        {browserVoiceStatus === 'waiting_for_gemini' && 'Waiting for Gemini setup to complete...'}
+                        {browserVoiceStatus === 'connecting' && 'Connecting to Deepgram Voice Agent...'}
+                        {browserVoiceStatus === 'waiting_for_gemini' && 'Configuring tenant settings...'}
                         {browserVoiceStatus === 'ready' && 'Ready — speak now'}
                         {browserVoiceStatus === 'listening' && 'Listening... Speak into your microphone.'}
-                        {browserVoiceStatus === 'speaking' && 'AI Receptionist is speaking...'}
+                        {browserVoiceStatus === 'speaking' && 'Luna is speaking...'}
                         {browserVoiceStatus === 'active' && 'Ready — speak now'}
-                        {browserVoiceStatus === 'reconnecting' && 'Reconnecting to Gemini...'}
-                        {browserVoiceStatus === 'loading_sdk' && 'Initializing Gemini Live Voice...'}
+                        {browserVoiceStatus === 'reconnecting' && 'Reconnecting to voice service...'}
+                        {browserVoiceStatus === 'loading_sdk' && 'Initializing Voice Agent...'}
                       </p>
-                      <p className="text-[11px] text-slate-400">Google Gemini Live &bull; Real-Time Voice</p>
+                      <p className="text-[11px] text-slate-400">Deepgram Voice Agent &bull; Google Gemini Intelligence</p>
                     </div>
                   </div>
                   <div className="flex items-center space-x-1">

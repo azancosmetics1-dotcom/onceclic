@@ -73,6 +73,15 @@ export const config = {
     isAvailable: !!process.env.GEMINI_API_KEY && !process.env.GEMINI_API_KEY.includes('placeholder'),
   },
 
+  deepgram: {
+    apiKey: (process.env.DEEPGRAM_API_KEY || '').trim(),
+    isAvailable: !!process.env.DEEPGRAM_API_KEY && !process.env.DEEPGRAM_API_KEY.includes('placeholder'),
+    sttModel: process.env.DEEPGRAM_STT_MODEL || 'flux-general-en',
+    ttsVoice: process.env.DEEPGRAM_TTS_VOICE || 'aura-2-thalia-en',
+    thinkProvider: process.env.DEEPGRAM_THINK_PROVIDER || 'open_ai',
+    thinkModel: process.env.DEEPGRAM_THINK_MODEL || 'gpt-4o-mini',
+  },
+
   creem: {
     apiKey: process.env.CREEM_API_KEY || '',
     webhookSecret: process.env.CREEM_WEBHOOK_SECRET || '',

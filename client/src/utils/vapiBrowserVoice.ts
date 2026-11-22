@@ -9,6 +9,7 @@
  * - Accurate timer starting ONLY when active voice conversation starts
  */
 
+import { DeepgramVoiceClient } from './deepgramVoiceClient';
 import { GeminiLiveVoiceClient } from './geminiLiveVoiceClient';
 
 declare global {
@@ -41,8 +42,13 @@ export interface BrowserVoiceCallbacks {
 }
 
 export interface BrowserVoiceSessionParams {
-  provider?: 'gemini_live' | 'vapi';
+  provider?: 'deepgram_voice_agent' | 'gemini_live' | 'vapi';
   sessionTicket?: string;
+  deepgramToken?: string;
+  deepgramWsUrl?: string;
+  settings?: any;
+  toolEndpointUrl?: string;
+  sessionEndUrl?: string;
   wsUrl?: string;
   assistantId?: string;
   publicKey?: string;
@@ -63,7 +69,6 @@ export function loadVapiScript(): Promise<void> {
   }
 
   vapiScriptLoadingPromise = new Promise((resolve, reject) => {
-    // Check if script already in document
     const existingScript = document.querySelector('script[src*="VapiAI"]');
     if (existingScript && window.vapiSDK) {
       resolve();
@@ -88,6 +93,7 @@ export function loadVapiScript(): Promise<void> {
 }
 
 export class BrowserVoiceSession {
+  private deepgramClient: DeepgramVoiceClient | null = null;
   private geminiClient: GeminiLiveVoiceClient | null = null;
   private vapi: any = null;
   private assistantId: string;
@@ -107,7 +113,29 @@ export class BrowserVoiceSession {
     this.appointmentReminderSeconds = params.appointmentReminderSeconds || 120;
     this.callbacks = params.callbacks || {};
 
-    // Prefer direct Gemini Live Web Audio API if sessionTicket is provided or provider is gemini_live
+    // Primary: Deepgram Voice Agent (Speech, Turn Management, Audio Transport) + Gemini (Intelligence)
+    if (params.provider === 'deepgram_voice_agent' || params.deepgramToken || params.settings) {
+      this.deepgramClient = new DeepgramVoiceClient({
+        deepgramToken: params.deepgramToken || '',
+        deepgramWsUrl: params.deepgramWsUrl,
+        sessionTicket: params.sessionTicket || '',
+        settings: params.settings,
+        toolEndpointUrl: params.toolEndpointUrl,
+        sessionEndUrl: params.sessionEndUrl,
+        maxDurationSeconds: this.maxDurationSeconds,
+        appointmentReminderSeconds: this.appointmentReminderSeconds,
+        callbacks: {
+          ...this.callbacks,
+          onStatusChange: (status, err) => {
+            this.status = status;
+            this.callbacks.onStatusChange?.(status, err);
+          },
+        },
+      });
+      return;
+    }
+
+    // Fallback: Legacy Gemini Live Web Audio API if sessionTicket is provided or provider is gemini_live
     if (params.sessionTicket || params.provider === 'gemini_live') {
       let targetWsUrl = params.wsUrl;
       if (!targetWsUrl || targetWsUrl.startsWith('/')) {
@@ -179,6 +207,9 @@ export class BrowserVoiceSession {
   }
 
   async start(): Promise<void> {
+    if (this.deepgramClient) {
+      return this.deepgramClient.start();
+    }
     if (this.geminiClient) {
       return this.geminiClient.start();
     }
@@ -263,6 +294,11 @@ export class BrowserVoiceSession {
 
   stop(reason?: string): void {
     this.clearTimer();
+    if (this.deepgramClient) {
+      this.deepgramClient.stop(reason);
+      this.setStatus('ended', reason);
+      return;
+    }
     if (this.geminiClient) {
       this.geminiClient.stop(reason);
       this.setStatus('ended', reason);

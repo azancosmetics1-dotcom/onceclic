@@ -1643,6 +1643,8 @@ export interface CustomerVoiceConfig {
   browserVoiceMinutes?: number;
   embedSnippet?: string;
   isVoiceReceptionistReady?: boolean;
+  voiceEngine?: string;
+  deepgramConfigured?: boolean;
 }
 
 export interface VoiceAnalyticsSummary {

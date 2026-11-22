@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/authMiddleware';
 import { tenantIsolationMiddleware } from '../middleware/tenantIsolationMiddleware';
 import { requirePermission } from '../middleware/rbacMiddleware';
 import { VoiceService } from '../services/voice/VoiceService';
+import { DeepgramVoiceAgentService } from '../services/voice/DeepgramVoiceAgentService';
 import { PhoneNumberPricingService } from '../services/voice/PhoneNumberPricingService';
 import { PhoneNumberBillingService } from '../services/voice/PhoneNumberBillingService';
 import { VoiceConnectionMethod } from '@onceclic/shared';
@@ -73,6 +74,56 @@ router.post('/browser/session', requirePermission('voice:read'), async (req: Req
       success: true,
       data: session,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Execute Voice Tool securely with Session Ticket authorization (Dashboard Voice Test)
+ */
+router.post('/tools/execute', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
+  try {
+    const { sessionTicket, toolName, args, toolCallId } = req.body;
+    if (!sessionTicket || !toolName) {
+      return res.status(400).json({ success: false, error: 'sessionTicket and toolName are required' });
+    }
+
+    const execResult = await DeepgramVoiceAgentService.executeTool({
+      sessionTicket,
+      toolName,
+      args: args || {},
+      toolCallId,
+    });
+
+    if (!execResult.success) {
+      return res.status(400).json({ success: false, error: execResult.error });
+    }
+
+    res.json({ success: true, result: execResult.result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Finalize Voice Session Duration & Usage (Dashboard Voice Test)
+ */
+router.post('/session/end', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
+  try {
+    const { sessionTicket, durationSeconds, transcript, reason } = req.body;
+    if (!sessionTicket) {
+      return res.status(400).json({ success: false, error: 'sessionTicket is required' });
+    }
+
+    const endResult = await DeepgramVoiceAgentService.endSession({
+      sessionTicket,
+      durationSeconds: Number(durationSeconds) || 0,
+      transcript,
+      reason,
+    });
+
+    res.json({ success: true, recordedDurationSeconds: endResult.recordedDurationSeconds });
   } catch (err) {
     next(err);
   }

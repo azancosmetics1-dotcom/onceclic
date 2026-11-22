@@ -238,6 +238,10 @@ async function runAllTests() {
     await runGeminiLiveAndPublicVoiceTests();
     console.log('');
 
+    const { runDeepgramVoiceAgentTests } = await import('./deepgram-voice-agent.test');
+    await runDeepgramVoiceAgentTests();
+    console.log('');
+
     const duration = ((Date.now() - start) / 1000).toFixed(2);
     console.log('====================================================');
     console.log(`  ALL TESTS PASSED SUCCESSFULLY in ${duration}s!`);

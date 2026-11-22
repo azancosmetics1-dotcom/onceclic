@@ -1,3 +1,5 @@
+process.env.USE_EMBEDDED_DB = 'true';
+
 import { AuthService } from '../server/src/services/AuthService';
 import { ConversationService } from '../server/src/services/ConversationService';
 import { AppointmentService } from '../server/src/services/AppointmentService';
@@ -81,4 +83,11 @@ export async function runTenantIsolationTests() {
     throw new Error('Tenant Isolation Failure: Organization B was able to delete Organization A knowledge source!');
   }
   console.log('  ✓ Organization B cannot modify or delete Organization A data');
+}
+
+if (require.main === module || !process.env.RUN_ALL_SUITES) {
+  runTenantIsolationTests().catch((err) => {
+    console.error('Tenant Isolation Test Failed:', err);
+    process.exit(1);
+  });
 }

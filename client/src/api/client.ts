@@ -576,8 +576,11 @@ class ApiClient {
   async startBrowserVoiceSession(): Promise<{
     allowed: boolean;
     reason?: string;
-    provider?: 'gemini_live' | 'vapi';
+    provider?: 'deepgram_voice_agent' | 'gemini_live' | 'vapi';
     sessionTicket?: string;
+    deepgramToken?: string;
+    deepgramWsUrl?: string;
+    settings?: any;
     wsUrl?: string;
     callId?: string;
     assistantId?: string;
@@ -586,6 +589,8 @@ class ApiClient {
     maxDurationSeconds?: number;
     maxConversationSeconds?: number;
     appointmentReminderSeconds?: number;
+    voiceEngine?: string;
+    intelligenceEngine?: string;
   }> {
     return this.request('/voice/browser/session', { method: 'POST' });
   }
@@ -593,8 +598,11 @@ class ApiClient {
   async getPublicVoiceSession(orgSlug: string): Promise<{
     allowed: boolean;
     reason?: string;
-    provider?: 'gemini_live' | 'vapi';
+    provider?: 'deepgram_voice_agent' | 'gemini_live' | 'vapi';
     sessionTicket?: string;
+    deepgramToken?: string;
+    deepgramWsUrl?: string;
+    settings?: any;
     wsUrl?: string;
     callId?: string;
     assistantId?: string;
@@ -603,6 +611,8 @@ class ApiClient {
     maxDurationSeconds?: number;
     maxConversationSeconds?: number;
     appointmentReminderSeconds?: number;
+    voiceEngine?: string;
+    intelligenceEngine?: string;
   }> {
     const slug = encodeURIComponent(orgSlug.trim());
     try {

@@ -182,8 +182,9 @@ export async function runSignalWireVapiIntegrationTests() {
   console.log('  ✓ 4. Multi-tenant isolation: independent assistants, knowledge grounding & prompts');
 
   // Test 5: Phone Number Mapping & Tenant Resolution
-  const phoneA = '+14155550201';
-  const phoneB = '+14155550202';
+  const runSeed = Date.now().toString().slice(-4);
+  const phoneA = `+141555${runSeed}1`;
+  const phoneB = `+141555${runSeed}2`;
   const swSidA = 'PN_sw_sid_org_a_001';
   const swSidB = 'PN_sw_sid_org_b_002';
 
@@ -449,9 +450,9 @@ export async function runSignalWireVapiIntegrationTests() {
   console.log('  ✓ 10. Official Vapi BYO SIP payload shape, numberE164CheckEnabled, gateways & credential validation');
 
   // Test 11: SignalWire Inbound Routing: Official Credential-Specific SIP URI & SWML
-  const randSuffix = Math.floor(1000 + Math.random() * 9000);
-  const phoneActiveA = `+1415555${randSuffix}`;
-  const phoneActiveB = `+1415556${randSuffix}`;
+  const randSuffix = `${Date.now().toString().slice(-5)}${Math.floor(10 + Math.random() * 89)}`;
+  const phoneActiveA = `+1415${randSuffix}1`;
+  const phoneActiveB = `+1415${randSuffix}2`;
   await db.execute(
     `INSERT INTO voice_phone_numbers (
        id, organization_id, provider, phone_number, country_code, phone_number_type,
@@ -492,7 +493,7 @@ export async function runSignalWireVapiIntegrationTests() {
 
   // Test 12: Provisioning Failure Handling & Retry Safeguards
   const retryPhoneId = uuidv4();
-  const retryPhone = `+1415557${randSuffix}`;
+  const retryPhone = `+1415${randSuffix}3`;
   await db.execute(
     `INSERT INTO voice_phone_numbers (
        id, organization_id, provider, phone_number, country_code, phone_number_type,

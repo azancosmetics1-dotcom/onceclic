@@ -153,13 +153,16 @@ export async function runGeminiLiveAndPublicVoiceTests() {
   assert.strictEqual(res1.status, 200, 'Endpoint returned HTTP 200');
   assert.strictEqual(res1.body.success, true, 'Response was successful');
   assert.strictEqual(res1.body.data.allowed, true, 'Session is allowed');
-  assert.strictEqual(res1.body.data.provider, 'gemini_live', 'Provider is gemini_live');
+  assert.ok(
+    res1.body.data.provider === 'deepgram_voice_agent' || res1.body.data.provider === 'gemini_live',
+    'Provider is valid active voice engine'
+  );
   assert.ok(res1.body.data.sessionTicket, 'Session ticket returned');
-  assert.ok(res1.body.data.wsUrl, 'WebSocket URL returned');
+  assert.ok(res1.body.data.wsUrl || res1.body.data.deepgramWsUrl, 'WebSocket URL returned');
   assert.ok(res1.body.data.callId, 'Call ID generated');
   assert.strictEqual(res1.body.data.maxDurationSeconds, 180, '180-second hard limit enforced');
   assert.strictEqual(res1.body.data.appointmentReminderSeconds, 120, '120-second reminder enforced');
-  console.log('  ✓ 1. POST /api/public/org/kb-saloon-wpti/voice-session succeeded with valid Gemini Live ticket');
+  console.log('  ✓ 1. POST /api/public/org/kb-saloon-wpti/voice-session succeeded with valid session ticket');
 
   // Verify non-existent slug returns 404
   const res404 = await simulatePublicVoiceSession('non-existent-salon-12345');
@@ -191,9 +194,10 @@ export async function runGeminiLiveAndPublicVoiceTests() {
   // --------------------------------------------------------------------------
   console.log('\n[3. Gemini Live Real-Time Audio Pipeline]');
 
+  const liveTicketRes = await GeminiLiveBridgeService.createSessionTicket({ organizationId: orgAId });
   const ws = new MockClientWebSocket();
   const connectionPromise = GeminiLiveBridgeService.handleClientConnection(ws as any, {
-    url: `/api/voice/live?ticket=${encodeURIComponent(res1.body.data.sessionTicket)}`,
+    url: `/api/voice/live?ticket=${encodeURIComponent(liveTicketRes.sessionTicket)}`,
     headers: { host: 'localhost' },
   });
 
@@ -202,7 +206,7 @@ export async function runGeminiLiveAndPublicVoiceTests() {
 
   const readyMsg = ws.sentMessages.map((m) => JSON.parse(m)).find((m) => m.type === 'ready');
   assert.ok(readyMsg, 'Client received ready event');
-  assert.strictEqual(readyMsg.callId, res1.body.data.callId, 'callId matches ticket');
+  assert.strictEqual(readyMsg.callId, liveTicketRes.callId, 'callId matches ticket');
   assert.strictEqual(readyMsg.maxDurationSeconds, 180, 'Max duration 180s');
 
   const greetingTranscript = ws.sentMessages.map((m) => JSON.parse(m)).find((m) => m.type === 'transcript' && m.role === 'assistant');

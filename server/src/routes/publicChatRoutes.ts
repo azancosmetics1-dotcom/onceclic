@@ -3,6 +3,7 @@ import { db } from '../db';
 import { ConversationService } from '../services/ConversationService';
 import { AppointmentService } from '../services/AppointmentService';
 import { VoiceService } from '../services/voice/VoiceService';
+import { DeepgramVoiceAgentService } from '../services/voice/DeepgramVoiceAgentService';
 import { rateLimit } from '../middleware/rateLimitMiddleware';
 import { ConversationChannel, SubscriptionStatus } from '@onceclic/shared';
 import jwt from 'jsonwebtoken';
@@ -118,8 +119,13 @@ const handlePublicVoiceSession = async (req: Request, res: Response, next: any) 
       success: true,
       data: {
         allowed: true,
-        provider: session.provider || 'gemini_live',
+        provider: session.provider || 'deepgram_voice_agent',
+        voiceEngine: session.voiceEngine || 'Deepgram Voice Agent',
+        intelligenceEngine: session.intelligenceEngine || 'Deepgram Managed (OpenAI GPT-4o-mini)',
         sessionTicket: session.sessionTicket,
+        deepgramToken: session.deepgramToken,
+        deepgramWsUrl: session.deepgramWsUrl,
+        settings: session.settings,
         wsUrl: session.wsUrl,
         callId: session.callId,
         assistantId: session.assistantId,
@@ -128,6 +134,7 @@ const handlePublicVoiceSession = async (req: Request, res: Response, next: any) 
         maxDurationSeconds: session.maxDurationSeconds,
         maxConversationSeconds: session.maxConversationSeconds || 180,
         appointmentReminderSeconds: session.appointmentReminderSeconds || 120,
+        isMock: session.isMock,
       },
     });
   } catch (err) {
@@ -137,6 +144,62 @@ const handlePublicVoiceSession = async (req: Request, res: Response, next: any) 
 
 router.post('/org/:slug/voice-session', handlePublicVoiceSession);
 router.post('/chat/org/:slug/voice-session', handlePublicVoiceSession);
+
+/**
+ * Execute Voice Tool securely for public website visitors
+ */
+const handlePublicToolExecution = async (req: Request, res: Response, next: any) => {
+  try {
+    const { sessionTicket, toolName, args, toolCallId } = req.body;
+    if (!sessionTicket || !toolName) {
+      return res.status(400).json({ success: false, error: 'sessionTicket and toolName are required' });
+    }
+
+    const execResult = await DeepgramVoiceAgentService.executeTool({
+      sessionTicket,
+      toolName,
+      args: args || {},
+      toolCallId,
+    });
+
+    if (!execResult.success) {
+      return res.status(400).json({ success: false, error: execResult.error });
+    }
+
+    res.json({ success: true, result: execResult.result });
+  } catch (err) {
+    next(err);
+  }
+};
+
+router.post('/org/:slug/tools/execute', handlePublicToolExecution);
+router.post('/chat/org/:slug/tools/execute', handlePublicToolExecution);
+
+/**
+ * Finalize Voice Session Duration & Usage for public website visitors
+ */
+const handlePublicSessionEnd = async (req: Request, res: Response, next: any) => {
+  try {
+    const { sessionTicket, durationSeconds, transcript, reason } = req.body;
+    if (!sessionTicket) {
+      return res.status(400).json({ success: false, error: 'sessionTicket is required' });
+    }
+
+    const endResult = await DeepgramVoiceAgentService.endSession({
+      sessionTicket,
+      durationSeconds: Number(durationSeconds) || 0,
+      transcript,
+      reason,
+    });
+
+    res.json({ success: true, recordedDurationSeconds: endResult.recordedDurationSeconds });
+  } catch (err) {
+    next(err);
+  }
+};
+
+router.post('/org/:slug/session/end', handlePublicSessionEnd);
+router.post('/chat/org/:slug/session/end', handlePublicSessionEnd);
 
 // Start or resume a public customer chat session
 router.post('/session', async (req: Request, res: Response, next) => {
