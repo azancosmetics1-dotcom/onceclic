@@ -96,6 +96,12 @@ export class DeepgramVoiceClient {
   private lastEmittedText: string = '';
   private lastEmittedTime: number = 0;
   private pendingCallEnd: boolean = false;
+  // Terminal call-end flag: set when end_call fires; blocks all new turn creation
+  private isCallEnded: boolean = false;
+  // Track whether we have scheduled the goodbye drain (so it only happens once)
+  private goodbyeAudioDraining: boolean = false;
+  // Track whether a tool call is currently in-flight (used to detect follow-up assistant turns)
+  private toolCallInFlight: boolean = false;
 
   constructor(options: DeepgramVoiceClientOptions) {
     this.deepgramToken = options.deepgramToken;
@@ -306,7 +312,8 @@ export class DeepgramVoiceClient {
         break;
 
       case 'UserStartedSpeaking':
-        // Interruption / Barge-in handling
+        // Interruption / Barge-in: ignore if call is already ended
+        if (this.isCallEnded) break;
         this.diagnostics.interruptionsDetected++;
         this.interruptPlayback();
         this.setStatus('listening');
@@ -319,8 +326,12 @@ export class DeepgramVoiceClient {
         break;
 
       case 'AgentStartedSpeaking':
-        this.setStatus('speaking');
-        if (this.currentTurnRole !== 'assistant') {
+        // If call is ended but goodbye audio is still playing, that is intentional — let it play.
+        // But do NOT start a new agent turn for new audio after the call ended.
+        if (!this.isCallEnded) {
+          this.setStatus('speaking');
+        }
+        if (this.currentTurnRole !== 'assistant' && !this.isCallEnded) {
           this.turnSequence++;
           this.currentTurnRole = 'assistant';
           this.currentTurnId = `turn_assistant_${this.turnSequence}_${Date.now()}`;
@@ -333,20 +344,43 @@ export class DeepgramVoiceClient {
         break;
 
       case 'AgentAudioDone':
-        // Agent finished sending audio; return to listening when audio queue finishes
-        setTimeout(() => {
-          if (this.pendingCallEnd) {
+        // Per Deepgram docs: AgentAudioDone fires ONCE per complete agent response (not per chunk).
+        // The audio buffer may still be playing client-side when this fires, so we must wait
+        // for the queued audio to drain before changing state or closing the session.
+        if (this.pendingCallEnd && !this.goodbyeAudioDraining) {
+          this.goodbyeAudioDraining = true;
+          // Calculate how long the queued audio still needs to play.
+          // nextPlayTime is the WebAudio clock time when the last queued buffer ends.
+          // audioContext.currentTime is the current clock. The difference is the remaining play time.
+          const audioCtx = this.audioContext;
+          let drainMs = 500; // safe minimum
+          if (audioCtx) {
+            const remaining = this.nextPlayTime - audioCtx.currentTime;
+            // remaining is in seconds; clamp between 0.5s and 8s
+            drainMs = Math.min(8000, Math.max(500, Math.ceil(remaining * 1000) + 400));
+          }
+          setTimeout(() => {
             this.stop('NORMAL_END');
-            return;
-          }
-          if (this.status === 'speaking') {
-            this.setStatus('listening');
-          }
-        }, 500);
+          }, drainMs);
+          return;
+        }
+        // Normal (non-goodbye) turn end: transition back to listening
+        if (!this.pendingCallEnd && !this.isCallEnded && this.status === 'speaking') {
+          // Reset the tool-call-in-flight flag: the agent has finished its turn
+          this.toolCallInFlight = false;
+          setTimeout(() => {
+            if (this.status === 'speaking' && !this.isCallEnded && !this.pendingCallEnd) {
+              this.setStatus('listening');
+            }
+          }, 300);
+        }
         break;
 
       case 'ConversationText':
         if (msg.role && msg.content) {
+          // Drop all events once call has ended (goodbye already delivered)
+          if (this.isCallEnded) break;
+
           const role: 'user' | 'assistant' = msg.role === 'user' ? 'user' : 'assistant';
           const rawText = typeof msg.content === 'string' ? msg.content.trim() : '';
           if (!rawText) break;
@@ -379,9 +413,39 @@ export class DeepgramVoiceClient {
           if (
             this.lastEmittedRole === role &&
             this.lastEmittedText.toLowerCase() === rawText.toLowerCase() &&
-            now - this.lastEmittedTime < 3000
+            now - this.lastEmittedTime < 4000
           ) {
             break;
+          }
+
+          // Tool-call follow-up merge:
+          // When a FunctionCallRequest was in-flight and the next assistant ConversationText arrives,
+          // it is the tool result response — semantically the same turn. Merge it into the last
+          // assistant bubble instead of creating a new one.
+          // We only merge when: (a) this is a new assistant turn AND (b) toolCallInFlight was set,
+          // meaning Deepgram just finished executing a tool and is now responding to its result.
+          // This avoids merging genuinely distinct assistant turns that happen to follow each other.
+          if (isNewTurn && role === 'assistant' && this.toolCallInFlight) {
+            this.toolCallInFlight = false; // consume the flag
+            const lastAssistantIndex = this.conversationTranscripts.length - 1;
+            if (
+              lastAssistantIndex >= 0 &&
+              this.conversationTranscripts[lastAssistantIndex].role === 'assistant'
+            ) {
+              // Update the existing assistant bubble with the tool-follow-up response
+              const prevTurnId = this.currentTurnId;
+              this.currentTurnText = rawText;
+              this.lastEmittedRole = role;
+              this.lastEmittedText = rawText;
+              this.lastEmittedTime = now;
+              this.conversationTranscripts[lastAssistantIndex].text = rawText;
+              this.callbacks.onTranscript?.(role, rawText, prevTurnId, false);
+              break;
+            }
+            // No previous assistant bubble — fall through to create a new one
+          } else if (role === 'assistant') {
+            // Clear the flag for any other assistant ConversationText (not a tool follow-up)
+            this.toolCallInFlight = false;
           }
 
           this.currentTurnText = rawText;
@@ -405,6 +469,9 @@ export class DeepgramVoiceClient {
         break;
 
       case 'FunctionCallRequest':
+        // Mark that a tool call is now in-flight; the next assistant ConversationText
+        // after this resolves is a tool-call follow-up (same logical turn, not a new one).
+        this.toolCallInFlight = true;
         await this.handleFunctionCallRequest(msg);
         break;
 
@@ -457,7 +524,14 @@ export class DeepgramVoiceClient {
         const toolResult = data.result !== undefined ? data.result : data;
 
         if (toolResult?.callEnded || toolName === 'end_call') {
+          // Mark call as ended immediately — stop microphone, block new turns
+          this.isCallEnded = true;
           this.pendingCallEnd = true;
+          // Stop mic immediately so no further user audio is streamed
+          this.isReadyToSendAudio = false;
+          if (this.mediaStream) {
+            this.mediaStream.getTracks().forEach((track) => track.stop());
+          }
         }
 
         // Send FunctionCallResponse back to Deepgram

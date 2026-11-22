@@ -84,6 +84,10 @@ export const HostedChat: React.FC = () => {
           onStatusChange: (status, err) => {
             setVoiceStatus(status);
             if (err) setVoiceError(err);
+            // Close booking modal if voice becomes active (voice takes over booking flow)
+            if (status !== 'idle' && status !== 'ended' && status !== 'error') {
+              setShowBookingModal(false);
+            }
           },
           onAppointmentReminder: () => {
             // Keep reminder as an internal signal without injecting synthetic AI chat text
@@ -452,7 +456,17 @@ export const HostedChat: React.FC = () => {
 
             <button
               onClick={handleOpenBooking}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] sm:text-xs transition shadow-md shadow-emerald-500/20 shrink-0"
+              disabled={voiceStatus !== 'idle' && voiceStatus !== 'ended' && voiceStatus !== 'error'}
+              className={`inline-flex items-center space-x-1.5 px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-[11px] sm:text-xs transition shadow-md shadow-emerald-500/20 shrink-0 ${
+                voiceStatus !== 'idle' && voiceStatus !== 'ended' && voiceStatus !== 'error'
+                  ? 'opacity-30 cursor-not-allowed'
+                  : ''
+              }`}
+              title={
+                voiceStatus !== 'idle' && voiceStatus !== 'ended' && voiceStatus !== 'error'
+                  ? 'Book via voice — just ask the receptionist'
+                  : undefined
+              }
             >
               <Calendar className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">

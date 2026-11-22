@@ -315,15 +315,42 @@ export class VoicePromptBuilder {
         salonStaffRows?.rows || [];
 
       // Build service list text
-      const servicesText =
-        salonServices.length > 0
-          ? salonServices
-              .map(
-                (s) =>
-                  `${s.name} (${s.duration_minutes} min, $${Number(s.price).toFixed(2)})`
-              )
-              .join(', ')
-          : 'See business settings for available services.';
+      // First try salon_services table (dedicated salon service rows)
+      let servicesText: string;
+      if (salonServices.length > 0) {
+        servicesText = salonServices
+          .map(
+            (s) =>
+              `${s.name} ($${Number(s.price).toFixed(2)}, ${s.duration_minutes} min)`
+          )
+          .join('; ');
+      } else {
+        // Fall back to business_settings.services (general JSON store)
+        try {
+          const rawServices = settings?.services;
+          let parsed: any[] = [];
+          if (typeof rawServices === 'string' && rawServices.trim().startsWith('[')) {
+            parsed = JSON.parse(rawServices);
+          } else if (Array.isArray(rawServices)) {
+            parsed = rawServices;
+          }
+          if (parsed.length > 0) {
+            servicesText = parsed
+              .map((s: any) => {
+                const name = s.name || s.serviceName || 'Service';
+                const price = s.price !== undefined ? ` ($${Number(s.price).toFixed(2)})` : '';
+                const duration = s.durationMinutes || s.duration_minutes;
+                const dur = duration ? `, ${duration} min` : '';
+                return `${name}${price}${dur}`;
+              })
+              .join('; ');
+          } else {
+            servicesText = 'Services are configured — please ask staff for the current list.';
+          }
+        } catch {
+          servicesText = 'Services are configured — please ask staff for the current list.';
+        }
+      }
 
       // Build staff list text, including per-staff service qualifications when available
       const staffText =
@@ -625,21 +652,28 @@ CRITICAL DATE & CALENDAR RULES:
 
 BOOKING CONVERSATION STATE MACHINE (STRICT STATE PERSISTENCE):
 You must maintain active conversation memory for booking across all conversation turns:
-- Track: [Service], [Requested Date], [Chosen Time Slot], [Customer Name], [Contact Info: Phone or Email].
-- STATE PERSISTENCE: Once the visitor provides any of these details (e.g. they say "I want a haircut on Friday"), that detail is LOCKED IN. NEVER ask for it again.
+- Track: [Service], [Requested Date], [Chosen Time Slot ISO], [Customer Name], [Contact Info: Phone or Email].
+- STATE PERSISTENCE: Once the visitor provides any of these details (e.g. they say "I want a haircut on Friday"), that detail is LOCKED IN. NEVER ask for it again unless they explicitly request a change.
+- Do NOT change the date, service, or any locked detail between turns. If a date has been confirmed, re-use it exactly when calling tools.
 - ASK ONLY FOR MISSING DETAILS:
-  1. Service & Date: If missing, ask only for the missing detail. Once both are known, IMMEDIATELY call "check_calendar_availability" (or "check_availability").
-  2. Time Slot: Offer 2-3 specific available times returned by the tool. Ask which one they prefer.
+  1. Service & Date: If missing, ask only for the missing detail. Once both are known, IMMEDIATELY call "check_calendar_availability" (or "check_availability"). Pass the exact YYYY-MM-DD date and serviceName.
+  2. Time Slot: The tool returns slots in this exact format: {"startTime": "YYYY-MM-DDTHH:MM:SS.000Z", "displayTime": "H:MM AM/PM"}. Present 2-3 displayTime values verbally. When the visitor says a time (e.g. "2 PM" or "two o'clock"), match it to the nearest displayTime from the returned list and use that slot's exact startTime ISO string for booking. NEVER invent an ISO time that was not in the tool result.
   3. Customer Name & Contact: Once a time is chosen, ask for their full name and contact info (phone number or email address).
      - If the visitor provides an email address OR a phone number, accept it. DO NOT insist on a phone number if an email is provided, and do NOT insist on an email if a phone number is provided.
      - If the visitor says they prefer not to provide a phone number, politely ask for their email address instead.
      - Only if NEITHER is provided, explain once: "We need either a phone number or an email address to send your confirmation."
-  4. Call Booking Tool: Once you have Name, Contact, Service, and Time Slot, IMMEDIATELY call "create_appointment" (or "book_appointment").
+  4. Call Booking Tool: Once you have Name, Contact, Service, and the exact ISO startTime from the slot list, IMMEDIATELY call "create_appointment" (or "book_appointment") with those exact values.
   5. CONFIRMATION INTEGRITY:
      - ONLY say "Your appointment is booked" or "You're all set" AFTER the tool returns a verified success response with an appointmentId.
      - Confirm the EXACT backend-confirmed appointment details (service, date, and time).
-     - If booking fails, explain clearly that it could not be completed and offer an alternative.
+     - If booking fails, read the error message in the tool result and respond only with the specific issue. Ask the visitor ONLY for the corrective information (e.g. another date, another time). NEVER give a generic "something went wrong" message.
      - NEVER invent a booking or confirmation code.
+
+VOICE CALL RULES — CRITICAL:
+- The visitor is speaking with you live through their browser microphone. This is a real-time voice session.
+- NEVER tell the visitor to visit a website, click a button, fill out a web form, or "book online". You must complete the booking directly via voice using the available tools.
+- NEVER redirect the conversation to a web link, booking page URL, or external resource while in a voice call.
+- Do not describe buttons, clicks, or screen elements to the visitor — they cannot see anything.
 
 CONVERSATION PACING & EFFICIENCY:
 - Answer the customer's question directly, clearly, and concisely (under 2-3 sentences).
@@ -668,7 +702,25 @@ BUSINESS CONTEXT & FACTS:
 - Timezone: ${timezone}
 - Address / Location: ${address ? address : 'Physical address is not listed publicly. Advise caller to contact staff for directions.'}
 - Business Hours: ${settings?.business_hours || '[]'}
-- Services & Pricing: ${settings?.services || '[]'}
+- Services & Pricing: ${(() => {
+    const raw = settings?.services;
+    if (!raw) return 'Not configured — ask staff for details.';
+    try {
+      let parsed: any[] = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!Array.isArray(parsed) || parsed.length === 0) return 'Not configured — ask staff for details.';
+      return parsed
+        .map((s: any) => {
+          const name = s.name || s.serviceName || 'Service';
+          const price = s.price !== undefined ? ` (\$${Number(s.price).toFixed(2)})` : '';
+          const duration = s.durationMinutes || s.duration_minutes;
+          const dur = duration ? `, ${duration} min` : '';
+          return `${name}${price}${dur}`;
+        })
+        .join('; ');
+    } catch {
+      return 'Not configured — ask staff for details.';
+    }
+  })()}
 - Reservation / Booking Policy: ${settings?.reservation_settings || settings?.cancellation_policy || 'Standard business policy'}
 - Contact Instructions: ${settings?.contact_instructions || 'Leave contact info.'}
 

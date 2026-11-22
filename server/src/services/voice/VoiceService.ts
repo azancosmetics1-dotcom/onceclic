@@ -3010,6 +3010,7 @@ export class VoiceService {
         if (availableSlots.length === 0) {
           return {
             date: dateStr,
+            serviceName: args.serviceName || undefined,
             hasAvailableSlots: false,
             message: `No available appointment slots found on ${dateStr}. Please ask the visitor for another date.`,
           };
@@ -3017,10 +3018,11 @@ export class VoiceService {
 
         return {
           date: dateStr,
+          serviceName: args.serviceName || undefined,
           hasAvailableSlots: true,
           availableSlotCount: availableSlots.length,
           slots: availableSlots.slice(0, 5),
-          message: `Found ${availableSlots.length} available slots. Suggest 2 or 3 times to the visitor.`,
+          message: `Found ${availableSlots.length} available slots on ${dateStr}${args.serviceName ? ` for ${args.serviceName}` : ''}. Present 2-3 displayTime values and ask which one the visitor prefers. LOCK IN: date="${dateStr}"${args.serviceName ? `, service="${args.serviceName}"` : ''}. When visitor picks a time, match it to the nearest displayTime above and use that slot's exact startTime ISO string when calling the booking tool.`,
         };
       }
 
@@ -3030,8 +3032,13 @@ export class VoiceService {
         const effectiveStartTime = startTime || dateTime || (date && time ? `${date}T${time}:00Z` : undefined);
 
         if (!serviceName || !customerName || (!customerPhone && !customerEmail) || !effectiveStartTime) {
+          const missing: string[] = [];
+          if (!serviceName) missing.push('service name');
+          if (!customerName) missing.push('customer full name');
+          if (!customerPhone && !customerEmail) missing.push('phone number or email address');
+          if (!effectiveStartTime) missing.push('appointment start time (ISO 8601)');
           return {
-            error: 'Missing required booking fields: serviceName, customerName, at least one contact method (phone number or email), and startTime are required.',
+            error: `Cannot book: missing ${missing.join(', ')}. Please collect these from the visitor before calling this tool again.`,
           };
         }
 
