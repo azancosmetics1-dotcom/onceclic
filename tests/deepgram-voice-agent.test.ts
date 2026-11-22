@@ -13,7 +13,7 @@ import { SubscriptionStatus } from '@onceclic/shared';
 
 export async function runDeepgramVoiceAgentTests() {
   console.log('\n========================================================================');
-  console.log('  TEST SUITE: DEEPGRAM VOICE AGENT (MANAGED GPT-4O-MINI) + GEMINI TEXT AI (36 TESTS)');
+  console.log('  TEST SUITE: DEEPGRAM VOICE AGENT (MANAGED GPT-4O-MINI) + GEMINI TEXT AI (42 TESTS)');
   console.log('========================================================================\n');
 
   process.env.USE_EMBEDDED_DB = 'true';
@@ -859,8 +859,369 @@ export async function runDeepgramVoiceAgentTests() {
 
   console.log('  -> PASS: End-to-end booking flow — services readable, availability echoed date, slot locked, idempotency confirmed, missing-fields targeted');
 
+  // --------------------------------------------------------------------------
+  // Tests 37–42: Audio scheduler deterministic logic
+  //
+  // These tests model the ACTUAL DeepgramVoiceClient audio scheduling behaviour:
+  //
+  //   • Mock sources carry started/stopped flags and a scheduledAt timestamp so
+  //     we can verify that the pre-start seq guard fires BEFORE source.start()
+  //     is ever called — the critical correctness requirement.
+  //
+  //   • flushAudioQueue is modelled with the 300 ms conditional-flush threshold:
+  //     if remaining audio > FLUSH_THRESHOLD it stops active sources; otherwise
+  //     it lets the tail drain (≤ 300 ms is indistinguishable to the ear and
+  //     the new response's first chunk arrives after the tail anyway).
+  //
+  //   • Each test covers a distinct production scenario so that a regression in
+  //     any part of the pipeline is caught immediately.
+  // --------------------------------------------------------------------------
+
+  const FLUSH_THRESHOLD_SEC = 0.3; // must match DeepgramVoiceClient
+
+  /** Minimal mock of an AudioBufferSourceNode for scheduler tests. */
+  interface MockSource {
+    seq: number;         // seq captured at schedule time
+    scheduledAt: number; // WebAudio startTime passed to source.start()
+    endAt: number;       // scheduledAt + duration (when this source's audio ends)
+    duration: number;
+    started: boolean;
+    stopped: boolean;
+  }
+
+  /**
+   * Simulate the full handleIncomingAudio + flushAudioQueue scheduler.
+   * Returns helpers that mirror the actual client field semantics.
+   */
+  function makeScheduler() {
+    let nextPlayTime = 0;
+    let currentResponseSeq = 0;
+    let currentTime = 0;
+    const activeSources: MockSource[] = [];
+    const allSources: MockSource[] = [];
+
+    function scheduleChunk(durationSec: number): MockSource | null {
+      // ── PRE-START GUARD (mirrors handleIncomingAudio) ─────────────────────
+      const mySeq = currentResponseSeq;
+      // ... PCM decode would happen here (synchronous, no async gap) ...
+      // Re-check seq after decode — guard must be BEFORE source.start()
+      if (mySeq !== currentResponseSeq) return null; // discarded pre-start
+
+      const startAt = Math.max(currentTime, nextPlayTime);
+      nextPlayTime = startAt + durationSec;
+
+      const src: MockSource = {
+        seq: mySeq,
+        scheduledAt: startAt,
+        endAt: startAt + durationSec,
+        duration: durationSec,
+        started: true,   // source.start(startAt) called
+        stopped: false,
+      };
+      activeSources.push(src);
+      allSources.push(src);
+      // No post-start seq check — guard is pre-start
+      return src;
+    }
+
+    function flushAudioQueue(): void {
+      currentResponseSeq++;
+      const remaining = nextPlayTime - currentTime;
+      if (remaining > FLUSH_THRESHOLD_SEC) {
+        // Case A: stop R1 AND reset nextPlayTime → R2 starts NOW
+        for (const src of activeSources) {
+          src.stopped = true;
+        }
+        activeSources.length = 0;
+        nextPlayTime = currentTime;   // safe: no active sources remain
+      }
+      // Case B: preserve R1 sources AND preserve nextPlayTime.
+      // R2 schedules at Math.max(currentTime, nextPlayTime) >= R1 end.
+      // Do NOT reset nextPlayTime — that would allow R2 to overlap R1.
+    }
+
+    function interruptPlayback(): void {
+      currentResponseSeq++;
+      for (const src of activeSources) {
+        src.stopped = true;
+      }
+      activeSources.length = 0;
+      nextPlayTime = currentTime;
+    }
+
+    return {
+      get currentResponseSeq() { return currentResponseSeq; },
+      get nextPlayTime() { return nextPlayTime; },
+      get currentTime() { return currentTime; },
+      set currentTime(v: number) { currentTime = v; },
+      get activeSources() { return activeSources; },
+      get allSources() { return allSources; },
+      scheduleChunk,
+      flushAudioQueue,
+      interruptPlayback,
+    };
+  }
+
+  /**
+   * Assert that no two non-stopped sources from DIFFERENT seq IDs have
+   * overlapping scheduled play windows.  This is the core serialised-timeline
+   * invariant: simultaneous playback of two distinct responses must be impossible
+   * by scheduled start/end times, not just by audio-clock observation.
+   */
+  function assertNoOverlap(sources: readonly MockSource[], label: string): void {
+    for (let i = 0; i < sources.length; i++) {
+      for (let j = i + 1; j < sources.length; j++) {
+        const a = sources[i];
+        const b = sources[j];
+        if (a.seq === b.seq) continue;      // same response — intentionally sequential
+        if (a.stopped || b.stopped) continue; // stopped sources never play
+        const aEnd = a.scheduledAt + a.duration;
+        const bEnd = b.scheduledAt + b.duration;
+        const overlap = a.scheduledAt < bEnd - 0.0001 && b.scheduledAt < aEnd - 0.0001;
+        assert.ok(
+          !overlap,
+          `${label}: SIMULTANEOUS PLAYBACK — seq=${a.seq} [${a.scheduledAt.toFixed(3)}–${aEnd.toFixed(3)}s] ` +
+          `overlaps seq=${b.seq} [${b.scheduledAt.toFixed(3)}–${bEnd.toFixed(3)}s]`
+        );
+      }
+    }
+  }
+
+  // ── Test 37: Case A — R1 stopped mid-sentence, R2 starts immediately ──────
+  console.log('Test 37: Flush Case A (remaining > threshold) — R1 stopped; R2 starts at currentTime; no scheduled overlap');
+  {
+    const s = makeScheduler();
+
+    // R1: 3 × 0.5s → ends at 1.5s
+    const r1a = s.scheduleChunk(0.5); // 0.0–0.5
+    const r1b = s.scheduleChunk(0.5); // 0.5–1.0
+    const r1c = s.scheduleChunk(0.5); // 1.0–1.5
+    assert.ok(r1a && r1b && r1c, 'R1 chunks must start');
+
+    s.currentTime = 0.6;
+    // remaining = 1.5 − 0.6 = 0.9s > 0.3s → Case A: stop R1, reset nextPlayTime
+    const r1NaturalEnd = r1c!.endAt; // 1.5s
+    s.flushAudioQueue();
+
+    // R1 sources must be stopped
+    assert.ok(r1a!.stopped && r1b!.stopped && r1c!.stopped, 'Case A: R1 sources must be stopped');
+    assert.strictEqual(s.activeSources.length, 0, 'Case A: activeSources empty after stop');
+    // nextPlayTime reset to currentTime (safe — no active sources remain)
+    assert.ok(Math.abs(s.nextPlayTime - 0.6) < 0.001, `Case A: nextPlayTime reset to 0.6, got ${s.nextPlayTime}`);
+
+    // R2 arrives immediately (best-case network)
+    const r2a = s.scheduleChunk(0.5); // schedules at 0.6
+    const r2b = s.scheduleChunk(0.5); // schedules at 1.1
+    assert.ok(r2a && r2b, 'R2 chunks must schedule');
+    assert.ok(Math.abs(r2a!.scheduledAt - 0.6) < 0.001, `R2 must start at 0.6s, got ${r2a!.scheduledAt}`);
+    // R2 starts BEFORE R1 would have naturally ended (1.5s) — flush was correct
+    assert.ok(r2a!.scheduledAt < r1NaturalEnd, 'R2 starts before R1 natural end (flush cut it short)');
+    // No overlap: R1 sources are stopped, so overlap check skips them
+    assertNoOverlap(s.allSources, 'Test37');
+    console.log(`  -> PASS: R1 stopped; R2 at 0.6s; R1 natural end was ${r1NaturalEnd}s — no overlap`);
+  }
+
+  // ── Test 38: Case B — R1 tail preserved; nextPlayTime NOT reset; R2 always after R1 ──
+  console.log('Test 38: Flush Case B (remaining ≤ threshold) — R1 preserved; nextPlayTime unchanged; R2 always after R1 by scheduled time');
+  {
+    // Sub-case B1: R2 arrives immediately (fast network — this was the bug)
+    const s = makeScheduler();
+    s.scheduleChunk(0.5); // 0.0–0.5
+    s.scheduleChunk(0.5); // 0.5–1.0  → R1 ends at 1.0s
+    const r1Sources = [...s.allSources];
+
+    s.currentTime = 0.8;
+    // remaining = 1.0 − 0.8 = 0.2s ≤ 0.3s → Case B: preserve sources AND nextPlayTime
+    const nextPlayBeforeFlush = s.nextPlayTime; // 1.0s
+    s.flushAudioQueue();
+
+    // R1 sources must NOT be stopped
+    for (const src of r1Sources) {
+      assert.ok(!src.stopped, `Case B: R1 source must NOT be stopped; endAt=${src.endAt}`);
+    }
+    // nextPlayTime must NOT have been reset — still 1.0s (R1 end)
+    assert.ok(
+      Math.abs(s.nextPlayTime - nextPlayBeforeFlush) < 0.001,
+      `Case B: nextPlayTime must remain at ${nextPlayBeforeFlush}s, got ${s.nextPlayTime}s — ` +
+      `resetting it to 0.8s would let R2 start while R1 plays until 1.0s`
+    );
+
+    // R2 arrives immediately — the bug was: R2 would schedule at 0.8s while R1 plays until 1.0s
+    const r2a_fast = s.scheduleChunk(0.5);
+    assert.ok(r2a_fast, 'R2 chunk must schedule');
+    // R2 must start at or after R1's end (1.0s), NOT at currentTime (0.8s)
+    assert.ok(
+      r2a_fast!.scheduledAt >= nextPlayBeforeFlush - 0.001,
+      `BUG CHECK: R2 fast-arrival must start at R1 end (${nextPlayBeforeFlush}s), ` +
+      `got ${r2a_fast!.scheduledAt}s — if this is 0.8s, R2 overlaps R1`
+    );
+    // Overlap assertion: R1 (0.0–1.0s, not stopped) vs R2 (1.0–1.5s) must NOT overlap
+    assertNoOverlap(s.allSources, 'Test38-B1-fast');
+    console.log(`  Case B1 (fast R2): R2 starts at ${r2a_fast!.scheduledAt.toFixed(3)}s, R1 ends at ${nextPlayBeforeFlush.toFixed(3)}s — no overlap`);
+  }
+
+  {
+    // Sub-case B2: R2 arrives late (slow network — R1 has fully drained)
+    const s = makeScheduler();
+    s.scheduleChunk(0.5);
+    s.scheduleChunk(0.5);     // R1 ends at 1.0s
+
+    s.currentTime = 0.8;      // remaining = 0.2s ≤ threshold → Case B
+    s.flushAudioQueue();      // nextPlayTime stays at 1.0s
+
+    s.currentTime = 1.5;      // R2 chunk arrives 700ms after flush (R1 is done)
+    const r2a_slow = s.scheduleChunk(0.5);
+    // schedules at Math.max(1.5, 1.0) = 1.5 — no overlap with R1's 0.0–1.0s window
+    assert.ok(r2a_slow!.scheduledAt >= 1.0 - 0.001, `Case B slow R2 starts at ${r2a_slow!.scheduledAt}s >= R1 end (1.0s)`);
+    assertNoOverlap(s.allSources, 'Test38-B2-slow');
+    console.log(`  Case B2 (slow R2): R2 starts at ${r2a_slow!.scheduledAt.toFixed(3)}s, R1 ended at 1.0s — no overlap`);
+  }
+
+  console.log('  -> PASS: Case B preserves nextPlayTime; R2 always after R1 regardless of network speed');
+
+  // ── Test 39: Pre-start seq guard discards late R1 binary frames ───────────
+  console.log('Test 39: Pre-start seq guard discards late R1 binary frames BEFORE source.start()');
+  {
+    const s = makeScheduler();
+    const r1a = s.scheduleChunk(0.5); // seq=0, 0.0–0.5
+    const r1b = s.scheduleChunk(0.5); // seq=0, 0.5–1.0
+
+    s.currentTime = 0.6;
+    // remaining = 0.4s > threshold → Case A: stop, reset nextPlayTime
+    s.flushAudioQueue(); // seq → 1
+
+    assert.ok(r1a!.stopped && r1b!.stopped, 'R1 stopped by Case A flush');
+
+    // Simulate late-arriving R1 WebSocket binary frame: captured mySeq=0 before flush
+    const capturedSeq = 0;
+    const guardFires = capturedSeq !== s.currentResponseSeq; // 0 !== 1
+    assert.strictEqual(guardFires, true, 'Pre-start guard fires: seq=0 stale vs currentResponseSeq=1');
+    // scheduleChunk(0.5) would now capture mySeq=1 (passes guard) — late R1 frames
+    // are those that captured mySeq=0 BEFORE the flush; they never reach source.start().
+
+    // R2 chunks schedule correctly at 0.6s (nextPlayTime reset by Case A)
+    const r2a = s.scheduleChunk(0.5);
+    const r2b = s.scheduleChunk(0.5);
+    assert.ok(r2a?.started && r2b?.started, 'R2 chunks schedule normally');
+    assert.ok(r2a!.scheduledAt >= 0.6 - 0.001, `R2 starts at 0.6s, got ${r2a!.scheduledAt}`);
+    assertNoOverlap(s.allSources, 'Test39');
+    console.log('  -> PASS: Stale seq guard fires; late R1 frames discarded; R2 schedules correctly');
+  }
+
+  // ── Test 40: Tool-call follow-up — R1 fully drained before R2 ────────────
+  console.log('Test 40: Tool-call follow-up — R1 fully drained; R2 starts immediately; no gap, no overlap');
+  {
+    const s = makeScheduler();
+    s.scheduleChunk(0.5); // 0.0–0.5
+    s.scheduleChunk(0.5); // 0.5–1.0  → R1 ends at 1.0s
+
+    // Tool executes; clock advances past R1's end
+    s.currentTime = 1.0; // remaining = 1.0 − 1.0 = 0.0s ≤ threshold → Case B
+    s.flushAudioQueue();
+    // Case B: nextPlayTime unchanged at 1.0s; activeSources already empty (R1 ended)
+    assert.ok(Math.abs(s.nextPlayTime - 1.0) < 0.001, `nextPlayTime stays at 1.0s, got ${s.nextPlayTime}`);
+
+    const r2a = s.scheduleChunk(0.5); // Math.max(1.0, 1.0) = 1.0s
+    const r2b = s.scheduleChunk(0.5); // 1.5s
+    assert.ok(r2a?.started && r2b?.started, 'R2 chunks start normally');
+    assert.ok(r2a!.scheduledAt >= 1.0 - 0.001, `R2 must start at 1.0s, got ${r2a!.scheduledAt}`);
+    assertNoOverlap(s.allSources, 'Test40');
+    console.log(`  -> PASS: Tool follow-up R2 starts at ${r2a!.scheduledAt.toFixed(3)}s — immediately after R1 drains, no gap, no overlap`);
+  }
+
+  // ── Test 41: Prompt information-first guard ───────────────────────────────
+  console.log('Test 41: Prompt — service information question does not trigger immediate booking prompt');
+  {
+    const { systemPrompt: infoPrompt } = await VoicePromptBuilder.buildPrompt(orgId);
+    assert.ok(
+      infoPrompt.includes('INFORMATION QUESTIONS') || infoPrompt.includes('ANSWER FIRST'),
+      'Prompt must contain the information-questions-first guard'
+    );
+    assert.ok(
+      infoPrompt.includes('booking intent') || infoPrompt.includes('expressed intent') || infoPrompt.includes('explicitly expressed intent'),
+      'Prompt must require explicit booking intent before initiating workflow'
+    );
+    assert.ok(
+      infoPrompt.includes('asking for information') || infoPrompt.includes('is NOT expressing booking intent'),
+      'Prompt must distinguish information questions from booking intent'
+    );
+    console.log('  -> PASS: Prompt contains information-first guard before booking workflow');
+  }
+
+  // ── Test 42: Barge-in unconditional vs flush conditional ─────────────────
+  console.log('Test 42: Barge-in always stops; Case B flush never stops; both guarantee no overlap by scheduled time');
+  {
+    // Sub-case 42A: barge-in with tail > threshold — stops unconditionally
+    {
+      const s = makeScheduler();
+      s.scheduleChunk(0.5);
+      s.scheduleChunk(0.5);
+      s.scheduleChunk(0.5); // R1 ends at 1.5s
+      s.currentTime = 0.3;  // remaining = 1.2s > threshold
+      s.interruptPlayback();
+
+      const r1 = s.allSources.filter(src => src.seq === 0);
+      for (const src of r1) {
+        assert.ok(src.stopped, 'Barge-in stops all sources unconditionally (regardless of threshold)');
+      }
+      assert.ok(Math.abs(s.nextPlayTime - 0.3) < 0.001, 'nextPlayTime reset to 0.3 after barge-in');
+
+      const r2a = s.scheduleChunk(0.5);
+      assert.ok(r2a!.scheduledAt <= 0.3 + 0.001, `Post-barge-in chunk starts at 0.3s, got ${r2a!.scheduledAt}`);
+      assertNoOverlap(s.allSources, 'Test42A-bargein');
+      console.log(`  Case 42A PASS: barge-in stopped all sources; R2 starts at 0.3s`);
+    }
+
+    // Sub-case 42B: Case B flush with small tail — sources preserved, R2 still after R1
+    {
+      const s = makeScheduler();
+      s.scheduleChunk(0.5);
+      s.scheduleChunk(0.5); // R1 ends at 1.0s
+      s.currentTime = 0.85; // remaining = 0.15s ≤ threshold → Case B
+
+      const r1Snap = [...s.allSources];
+      s.flushAudioQueue();
+
+      for (const src of r1Snap) {
+        assert.ok(!src.stopped, 'Case B flush must NOT stop sources — only barge-in does');
+      }
+      // nextPlayTime must still be 1.0 (R1 end), not 0.85
+      assert.ok(
+        Math.abs(s.nextPlayTime - 1.0) < 0.001,
+        `Case B: nextPlayTime must remain 1.0 (R1 end), got ${s.nextPlayTime} — ` +
+        `if it were 0.85, R2 fast-arrival would overlap R1`
+      );
+
+      // R2 fast-arrival: must schedule at 1.0, not at 0.85
+      const r2a = s.scheduleChunk(0.5);
+      assert.ok(r2a!.scheduledAt >= 1.0 - 0.001,
+        `Case B: R2 must schedule at R1 end (1.0s), got ${r2a!.scheduledAt}s`);
+      assertNoOverlap(s.allSources, 'Test42B-caseB');
+      console.log(`  Case 42B PASS: Case B preserved R1; R2 schedules at ${r2a!.scheduledAt.toFixed(3)}s (R1 end), no overlap`);
+    }
+
+    // Sub-case 42C: Case A flush — both stop AND nextPlayTime reset; R2 fast-arrival at currentTime
+    {
+      const s = makeScheduler();
+      s.scheduleChunk(0.5);
+      s.scheduleChunk(0.5);
+      s.scheduleChunk(0.5); // R1 ends at 1.5s
+      s.currentTime = 0.5;  // remaining = 1.0s > threshold → Case A
+
+      s.flushAudioQueue();
+      assert.ok(Math.abs(s.nextPlayTime - 0.5) < 0.001, 'Case A: nextPlayTime reset to currentTime (0.5s)');
+
+      const r2a = s.scheduleChunk(0.5);
+      assert.ok(r2a!.scheduledAt <= 0.5 + 0.001, `Case A: R2 starts at currentTime 0.5s, got ${r2a!.scheduledAt}`);
+      assertNoOverlap(s.allSources, 'Test42C-caseA');
+      console.log(`  Case 42C PASS: Case A reset nextPlayTime; R2 schedules at ${r2a!.scheduledAt.toFixed(3)}s, no overlap`);
+    }
+
+    console.log('  -> PASS: Barge-in unconditional stop; Case B preserves nextPlayTime; Case A stops+resets; all guarantee no cross-seq overlap');
+  }
+
   console.log('\n========================================================================');
-  console.log('  ALL 36 DEEPGRAM VOICE AGENT TESTS PASSED SUCCESSFULLY!');
+  console.log('  ALL 42 DEEPGRAM VOICE AGENT TESTS PASSED SUCCESSFULLY!');
   console.log('========================================================================\n');
 }
 

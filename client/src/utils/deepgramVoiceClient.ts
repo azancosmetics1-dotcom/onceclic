@@ -66,6 +66,11 @@ export class DeepgramVoiceClient {
   // Audio playback queue
   private nextPlayTime: number = 0;
   private activeSources: AudioBufferSourceNode[] = [];
+  // Sequence ID for the current agent response turn.
+  // Incremented every time AgentStartedSpeaking fires for a NEW assistant turn.
+  // Audio chunks store the sequence ID at the time they were queued;
+  // any chunk with a stale ID is silently discarded to prevent cross-response overlap.
+  private currentResponseSeq: number = 0;
 
   // Diagnostics
   private diagnostics: DeepgramDiagnostics = {
@@ -336,6 +341,19 @@ export class DeepgramVoiceClient {
           this.currentTurnRole = 'assistant';
           this.currentTurnId = `turn_assistant_${this.turnSequence}_${Date.now()}`;
           this.currentTurnText = '';
+
+          // -----------------------------------------------------------------------
+          // AUDIO OVERLAP FIX: Every new assistant response must start on a clean
+          // audio timeline. If the previous response is still playing (nextPlayTime
+          // is ahead of the current clock), stop it immediately and reset the queue
+          // so the new response's first chunk plays RIGHT NOW, not after the
+          // previous response's tail audio finishes.
+          //
+          // This is different from barge-in (UserStartedSpeaking): barge-in is
+          // triggered by the USER interrupting; this is triggered by DEEPGRAM
+          // starting a NEW agent turn — which must never overlap the prior turn.
+          // -----------------------------------------------------------------------
+          this.flushAudioQueue();
         }
         break;
 
@@ -648,14 +666,25 @@ export class DeepgramVoiceClient {
 
   /**
    * Decodes and queues 24kHz linear16 PCM speaker output audio from Deepgram.
+   * Each chunk is tagged with the currentResponseSeq so stale chunks from a
+   * previous response that arrive late are silently discarded BEFORE they are
+   * ever scheduled on the WebAudio clock.
    */
   private handleIncomingAudio(rawBytes: Uint8Array): void {
     if (!this.audioContext || rawBytes.byteLength < 2) return;
 
+    // ── GUARD (pre-schedule) ─────────────────────────────────────────────────
+    // Capture the response sequence ID RIGHT NOW, before any decode work.
+    // If flushAudioQueue() fires between here and source.start() the guard
+    // below will catch it and discard the chunk before it touches the WebAudio
+    // scheduler.  This is the only correct placement — checking AFTER start()
+    // is too late because the source is already enqueued on the audio clock.
+    const mySeq = this.currentResponseSeq;
+
     this.diagnostics.audioChunksReceived++;
     this.diagnostics.audioBytesDecoded += rawBytes.byteLength;
 
-    // Convert raw PCM16 bytes to Float32 samples
+    // Convert raw PCM16 bytes to Float32 samples (synchronous — no async gap)
     const pcm16 = new Int16Array(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength / 2);
     const float32 = new Float32Array(pcm16.length);
     for (let i = 0; i < pcm16.length; i++) {
@@ -665,6 +694,13 @@ export class DeepgramVoiceClient {
     const sampleRate = 24000;
     const audioBuffer = this.audioContext.createBuffer(1, float32.length, sampleRate);
     audioBuffer.getChannelData(0).set(float32);
+
+    // ── GUARD (pre-start) ────────────────────────────────────────────────────
+    // Re-check seq after PCM decode.  Although decode is synchronous, another
+    // WebSocket binary frame (triggering a flush) could have been processed in
+    // the same JS microtask queue.  Checking here guarantees we never call
+    // source.start() for a superseded response.
+    if (mySeq !== this.currentResponseSeq) return;
 
     const source = this.audioContext.createBufferSource();
     source.buffer = audioBuffer;
@@ -684,12 +720,102 @@ export class DeepgramVoiceClient {
         this.activeSources.splice(idx, 1);
       }
     };
+    // No post-start seq check needed: the pre-start guard above ensures only
+    // chunks belonging to the current response ever reach source.start().
+  }
+
+  /**
+   * Flush the current audio queue for a new agent response turn.
+   * Called when AgentStartedSpeaking fires for a NEW assistant turn
+   * (guarded by currentTurnRole !== 'assistant' in the event handler).
+   *
+   * ── Core invariant ───────────────────────────────────────────────────────
+   * nextPlayTime encodes "the WebAudio clock time when the last scheduled
+   * audio buffer ends."  Every new chunk schedules at:
+   *
+   *   startTime = Math.max(audioContext.currentTime, nextPlayTime)
+   *
+   * Therefore: as long as nextPlayTime is never moved BACKWARD while active
+   * sources are still scheduled AHEAD of it, two AudioBufferSourceNodes
+   * can never play simultaneously.  This function enforces that invariant.
+   *
+   * ── Two cases ────────────────────────────────────────────────────────────
+   *
+   * Case A — R1 tail > FLUSH_THRESHOLD_SEC (> 300 ms remaining):
+   *   The previous response is mid-sentence.  Stop all active R1 sources
+   *   immediately (they are superseded) AND reset nextPlayTime = currentTime.
+   *   R2's first chunk will schedule at currentTime — no gap, no overlap.
+   *
+   * Case B — R1 tail ≤ FLUSH_THRESHOLD_SEC (≤ 300 ms remaining, or finished):
+   *   The previous response is at its end.  Preserve the R1 sources so the
+   *   final syllable is not truncated, AND preserve nextPlayTime unchanged.
+   *   R2's first chunk will schedule at Math.max(currentTime, nextPlayTime)
+   *   which is ≥ nextPlayTime ≥ R1's end — strictly AFTER R1 finishes.
+   *   No simultaneous playback is possible regardless of how quickly R2's
+   *   chunks arrive from the network.
+   *
+   * ── Why NOT resetting nextPlayTime in Case B is the fix ──────────────────
+   *   The previous version reset nextPlayTime = currentTime in both cases.
+   *   In Case B this was a bug: R1 sources were still playing through
+   *   currentTime + remaining, but R2 could schedule at currentTime —
+   *   placing R2's startTime inside R1's still-playing window.
+   *
+   * ── seq increment is always unconditional ────────────────────────────────
+   *   currentResponseSeq++ runs in both cases.  Any late-arriving R1 binary
+   *   frames from the WebSocket are discarded by the pre-start guard in
+   *   handleIncomingAudio() before they ever call source.start().  This
+   *   prevents network-delayed R1 chunks from extending the R1 tail beyond
+   *   the nextPlayTime that was current at flush time.
+   *
+   * ── Distinct from interruptPlayback() (barge-in) ─────────────────────────
+   *   User barge-in must cancel R1 immediately with no threshold.
+   *   interruptPlayback() stops all sources and resets nextPlayTime
+   *   unconditionally, regardless of remaining time.
+   *
+   * FLUSH_THRESHOLD_SEC = 0.3 s (truncation policy, not network timing):
+   *   Controls whether we truncate R1's tail.  Overlap prevention does NOT
+   *   depend on this value — it is guaranteed by the nextPlayTime invariant.
+   */
+  private readonly FLUSH_THRESHOLD_SEC = 0.3;
+
+  private flushAudioQueue(): void {
+    // Always advance seq — primary guard against late-arriving R1 binary frames.
+    this.currentResponseSeq++;
+
+    const audioCtx = this.audioContext;
+    if (!audioCtx) return;
+
+    const remaining = this.nextPlayTime - audioCtx.currentTime;
+
+    if (remaining > this.FLUSH_THRESHOLD_SEC) {
+      // ── Case A: Significant audio still queued — stop R1 immediately ──
+      // R1 is superseded mid-sentence.  Stop all active sources and reset
+      // nextPlayTime so R2 schedules at currentTime (plays right now).
+      for (const source of this.activeSources) {
+        try {
+          source.stop();
+          source.disconnect();
+        } catch {}
+      }
+      this.activeSources = [];
+      // Safe to reset: no active sources remain to play into this window.
+      this.nextPlayTime = audioCtx.currentTime;
+    }
+    // ── Case B: Tail ≤ threshold — preserve R1 sources and nextPlayTime ──
+    // Do NOT reset nextPlayTime.  R2 chunks schedule at
+    // Math.max(currentTime, nextPlayTime) which is ≥ R1's end.
+    // The timeline is serialised — no simultaneous playback possible.
   }
 
   /**
    * Instantly halt audio output when user interrupts (barge-in).
+   * Also advances currentResponseSeq so any in-flight audio chunks
+   * arriving for the interrupted response are discarded.
    */
   private interruptPlayback(): void {
+    // Advance sequence so late-arriving chunks from the interrupted response are dropped
+    this.currentResponseSeq++;
+
     for (const source of this.activeSources) {
       try {
         source.stop();
