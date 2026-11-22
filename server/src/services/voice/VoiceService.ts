@@ -56,6 +56,7 @@ export class VoiceService {
     startedAt: number;
     maxDurationSeconds: number;
     terminated?: boolean;
+    reconciling?: boolean;
     isOverflow?: boolean;
     fromNumber?: string;
     channel?: string;
@@ -2739,6 +2740,9 @@ export class VoiceService {
     sessionTicket?: string;
     deepgramToken?: string;
     deepgramWsUrl?: string;
+    sttWsUrl?: string;
+    voiceTurnUrl?: string;
+    pipeline?: string;
     settings?: any;
     wsUrl?: string;
     callId?: string;
@@ -3488,6 +3492,19 @@ export class VoiceService {
       organizationId = trackedCall.organizationId;
     }
 
+    // 1b. Check persistent voice_sessions table (survives backend restart & process crashes)
+    if (!organizationId) {
+      try {
+        const sessionRecord = await db.getOne<{ organization_id: string }>(
+          'SELECT organization_id FROM voice_sessions WHERE call_id = $1',
+          [event.callId]
+        );
+        if (sessionRecord) {
+          organizationId = sessionRecord.organization_id;
+        }
+      } catch {}
+    }
+
     // 2. Resolve by toNumber (dialed business number → DB phone record)
     if (!organizationId && event.toNumber) {
       const resolved = await this.resolveOrganizationByNumber(event.toNumber);
@@ -3609,8 +3626,8 @@ export class VoiceService {
          id, organization_id, provider, provider_call_id, caller_phone, direction,
          started_at, ended_at, duration_seconds, duration_minutes, status, outcome,
          booked_appointment_id, conversation_id, transcript, recording_url,
-         counted_for_limit, created_at
-       ) VALUES ($1, $2, $3, $4, $5, 'INBOUND', $6, $7, $8, $9, 'COMPLETED', $10, $11, $12, $13, $14, $15, CURRENT_TIMESTAMP)`,
+         metadata, counted_for_limit, created_at
+       ) VALUES ($1, $2, $3, $4, $5, 'INBOUND', $6, $7, $8, $9, 'COMPLETED', $10, $11, $12, $13, $14, $15, $16, CURRENT_TIMESTAMP)`,
       [
         recordId,
         organizationId,
@@ -3626,6 +3643,7 @@ export class VoiceService {
         convId,
         event.transcript || null,
         event.recordingUrl || null,
+        event.metadata ? JSON.stringify(event.metadata) : null,
         countsTowardLimit,
       ]
     );

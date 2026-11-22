@@ -242,6 +242,10 @@ export async function startServer() {
     // Start Durable Phone Deprovisioning Worker (60s poll)
     const { PhoneDeprovisioningWorker } = require('./services/voice/PhoneDeprovisioningWorker');
     PhoneDeprovisioningWorker.startPolling(60000);
+
+    // Start Voice Session Reconciliation Worker (30s poll)
+    const { VoiceSessionReconciliationWorker } = require('./services/voice/VoiceSessionReconciliationWorker');
+    VoiceSessionReconciliationWorker.start(30000);
   }
 
   return { app, server };

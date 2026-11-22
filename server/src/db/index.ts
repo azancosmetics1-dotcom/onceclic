@@ -199,6 +199,7 @@ class EmbeddedDatabase implements IDatabase {
       'composio_trigger_instances',
       'voice_phone_numbers',
       'voice_call_records',
+      'voice_sessions',
       'voice_phone_number_checkouts',
       'organization_voice_assistants',
       // Migration 023: Salon and voice completion
@@ -644,6 +645,20 @@ class EmbeddedDatabase implements IDatabase {
           if (existing.organization_id === row.organization_id && existing.idempotency_key === row.idempotency_key) {
             throw new Error(`duplicate key value violates unique constraint "idx_voice_phone_org_idempotency"`);
           }
+        }
+      }
+    }
+    if (table === 'voice_call_records' && row.provider_call_id) {
+      for (const existing of tableData.values()) {
+        if (existing.provider_call_id === row.provider_call_id) {
+          throw new Error('duplicate key value violates unique constraint "uq_voice_provider_call_id"');
+        }
+      }
+    }
+    if (table === 'voice_sessions' && row.call_id) {
+      for (const existing of tableData.values()) {
+        if (existing.call_id === row.call_id) {
+          throw new Error('duplicate key value violates unique constraint "uq_voice_sessions_call_id"');
         }
       }
     }

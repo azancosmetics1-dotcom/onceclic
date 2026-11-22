@@ -42,10 +42,13 @@ export interface BrowserVoiceCallbacks {
 }
 
 export interface BrowserVoiceSessionParams {
-  provider?: 'deepgram_voice_agent' | 'gemini_live' | 'vapi';
+  provider?: 'deepgram_voice_agent' | 'gemini_live' | 'vapi' | 'modular_voice';
   sessionTicket?: string;
   deepgramToken?: string;
   deepgramWsUrl?: string;
+  sttWsUrl?: string;
+  voiceTurnUrl?: string;
+  pipeline?: string;
   settings?: any;
   toolEndpointUrl?: string;
   sessionEndUrl?: string;
@@ -113,11 +116,14 @@ export class BrowserVoiceSession {
     this.appointmentReminderSeconds = params.appointmentReminderSeconds || 120;
     this.callbacks = params.callbacks || {};
 
-    // Primary: Deepgram Voice Agent (Speech, Turn Management, Audio Transport) + Gemini (Intelligence)
-    if (params.provider === 'deepgram_voice_agent' || params.deepgramToken || params.settings) {
+    // Primary: Modular Voice Pipeline (Deepgram Nova-2 STT + ONCEClic Server Orchestrator + Deepgram Aura TTS)
+    if (params.provider === 'modular_voice' || params.provider === 'deepgram_voice_agent' || params.deepgramToken || params.settings) {
       this.deepgramClient = new DeepgramVoiceClient({
         deepgramToken: params.deepgramToken || '',
         deepgramWsUrl: params.deepgramWsUrl,
+        sttWsUrl: params.sttWsUrl,
+        voiceTurnUrl: params.voiceTurnUrl,
+        pipeline: params.pipeline,
         sessionTicket: params.sessionTicket || '',
         settings: params.settings,
         toolEndpointUrl: params.toolEndpointUrl,

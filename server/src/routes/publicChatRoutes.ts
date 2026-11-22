@@ -4,6 +4,7 @@ import { ConversationService } from '../services/ConversationService';
 import { AppointmentService } from '../services/AppointmentService';
 import { VoiceService } from '../services/voice/VoiceService';
 import { DeepgramVoiceAgentService } from '../services/voice/DeepgramVoiceAgentService';
+import { ModularVoiceService } from '../services/voice/ModularVoiceService';
 import { rateLimit } from '../middleware/rateLimitMiddleware';
 import { ConversationChannel, SubscriptionStatus } from '@onceclic/shared';
 import jwt from 'jsonwebtoken';
@@ -115,15 +116,23 @@ const handlePublicVoiceSession = async (req: Request, res: Response, next: any) 
       });
     }
 
+    const sttWsUrl =
+      session.sttWsUrl ||
+      'wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&model=nova-2&smart_format=true&endpointing=300';
+    const voiceTurnUrl = `/api/public/org/${slug}/voice/turn`;
+
     res.json({
       success: true,
       data: {
         allowed: true,
-        provider: session.provider || 'deepgram_voice_agent',
-        voiceEngine: session.voiceEngine || 'Deepgram Voice Agent',
-        intelligenceEngine: session.intelligenceEngine || 'Deepgram Managed (OpenAI GPT-4o-mini)',
+        provider: 'modular_voice',
+        pipeline: 'modular_stt_server_tts',
+        voiceEngine: 'Deepgram Nova-2 STT + ONCEClic Server Orchestrator + Deepgram Aura TTS',
+        intelligenceEngine: 'ONCEClic Multi-Tenant Receptionist (Luna)',
         sessionTicket: session.sessionTicket,
         deepgramToken: session.deepgramToken,
+        sttWsUrl,
+        voiceTurnUrl,
         deepgramWsUrl: session.deepgramWsUrl,
         settings: session.settings,
         wsUrl: session.wsUrl,
@@ -144,6 +153,37 @@ const handlePublicVoiceSession = async (req: Request, res: Response, next: any) 
 
 router.post('/org/:slug/voice-session', handlePublicVoiceSession);
 router.post('/chat/org/:slug/voice-session', handlePublicVoiceSession);
+
+/**
+ * Handle Finalized Voice Turn from Customer
+ * Executes ONCEClic business logic, KB retrieval, tools, and returns Aura TTS audio with responseId.
+ */
+const handlePublicVoiceTurn = async (req: Request, res: Response, next: any) => {
+  try {
+    const { sessionTicket, userTranscript, conversationId } = req.body;
+    if (!sessionTicket || typeof userTranscript !== 'string') {
+      return res.status(400).json({ success: false, error: 'sessionTicket and userTranscript are required' });
+    }
+
+    const result = await ModularVoiceService.handleVoiceTurn({
+      sessionTicket,
+      userTranscript,
+      conversationId,
+      orgSlug: req.params.slug,
+    });
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+};
+
+router.post('/org/:slug/voice/turn', handlePublicVoiceTurn);
+router.post('/chat/org/:slug/voice/turn', handlePublicVoiceTurn);
 
 /**
  * Execute Voice Tool securely for public website visitors

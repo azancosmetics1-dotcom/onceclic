@@ -15,11 +15,25 @@
 
 import { VoiceSessionStatus, BrowserVoiceCallbacks } from './vapiBrowserVoice';
 
+export type VoiceResponseState =
+  | 'IDLE'                     // Initial state / waiting for speech
+  | 'CUSTOMER_TURNING'         // Customer speech detected / customer turn active
+  | 'ASSISTANT_SPEAKING'       // Assistant speaking the single authorized response
+  | 'TOOL_PENDING'             // Tool requested and executing; preliminary audio suppressed
+  | 'TOOL_AWAITING_AGENT'      // Tool executed, FunctionCallResponse sent; awaiting agent response; audio strictly suppressed
+  | 'RESPONSE_COMPLETED'       // Single response completed; further assistant speech locked
+  | 'TERMINATED';              // Call ended / resources cleaned up
+
+export type FinalizationState = 'IDLE' | 'PENDING' | 'SUCCEEDED' | 'FAILED';
+
 export interface DeepgramVoiceClientOptions {
   deepgramToken: string;
   deepgramWsUrl?: string;
+  sttWsUrl?: string;
+  voiceTurnUrl?: string;
+  pipeline?: string;
   sessionTicket: string;
-  settings: any;
+  settings?: any;
   toolEndpointUrl?: string;
   sessionEndUrl?: string;
   maxDurationSeconds?: number;
@@ -44,6 +58,9 @@ export interface DeepgramDiagnostics {
 export class DeepgramVoiceClient {
   private deepgramToken: string;
   private wsUrl: string;
+  private sttWsUrl: string;
+  private voiceTurnUrl: string;
+  private pipeline: string;
   private sessionTicket: string;
   private settings: any;
   private toolEndpointUrl: string;
@@ -51,6 +68,11 @@ export class DeepgramVoiceClient {
   private maxDurationSeconds: number;
   private appointmentReminderSeconds: number;
   private callbacks: BrowserVoiceCallbacks;
+
+  // Modular Voice state
+  private activeResponseId: string | null = null;
+  private isInterrupted: boolean = false;
+  private lastSubmittedTranscript: string = '';
 
   private ws: WebSocket | null = null;
   private status: VoiceSessionStatus = 'idle';
@@ -108,13 +130,80 @@ export class DeepgramVoiceClient {
   // Track whether a tool call is currently in-flight (used to detect follow-up assistant turns)
   private toolCallInFlight: boolean = false;
 
+  // Deterministic Response State Machine & Idempotent Cleanup
+  private responseState: VoiceResponseState = 'IDLE';
+  private pendingToolCallId: string | null = null;
+  private authorizedToolCallId: string | null = null;
+  private suppressAudio: boolean = false;
+  private cleanedUp: boolean = false;
+  private holdDrainTimer: any = null;
+
+  // Backend session finalization state machine & bounded retries
+  private finalizationState: FinalizationState = 'IDLE';
+  private finalizationPromise: Promise<boolean> | null = null;
+  private finalizationError: string | null = null;
+  private finalizationAttempts: number = 0;
+  private readonly MAX_FINALIZATION_RETRIES: number = 2;
+
+  public getResponseState(): VoiceResponseState {
+    return this.responseState;
+  }
+
+  public getStatus(): VoiceSessionStatus {
+    return this.status;
+  }
+
+  public getSuppressAudio(): boolean {
+    return this.suppressAudio;
+  }
+
+  public getCurrentResponseSeq(): number {
+    return this.currentResponseSeq;
+  }
+
+  public getFinalizationState(): FinalizationState {
+    return this.finalizationState;
+  }
+
+  public getFinalizationError(): string | null {
+    return this.finalizationError;
+  }
+
+  public getFinalizationAttempts(): number {
+    return this.finalizationAttempts;
+  }
+
+  public getActiveResponseId(): string | null {
+    return this.activeResponseId;
+  }
+
+  public setActiveResponseId(id: string | null): void {
+    this.activeResponseId = id;
+  }
+
+  public getPipeline(): string {
+    return this.pipeline;
+  }
+
+  public getIsInterrupted(): boolean {
+    return this.isInterrupted;
+  }
+
   constructor(options: DeepgramVoiceClientOptions) {
     this.deepgramToken = options.deepgramToken;
-    this.wsUrl = options.deepgramWsUrl || 'wss://agent.deepgram.com/v1/agent/converse';
+    this.sttWsUrl =
+      options.sttWsUrl ||
+      'wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&model=nova-2&smart_format=true&endpointing=300';
+    this.pipeline = options.pipeline || 'modular_stt_server_tts';
+    this.wsUrl = options.sttWsUrl || options.deepgramWsUrl || this.sttWsUrl;
     this.sessionTicket = options.sessionTicket;
     this.settings = options.settings;
     this.toolEndpointUrl = options.toolEndpointUrl || '/api/voice/tools/execute';
     this.sessionEndUrl = options.sessionEndUrl || '/api/voice/session/end';
+    this.voiceTurnUrl =
+      options.voiceTurnUrl ||
+      options.toolEndpointUrl?.replace(/\/tools\/execute$/, '/voice/turn') ||
+      '/api/public/org/default/voice/turn';
     this.maxDurationSeconds = options.maxDurationSeconds || 180;
     this.appointmentReminderSeconds = options.appointmentReminderSeconds || 120;
     this.callbacks = options.callbacks || {};
@@ -237,13 +326,28 @@ export class DeepgramVoiceClient {
 
         ws.onopen = () => {
           this.diagnostics.webSocketConnected = true;
-          // Wait for Welcome event from Deepgram before sending Settings
+          // For modular STT listen endpoints, mark ready immediately
+          if (this.wsUrl.includes('listen')) {
+            this.diagnostics.settingsApplied = true;
+            this.isReadyToSendAudio = true;
+            this.setStatus('listening');
+            this.startTimer();
+            if (!connectionSettled) {
+              connectionSettled = true;
+              resolve();
+            }
+          }
         };
 
         ws.onmessage = async (event: MessageEvent) => {
           // Binary audio data from Deepgram
-          if (event.data instanceof ArrayBuffer) {
-            this.handleIncomingAudio(new Uint8Array(event.data));
+          if (event.data instanceof ArrayBuffer || ArrayBuffer.isView(event.data)) {
+            const bytes = event.data instanceof Uint8Array
+              ? event.data
+              : ArrayBuffer.isView(event.data)
+                ? new Uint8Array(event.data.buffer, event.data.byteOffset, event.data.byteLength)
+                : new Uint8Array(event.data);
+            this.handleIncomingAudio(bytes);
             return;
           }
 
@@ -261,23 +365,38 @@ export class DeepgramVoiceClient {
           }
         };
 
-        ws.onerror = (err) => {
+        ws.onerror = (err: any) => {
           console.error('[DeepgramVoiceClient] WebSocket error:', err);
           if (!connectionSettled) {
             connectionSettled = true;
             reject(new Error('Failed to connect to Deepgram Voice Agent service.'));
           }
+          // Immediate terminal local cleanup: stop mic tracks, audio context, audio sources, clear timers
+          this.cleanup();
+          if (this.status !== 'ended') {
+            this.setStatus('error', 'Voice connection error');
+          }
+          // Attempt backend finalization with session ticket
+          this.finalizeSession('WS_ERROR').catch((fErr) => {
+            console.warn('[DeepgramVoiceClient] Finalization after WS error failed:', fErr);
+          });
         };
 
-        ws.onclose = (event) => {
-          console.log(`[DeepgramVoiceClient] WebSocket closed (code: ${event.code}, reason: "${event.reason}")`);
+        ws.onclose = (event: any) => {
+          console.log(`[DeepgramVoiceClient] WebSocket closed (code: ${event.code}, reason: "${event.reason || 'none'}")`);
+          // Immediate terminal local cleanup
+          this.cleanup();
           if (this.status !== 'ended') {
             if (event.code === 1008 || event.code === 4401) {
               this.setStatus('error', 'Voice authentication token expired or invalid.');
-            } else if (event.code !== 1000) {
+            } else {
               this.setStatus('ended');
             }
           }
+          // Attempt backend finalization with session ticket
+          this.finalizeSession('WS_CLOSED').catch((fErr) => {
+            console.warn('[DeepgramVoiceClient] Finalization after WS close failed:', fErr);
+          });
         };
 
         // 10s connection timeout
@@ -294,10 +413,36 @@ export class DeepgramVoiceClient {
   }
 
   /**
-   * Handle Deepgram Voice Agent JSON events
+   * Handle Deepgram Voice Agent & STT JSON events
    */
   private async handleServerEvent(msg: any): Promise<void> {
     const eventType = msg.type;
+
+    // ── Deepgram Nova-2 / STT (listen) Events ──
+    if (eventType === 'SpeechStarted' || msg.speech_started === true) {
+      this.handleBargeIn('STT_SPEECH_STARTED');
+      return;
+    }
+
+    if (eventType === 'Results' || msg.channel?.alternatives) {
+      const alt = msg.channel?.alternatives?.[0];
+      const transcript = alt?.transcript?.trim();
+      const isSpeechFinal = Boolean(msg.speech_final || msg.is_final);
+
+      if (transcript) {
+        if (!isSpeechFinal) {
+          // Interim customer transcript for UI display
+          this.callbacks.onTranscript?.('user', transcript, 'interim_turn');
+        } else {
+          // Final customer turn: deduplicate against immediate last transcript
+          if (transcript !== this.lastSubmittedTranscript) {
+            this.lastSubmittedTranscript = transcript;
+            await this.submitFinalTranscript(transcript);
+          }
+        }
+      }
+      return;
+    }
 
     switch (eventType) {
       case 'Welcome':
@@ -317,11 +462,20 @@ export class DeepgramVoiceClient {
         break;
 
       case 'UserStartedSpeaking':
-        // Interruption / Barge-in: ignore if call is already ended
-        if (this.isCallEnded) break;
+        // Interruption / Barge-in: ignore if call is already ended or terminated
+        if (this.isCallEnded || this.responseState === 'TERMINATED') break;
         this.diagnostics.interruptionsDetected++;
+
+        // PART 5.5: Immediately halt current playback and reset timeline
         this.interruptPlayback();
         this.setStatus('listening');
+
+        // Fresh customer turn unlocks response lock and clears any pending tool authorization
+        this.responseState = 'CUSTOMER_TURNING';
+        this.pendingToolCallId = null;
+        this.authorizedToolCallId = null;
+        this.suppressAudio = false;
+
         if (this.currentTurnRole !== 'user') {
           this.turnSequence++;
           this.currentTurnRole = 'user';
@@ -331,12 +485,55 @@ export class DeepgramVoiceClient {
         break;
 
       case 'AgentStartedSpeaking':
-        // If call is ended but goodbye audio is still playing, that is intentional — let it play.
-        // But do NOT start a new agent turn for new audio after the call ended.
-        if (!this.isCallEnded) {
-          this.setStatus('speaking');
+        if (this.responseState === 'TERMINATED') {
+          break;
         }
-        if (this.currentTurnRole !== 'assistant' && !this.isCallEnded) {
+        if (this.isCallEnded && !this.pendingCallEnd) {
+          break;
+        }
+
+        // PART 5.4: Prevent unsolicited second responses.
+        // If the single authorized assistant response for this customer turn has completed,
+        // suppress any unsolicited additional AgentStartedSpeaking.
+        if (this.responseState === 'RESPONSE_COMPLETED') {
+          console.log('[DeepgramVoiceClient] Suppressing unsolicited second assistant response in completed turn');
+          this.suppressAudio = true;
+          break;
+        }
+
+        // PART 5.3: If a tool is currently pending execution, suppress preliminary audio
+        if (this.responseState === 'TOOL_PENDING') {
+          console.log('[DeepgramVoiceClient] Suppressing preliminary speech before tool execution');
+          this.suppressAudio = true;
+          break;
+        }
+
+        // Legitimate final tool-result response:
+        // Strictly authorized ONLY when in TOOL_AWAITING_AGENT and authorizedToolCallId is present
+        if (this.responseState === 'TOOL_AWAITING_AGENT' && this.authorizedToolCallId) {
+          console.log(`[DeepgramVoiceClient] Legitimate final tool-result response authorized to speak for tool ${this.authorizedToolCallId}`);
+          this.responseState = 'ASSISTANT_SPEAKING';
+          this.suppressAudio = false;
+          this.authorizedToolCallId = null;
+          this.toolCallInFlight = false;
+          this.currentTurnRole = 'assistant';
+          this.setStatus('speaking');
+          this.flushAudioQueue();
+          break;
+        }
+
+        if (this.responseState === 'TOOL_AWAITING_AGENT') {
+          console.warn('[DeepgramVoiceClient] Unexpected AgentStartedSpeaking in TOOL_AWAITING_AGENT without authorization');
+          this.suppressAudio = true;
+          break;
+        }
+
+        // Ordinary assistant response for customer turn:
+        this.responseState = 'ASSISTANT_SPEAKING';
+        this.suppressAudio = false;
+        this.setStatus('speaking');
+
+        if (this.currentTurnRole !== 'assistant') {
           this.turnSequence++;
           this.currentTurnRole = 'assistant';
           this.currentTurnId = `turn_assistant_${this.turnSequence}_${Date.now()}`;
@@ -344,14 +541,7 @@ export class DeepgramVoiceClient {
 
           // -----------------------------------------------------------------------
           // AUDIO OVERLAP FIX: Every new assistant response must start on a clean
-          // audio timeline. If the previous response is still playing (nextPlayTime
-          // is ahead of the current clock), stop it immediately and reset the queue
-          // so the new response's first chunk plays RIGHT NOW, not after the
-          // previous response's tail audio finishes.
-          //
-          // This is different from barge-in (UserStartedSpeaking): barge-in is
-          // triggered by the USER interrupting; this is triggered by DEEPGRAM
-          // starting a NEW agent turn — which must never overlap the prior turn.
+          // audio timeline.
           // -----------------------------------------------------------------------
           this.flushAudioQueue();
         }
@@ -362,46 +552,74 @@ export class DeepgramVoiceClient {
         break;
 
       case 'AgentAudioDone':
+        // If a tool is executing or awaiting result, pre-tool speech is finishing on Deepgram side.
+        // Do NOT transition to RESPONSE_COMPLETED — tool response has not even started yet!
+        if (this.responseState === 'TOOL_PENDING' || this.responseState === 'TOOL_AWAITING_AGENT') {
+          break;
+        }
+
         // Per Deepgram docs: AgentAudioDone fires ONCE per complete agent response (not per chunk).
-        // The audio buffer may still be playing client-side when this fires, so we must wait
-        // for the queued audio to drain before changing state or closing the session.
         if (this.pendingCallEnd && !this.goodbyeAudioDraining) {
           this.goodbyeAudioDraining = true;
-          // Calculate how long the queued audio still needs to play.
-          // nextPlayTime is the WebAudio clock time when the last queued buffer ends.
-          // audioContext.currentTime is the current clock. The difference is the remaining play time.
           const audioCtx = this.audioContext;
           let drainMs = 500; // safe minimum
           if (audioCtx) {
             const remaining = this.nextPlayTime - audioCtx.currentTime;
-            // remaining is in seconds; clamp between 0.5s and 8s
             drainMs = Math.min(8000, Math.max(500, Math.ceil(remaining * 1000) + 400));
           }
-          setTimeout(() => {
+          if (this.holdDrainTimer) clearTimeout(this.holdDrainTimer);
+          this.holdDrainTimer = setTimeout(() => {
             this.stop('NORMAL_END');
           }, drainMs);
           return;
         }
-        // Normal (non-goodbye) turn end: transition back to listening
-        if (!this.pendingCallEnd && !this.isCallEnded && this.status === 'speaking') {
-          // Reset the tool-call-in-flight flag: the agent has finished its turn
+
+        // PART 5.1 & 5.4: Assistant completed its one allowed spoken response for this turn.
+        if (this.responseState === 'ASSISTANT_SPEAKING') {
+          this.responseState = 'RESPONSE_COMPLETED';
+          this.suppressAudio = true;
           this.toolCallInFlight = false;
-          setTimeout(() => {
-            if (this.status === 'speaking' && !this.isCallEnded && !this.pendingCallEnd) {
+
+          // Wait for queued audio buffers to drain on the WebAudio clock before returning to listening
+          const audioCtx = this.audioContext;
+          let drainMs = 300;
+          if (audioCtx) {
+            const remaining = Math.max(0, this.nextPlayTime - audioCtx.currentTime);
+            drainMs = Math.ceil(remaining * 1000) + 150;
+          }
+
+          if (this.holdDrainTimer) clearTimeout(this.holdDrainTimer);
+          this.holdDrainTimer = setTimeout(() => {
+            if (
+              this.responseState === 'RESPONSE_COMPLETED' &&
+              !this.isCallEnded &&
+              !this.pendingCallEnd
+            ) {
               this.setStatus('listening');
             }
-          }, 300);
+          }, drainMs);
         }
         break;
 
       case 'ConversationText':
         if (msg.role && msg.content) {
-          // Drop all events once call has ended (goodbye already delivered)
-          if (this.isCallEnded) break;
+          // Drop all events once call has ended or terminated
+          if (this.isCallEnded || this.responseState === 'TERMINATED') break;
 
           const role: 'user' | 'assistant' = msg.role === 'user' ? 'user' : 'assistant';
           const rawText = typeof msg.content === 'string' ? msg.content.trim() : '';
           if (!rawText) break;
+
+          // PART 6: Discard preliminary assistant text or unsolicited second assistant text
+          if (role === 'assistant') {
+            if (
+              this.responseState === 'TOOL_PENDING' ||
+              this.responseState === 'TOOL_AWAITING_AGENT' ||
+              this.responseState === 'RESPONSE_COMPLETED'
+            ) {
+              break;
+            }
+          }
 
           let isNewTurn = false;
           if (this.currentTurnRole !== role || !this.currentTurnId) {
@@ -437,12 +655,6 @@ export class DeepgramVoiceClient {
           }
 
           // Tool-call follow-up merge:
-          // When a FunctionCallRequest was in-flight and the next assistant ConversationText arrives,
-          // it is the tool result response — semantically the same turn. Merge it into the last
-          // assistant bubble instead of creating a new one.
-          // We only merge when: (a) this is a new assistant turn AND (b) toolCallInFlight was set,
-          // meaning Deepgram just finished executing a tool and is now responding to its result.
-          // This avoids merging genuinely distinct assistant turns that happen to follow each other.
           if (isNewTurn && role === 'assistant' && this.toolCallInFlight) {
             this.toolCallInFlight = false; // consume the flag
             const lastAssistantIndex = this.conversationTranscripts.length - 1;
@@ -450,7 +662,6 @@ export class DeepgramVoiceClient {
               lastAssistantIndex >= 0 &&
               this.conversationTranscripts[lastAssistantIndex].role === 'assistant'
             ) {
-              // Update the existing assistant bubble with the tool-follow-up response
               const prevTurnId = this.currentTurnId;
               this.currentTurnText = rawText;
               this.lastEmittedRole = role;
@@ -460,9 +671,7 @@ export class DeepgramVoiceClient {
               this.callbacks.onTranscript?.(role, rawText, prevTurnId, false);
               break;
             }
-            // No previous assistant bubble — fall through to create a new one
           } else if (role === 'assistant') {
-            // Clear the flag for any other assistant ConversationText (not a tool follow-up)
             this.toolCallInFlight = false;
           }
 
@@ -487,8 +696,12 @@ export class DeepgramVoiceClient {
         break;
 
       case 'FunctionCallRequest':
-        // Mark that a tool call is now in-flight; the next assistant ConversationText
-        // after this resolves is a tool-call follow-up (same logical turn, not a new one).
+        // PART 5.3: Preliminary audio suppression
+        // When tool request arrives, activate preliminary audio suppression.
+        // Immediately stop and discard any preliminary speech audio.
+        this.interruptPlayback();
+        this.responseState = 'TOOL_PENDING';
+        this.suppressAudio = true;
         this.toolCallInFlight = true;
         await this.handleFunctionCallRequest(msg);
         break;
@@ -563,6 +776,16 @@ export class DeepgramVoiceClient {
             })
           );
         }
+
+        // Transition to TOOL_AWAITING_AGENT with authorized toolCallId.
+        // KEEP suppressAudio = true! Do NOT enable audio yet!
+        // Audio is only authorized when Deepgram emits AgentStartedSpeaking for the tool result.
+        if (this.responseState !== 'TERMINATED') {
+          this.responseState = 'TOOL_AWAITING_AGENT';
+          this.authorizedToolCallId = toolCallId;
+          this.pendingToolCallId = null;
+          this.suppressAudio = true;
+        }
       } catch (err: any) {
         console.error(`[DeepgramVoiceClient] Failed executing tool ${toolName}:`, err);
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
@@ -574,6 +797,12 @@ export class DeepgramVoiceClient {
               content: JSON.stringify({ error: err?.message || 'Tool execution failed' }),
             })
           );
+        }
+        if (this.responseState !== 'TERMINATED') {
+          this.responseState = 'TOOL_AWAITING_AGENT';
+          this.authorizedToolCallId = toolCallId;
+          this.pendingToolCallId = null;
+          this.suppressAudio = true;
         }
       }
     }
@@ -666,12 +895,31 @@ export class DeepgramVoiceClient {
 
   /**
    * Decodes and queues 24kHz linear16 PCM speaker output audio from Deepgram.
-   * Each chunk is tagged with the currentResponseSeq so stale chunks from a
+   * Each chunk is tagged with the currentResponseSeq and responseId so stale chunks from a
    * previous response that arrive late are silently discarded BEFORE they are
    * ever scheduled on the WebAudio clock.
    */
-  private handleIncomingAudio(rawBytes: Uint8Array): void {
-    if (!this.audioContext || rawBytes.byteLength < 2) return;
+  public handleIncomingAudio(rawBytes: Uint8Array | ArrayBuffer, chunkResponseId?: string): void {
+    const bytes = rawBytes instanceof ArrayBuffer ? new Uint8Array(rawBytes) : rawBytes;
+    if (!this.audioContext || bytes.byteLength < 2) return;
+
+    // Reject audio if customer interrupted (barge-in) or session terminated
+    if (this.isInterrupted || this.responseState === 'TERMINATED') {
+      return;
+    }
+
+    // Response ID check: reject any chunk tagged with a superseded or mismatched response ID
+    if (chunkResponseId && chunkResponseId !== this.activeResponseId) {
+      return;
+    }
+
+    // PART 1: Discard any audio that is not explicitly in ASSISTANT_SPEAKING with suppressAudio = false.
+    // Rejects preliminary audio, delayed pre-tool frames (TOOL_PENDING & TOOL_AWAITING_AGENT),
+    // unsolicited audio (RESPONSE_COMPLETED), customer speech (CUSTOMER_TURNING),
+    // and terminated audio (TERMINATED) before decode!
+    if (this.responseState !== 'ASSISTANT_SPEAKING' || this.suppressAudio) {
+      return;
+    }
 
     // ── GUARD (pre-schedule) ─────────────────────────────────────────────────
     // Capture the response sequence ID RIGHT NOW, before any decode work.
@@ -682,10 +930,10 @@ export class DeepgramVoiceClient {
     const mySeq = this.currentResponseSeq;
 
     this.diagnostics.audioChunksReceived++;
-    this.diagnostics.audioBytesDecoded += rawBytes.byteLength;
+    this.diagnostics.audioBytesDecoded += bytes.byteLength;
 
     // Convert raw PCM16 bytes to Float32 samples (synchronous — no async gap)
-    const pcm16 = new Int16Array(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength / 2);
+    const pcm16 = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 2);
     const float32 = new Float32Array(pcm16.length);
     for (let i = 0; i < pcm16.length; i++) {
       float32[i] = pcm16[i] / 32768.0;
@@ -696,11 +944,15 @@ export class DeepgramVoiceClient {
     audioBuffer.getChannelData(0).set(float32);
 
     // ── GUARD (pre-start) ────────────────────────────────────────────────────
-    // Re-check seq after PCM decode.  Although decode is synchronous, another
-    // WebSocket binary frame (triggering a flush) could have been processed in
-    // the same JS microtask queue.  Checking here guarantees we never call
-    // source.start() for a superseded response.
-    if (mySeq !== this.currentResponseSeq) return;
+    // Re-check seq and responseState after PCM decode. Checking here guarantees
+    // we never call source.start() for a superseded or suppressed response.
+    if (
+      mySeq !== this.currentResponseSeq ||
+      this.responseState !== 'ASSISTANT_SPEAKING' ||
+      this.suppressAudio
+    ) {
+      return;
+    }
 
     const source = this.audioContext.createBufferSource();
     source.buffer = audioBuffer;
@@ -720,8 +972,6 @@ export class DeepgramVoiceClient {
         this.activeSources.splice(idx, 1);
       }
     };
-    // No post-start seq check needed: the pre-start guard above ensures only
-    // chunks belonging to the current response ever reach source.start().
   }
 
   /**
@@ -791,13 +1041,14 @@ export class DeepgramVoiceClient {
       // ── Case A: Significant audio still queued — stop R1 immediately ──
       // R1 is superseded mid-sentence.  Stop all active sources and reset
       // nextPlayTime so R2 schedules at currentTime (plays right now).
-      for (const source of this.activeSources) {
+      const sourcesToStop = [...this.activeSources];
+      this.activeSources = [];
+      for (const source of sourcesToStop) {
         try {
           source.stop();
           source.disconnect();
         } catch {}
       }
-      this.activeSources = [];
       // Safe to reset: no active sources remain to play into this window.
       this.nextPlayTime = audioCtx.currentTime;
     }
@@ -816,58 +1067,299 @@ export class DeepgramVoiceClient {
     // Advance sequence so late-arriving chunks from the interrupted response are dropped
     this.currentResponseSeq++;
 
-    for (const source of this.activeSources) {
+    const sourcesToStop = [...this.activeSources];
+    this.activeSources = [];
+    for (const source of sourcesToStop) {
       try {
         source.stop();
         source.disconnect();
       } catch {}
     }
-    this.activeSources = [];
     if (this.audioContext) {
       this.nextPlayTime = this.audioContext.currentTime;
     }
   }
 
   /**
-   * Stop the session, report duration to backend, and clean up resources.
+   * Customer interruption / Barge-in:
+   * Instantly stops all playing audio, invalidates active response ID,
+   * clears queue, and returns state to CUSTOMER_TURNING / listening.
    */
-  public async stop(reason: string = 'USER_ENDED'): Promise<void> {
+  public handleBargeIn(reason: string = 'USER_BARGE_IN'): void {
+    if (this.isCallEnded || this.responseState === 'TERMINATED') return;
+    this.diagnostics.interruptionsDetected++;
+    this.isInterrupted = true;
+    this.activeResponseId = null;
+    this.suppressAudio = true;
+    this.interruptPlayback();
+    this.responseState = 'CUSTOMER_TURNING';
+    this.setStatus('listening');
+    this.currentTurnRole = 'user';
+  }
+
+  /**
+   * Submit finalized customer transcript to ONCEClic server turn endpoint.
+   * Server executes Knowledge Base search, silent tools, and returns Aura TTS audio.
+   */
+  public async submitFinalTranscript(transcript: string): Promise<any> {
+    const cleanText = transcript.trim();
+    if (!cleanText || this.isCallEnded || this.responseState === 'TERMINATED') {
+      return null;
+    }
+
+    this.turnSequence++;
+    const turnId = `turn_user_${this.turnSequence}_${Date.now()}`;
+    this.callbacks.onTranscript?.('user', cleanText, turnId);
+
+    this.isInterrupted = false;
+    this.responseState = 'CUSTOMER_TURNING';
+    this.setStatus('connecting');
+
+    try {
+      const fetchImpl = typeof window !== 'undefined' && window.fetch ? window.fetch.bind(window) : global.fetch;
+      const res = await fetchImpl(this.voiceTurnUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          sessionTicket: this.sessionTicket,
+          userTranscript: cleanText,
+        }),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        throw new Error(`Voice turn request failed: HTTP ${res.status} ${errBody}`);
+      }
+
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || 'Voice turn failed on server');
+      }
+
+      // Interruption guard during network latency:
+      // If customer interrupted while the server was working, drop response immediately!
+      if (this.isInterrupted || (this.responseState as VoiceResponseState) === 'TERMINATED') {
+        console.log('[DeepgramVoiceClient] Customer interrupted during server turn; dropping stale response');
+        return data;
+      }
+
+      const { responseId, assistantText, audioBase64, sampleRate, callEnded } = data;
+
+      // Authorize this specific responseId
+      this.activeResponseId = responseId;
+      this.currentResponseSeq++;
+      this.responseState = 'ASSISTANT_SPEAKING';
+      this.suppressAudio = false;
+      this.setStatus('speaking');
+
+      if (assistantText) {
+        this.callbacks.onTranscript?.('assistant', assistantText, responseId);
+      }
+
+      if (audioBase64) {
+        this.playTurnAudio(responseId, audioBase64, sampleRate || 24000, callEnded);
+      }
+
+      return data;
+    } catch (err: any) {
+      console.error('[DeepgramVoiceClient] Error processing voice turn:', err);
+      this.setStatus('listening');
+      return null;
+    }
+  }
+
+  /**
+   * Schedule and play audio chunks for the approved responseId.
+   * Guarantees:
+   * - Sequential, non-overlapping playback via WebAudio clock.
+   * - Rejection of stale, mismatched, or interrupted audio.
+   * - Bounded buffer scheduling.
+   */
+  public playTurnAudio(
+    responseId: string,
+    audioBase64OrBytes: string | Uint8Array | ArrayBuffer,
+    sampleRate: number = 24000,
+    callEnded: boolean = false
+  ): void {
+    if (!responseId || responseId !== this.activeResponseId || this.isInterrupted || (this.responseState as VoiceResponseState) === 'TERMINATED') {
+      return;
+    }
+
+    if (!this.audioContext) return;
+
+    let pcmBytes: Uint8Array;
+    if (typeof audioBase64OrBytes === 'string') {
+      const binaryString = atob(audioBase64OrBytes);
+      pcmBytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        pcmBytes[i] = binaryString.charCodeAt(i);
+      }
+    } else if (audioBase64OrBytes instanceof ArrayBuffer) {
+      pcmBytes = new Uint8Array(audioBase64OrBytes);
+    } else {
+      pcmBytes = audioBase64OrBytes;
+    }
+
+    if (pcmBytes.byteLength < 2) return;
+
+    const numSamples = Math.floor(pcmBytes.byteLength / 2);
+    const pcm16 = new Int16Array(pcmBytes.buffer, pcmBytes.byteOffset, numSamples);
+    const float32 = new Float32Array(numSamples);
+    for (let i = 0; i < numSamples; i++) {
+      float32[i] = pcm16[i] / 32768.0;
+    }
+
+    const safeSampleRate = (sampleRate >= 16000 && sampleRate <= 48000) ? sampleRate : 24000;
+    const audioBuffer = this.audioContext.createBuffer(1, float32.length, safeSampleRate);
+    audioBuffer.getChannelData(0).set(float32);
+
+    const source = this.audioContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(this.audioContext.destination);
+
+    const currentTime = this.audioContext.currentTime;
+    const startTime = Math.max(currentTime, this.nextPlayTime);
+    source.start(startTime);
+    this.nextPlayTime = startTime + audioBuffer.duration;
+    this.activeSources.push(source);
+    this.diagnostics.audioPlaybackStarted = true;
+
+    source.onended = () => {
+      const idx = this.activeSources.indexOf(source);
+      if (idx !== -1) {
+        this.activeSources.splice(idx, 1);
+      }
+      if (this.activeSources.length === 0) {
+        this.responseState = 'RESPONSE_COMPLETED';
+        if (callEnded) {
+          // Goodbye: clean session termination after playing complete goodbye audio
+          this.stop('NORMAL_END').catch(() => {});
+        } else if (this.status === 'speaking') {
+          this.setStatus('listening');
+        }
+      }
+    };
+  }
+
+  /**
+   * Finalizes the voice session with the ONCEClic backend idempotently.
+   * - Sets state to PENDING while request is in flight.
+   * - Shares in-flight request if called concurrently.
+   * - Only sets state to SUCCEEDED after HTTP 2xx response.
+   * - If request fails or times out, state becomes FAILED and remains retryable.
+   * - Preserves backend provider_call_id idempotency to prevent duplicate billing.
+   */
+  public async finalizeSession(reason: string = 'USER_ENDED'): Promise<boolean> {
+    if (this.finalizationState === 'SUCCEEDED') {
+      return true;
+    }
+    if (this.finalizationState === 'PENDING' && this.finalizationPromise) {
+      return this.finalizationPromise;
+    }
+
     const elapsedSeconds = this.callStartTimestamp
       ? Math.floor((Date.now() - this.callStartTimestamp) / 1000)
       : 0;
 
-    this.clearTimer();
-    this.isReadyToSendAudio = false;
-    this.interruptPlayback();
-
-    // Report session end to backend
-    if (elapsedSeconds > 0 && this.sessionTicket) {
-      try {
-        await fetch(this.sessionEndUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            sessionTicket: this.sessionTicket,
-            durationSeconds: elapsedSeconds,
-            transcript: this.conversationTranscripts.map((t) => `${t.role}: ${t.text}`).join('\n'),
-            reason,
-          }),
-        });
-      } catch (endErr) {
-        console.warn('[DeepgramVoiceClient] Error finalizing session duration:', endErr);
-      }
+    if (!this.sessionTicket || elapsedSeconds <= 0) {
+      this.finalizationState = 'SUCCEEDED';
+      return true;
     }
 
+    this.finalizationState = 'PENDING';
+    this.finalizationPromise = (async () => {
+      let attempt = 0;
+      const maxAttempts = 1 + this.MAX_FINALIZATION_RETRIES;
+
+      while (attempt < maxAttempts) {
+        attempt++;
+        this.finalizationAttempts++;
+        try {
+          const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+          const timeoutId = controller ? setTimeout(() => controller.abort(), 8000) : null;
+
+          const response = await fetch(this.sessionEndUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionTicket: this.sessionTicket,
+              durationSeconds: elapsedSeconds,
+              transcript: this.conversationTranscripts.map((t) => `${t.role}: ${t.text}`).join('\n'),
+              reason,
+            }),
+            signal: controller?.signal,
+          });
+
+          if (timeoutId) clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+
+          // Marked successful ONLY after successful HTTP 2xx response
+          this.finalizationState = 'SUCCEEDED';
+          this.finalizationError = null;
+          this.finalizationPromise = null;
+          return true;
+        } catch (err: any) {
+          this.finalizationError = err?.message || String(err);
+          console.warn(`[DeepgramVoiceClient] Finalization attempt ${attempt}/${maxAttempts} failed:`, this.finalizationError);
+
+          if (attempt < maxAttempts) {
+            await new Promise((r) => setTimeout(r, attempt * 150));
+          }
+        }
+      }
+
+      this.finalizationState = 'FAILED';
+      this.finalizationPromise = null;
+      return false;
+    })();
+
+    return this.finalizationPromise;
+  }
+
+  /**
+   * Stop the session: performs immediate synchronous local cleanup
+   * and dispatches backend finalization asynchronously.
+   */
+  public async stop(reason: string = 'USER_ENDED'): Promise<boolean> {
+    // 1. Perform immediate, idempotent local cleanup of all hardware and network resources
     this.cleanup();
     this.setStatus('ended');
+
+    // 2. Report session end to backend idempotently (state-tracked)
+    return this.finalizeSession(reason);
   }
 
   /**
    * Full cleanup of audio resources and WebSocket.
    */
   private cleanup(): void {
+    if (this.cleanedUp) return;
+    this.cleanedUp = true;
+    this.responseState = 'TERMINATED';
+    this.suppressAudio = true;
+
     this.clearTimer();
+    if (this.holdDrainTimer) {
+      clearTimeout(this.holdDrainTimer);
+      this.holdDrainTimer = null;
+    }
     this.isReadyToSendAudio = false;
+
+    // Stop and disconnect all active playback audio sources
+    const sourcesToStop = [...this.activeSources];
+    this.activeSources = [];
+    for (const source of sourcesToStop) {
+      try {
+        source.stop();
+        source.disconnect();
+      } catch {}
+    }
+    this.nextPlayTime = 0;
 
     if (this.recordProcessor) {
       try {

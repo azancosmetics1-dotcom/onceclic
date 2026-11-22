@@ -8,6 +8,7 @@ import { VoicePromptBuilder } from '../server/src/services/voice/VoicePromptBuil
 import { KnowledgeService } from '../server/src/services/KnowledgeService';
 import { aiProvider } from '../server/src/services/AIProvider';
 import { reembedKnowledge } from '../server/src/scripts/reembed-knowledge';
+import { KnowledgeSourceType } from '@onceclic/shared';
 import publicChatRoutes from '../server/src/routes/publicChatRoutes';
 
 class MockClientWebSocket {
@@ -138,7 +139,7 @@ export async function runGeminiLiveAndPublicVoiceTests() {
         layer.route?.path === '/org/:slug/voice-session' && layer.route?.methods?.post
       );
 
-      if (matchedRoute) {
+      if (matchedRoute && matchedRoute.route) {
         matchedRoute.route.stack[0].handle(req, res, (err: any) => {
           resolve({ status: 500, body: { error: err?.message } });
         });
@@ -154,7 +155,7 @@ export async function runGeminiLiveAndPublicVoiceTests() {
   assert.strictEqual(res1.body.success, true, 'Response was successful');
   assert.strictEqual(res1.body.data.allowed, true, 'Session is allowed');
   assert.ok(
-    res1.body.data.provider === 'deepgram_voice_agent' || res1.body.data.provider === 'gemini_live',
+    res1.body.data.provider === 'modular_voice' || res1.body.data.provider === 'deepgram_voice_agent' || res1.body.data.provider === 'gemini_live',
     'Provider is valid active voice engine'
   );
   assert.ok(res1.body.data.sessionTicket, 'Session ticket returned');
@@ -197,7 +198,7 @@ export async function runGeminiLiveAndPublicVoiceTests() {
   const liveTicketRes = await GeminiLiveBridgeService.createSessionTicket({ organizationId: orgAId });
   const ws = new MockClientWebSocket();
   const connectionPromise = GeminiLiveBridgeService.handleClientConnection(ws as any, {
-    url: `/api/voice/live?ticket=${encodeURIComponent(liveTicketRes.sessionTicket)}`,
+    url: `/api/voice/live?ticket=${encodeURIComponent(liveTicketRes.sessionTicket || '')}`,
     headers: { host: 'localhost' },
   });
 
@@ -252,7 +253,7 @@ export async function runGeminiLiveAndPublicVoiceTests() {
   // Add knowledge source for Org A
   const source = await KnowledgeService.addSource({
     organizationId: orgAId,
-    sourceType: 'TEXT',
+    sourceType: KnowledgeSourceType.TEXT,
     title: 'Salon Hours & Policies',
     rawContent: 'KB Saloon is open Monday to Saturday from 9 AM to 7 PM. All color services require a consultation.',
   });

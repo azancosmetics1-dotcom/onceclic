@@ -598,10 +598,13 @@ class ApiClient {
   async getPublicVoiceSession(orgSlug: string): Promise<{
     allowed: boolean;
     reason?: string;
-    provider?: 'deepgram_voice_agent' | 'gemini_live' | 'vapi';
+    provider?: 'deepgram_voice_agent' | 'gemini_live' | 'vapi' | 'modular_voice';
     sessionTicket?: string;
     deepgramToken?: string;
     deepgramWsUrl?: string;
+    sttWsUrl?: string;
+    voiceTurnUrl?: string;
+    pipeline?: string;
     settings?: any;
     wsUrl?: string;
     callId?: string;

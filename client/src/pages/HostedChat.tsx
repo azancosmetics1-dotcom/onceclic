@@ -49,35 +49,58 @@ export const HostedChat: React.FC = () => {
   const [voiceStatus, setVoiceStatus] = useState<VoiceSessionStatus>('idle');
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const voiceSessionRef = useRef<BrowserVoiceSession | null>(null);
+  const isVoiceStartingRef = useRef<boolean>(false);
 
   const handleStartVoiceCall = async () => {
     if (!orgSlug) return;
-    if (voiceStatus === 'connecting' || voiceStatus === 'active' || voiceStatus === 'listening' || voiceStatus === 'speaking') {
+
+    // PART 2: Atomic synchronous mutex check before ANY asynchronous operation
+    if (isVoiceStartingRef.current) {
+      console.warn('[HostedChat] Voice start already in progress — rejecting concurrent request');
       return;
     }
-    if (voiceSessionRef.current) {
-      voiceSessionRef.current.stop();
-      voiceSessionRef.current = null;
+
+    // Reject start request when existing session is connecting, active, listening, or speaking
+    if (
+      voiceStatus === 'connecting' ||
+      voiceStatus === 'active' ||
+      voiceStatus === 'listening' ||
+      voiceStatus === 'speaking' ||
+      voiceStatus === 'ready' ||
+      voiceStatus === 'requesting_microphone'
+    ) {
+      return;
     }
+
+    isVoiceStartingRef.current = true;
+
     try {
+      // Clean up previous voice session completely before creating a replacement
+      if (voiceSessionRef.current) {
+        voiceSessionRef.current.stop('RESTART_NEW_SESSION');
+        voiceSessionRef.current = null;
+      }
+
       setVoiceError(null);
       const session = await api.getPublicVoiceSession(orgSlug);
-      if (!session?.sessionTicket && !session?.deepgramToken && (!session?.assistantId || !session?.vapiPublicKey)) {
-        setVoiceError('AI voice receptionist is currently unavailable.');
+
+      // PART 3: Deepgram Only — require valid deepgramToken and settings
+      if (!session?.deepgramToken || !session?.settings) {
+        setVoiceError('Deepgram voice receptionist is currently unavailable for this business.');
         return;
       }
 
       const voice = new BrowserVoiceSession({
-        provider: session.provider || (session.deepgramToken ? 'deepgram_voice_agent' : session.sessionTicket ? 'gemini_live' : 'vapi'),
+        provider: 'modular_voice',
         sessionTicket: session.sessionTicket,
         deepgramToken: session.deepgramToken,
+        sttWsUrl: session.sttWsUrl,
+        voiceTurnUrl: session.voiceTurnUrl || `/api/public/org/${orgSlug}/voice/turn`,
+        pipeline: session.pipeline || 'modular_stt_server_tts',
         deepgramWsUrl: session.deepgramWsUrl,
         settings: session.settings,
         toolEndpointUrl: `/api/public/org/${orgSlug}/tools/execute`,
         sessionEndUrl: `/api/public/org/${orgSlug}/session/end`,
-        wsUrl: session.wsUrl,
-        assistantId: session.assistantId,
-        publicKey: session.vapiPublicKey,
         maxDurationSeconds: session.maxDurationSeconds || 180,
         appointmentReminderSeconds: session.appointmentReminderSeconds || 120,
         callbacks: {
@@ -99,7 +122,7 @@ export const HostedChat: React.FC = () => {
             setMessages((prev) => {
               const expectedRole = role === 'user' ? 'CUSTOMER' : 'AI';
 
-              // 1. Greeting deduplication: if assistant speaks greeting and welcome message already exists
+              // PART 9: Greeting deduplication — deduplicate against initial welcome greeting
               if (role === 'assistant') {
                 const isGreetingMatch = prev.some((m) => {
                   if (m.role !== 'AI') return false;
@@ -111,7 +134,7 @@ export const HostedChat: React.FC = () => {
                     (inText.length > 15 && mText.includes(inText))
                   );
                 });
-                if (isGreetingMatch && prev.length <= 2) {
+                if (isGreetingMatch && prev.some((m) => m.id === 'init_welcome')) {
                   return prev;
                 }
               }
@@ -170,23 +193,28 @@ export const HostedChat: React.FC = () => {
       await voice.start();
     } catch (err: any) {
       setVoiceError(err.message || 'Failed to start browser voice session.');
+    } finally {
+      // Release start mutex in finally block
+      isVoiceStartingRef.current = false;
     }
   };
 
   const handleEndVoiceCall = () => {
     if (voiceSessionRef.current) {
-      voiceSessionRef.current.stop();
+      voiceSessionRef.current.stop('USER_HANGUP');
       voiceSessionRef.current = null;
     }
     setVoiceStatus('ended');
   };
 
-  // Clean up voice call when leaving
+  // Clean up voice call when leaving or unmounting
   useEffect(() => {
     return () => {
       if (voiceSessionRef.current) {
-        voiceSessionRef.current.stop();
+        voiceSessionRef.current.stop('COMPONENT_UNMOUNT');
+        voiceSessionRef.current = null;
       }
+      isVoiceStartingRef.current = false;
     };
   }, []);
 
@@ -249,8 +277,16 @@ export const HostedChat: React.FC = () => {
     init(targetSlug);
   }, [orgSlug]);
 
+  const isVoiceActive =
+    voiceStatus !== 'idle' && voiceStatus !== 'ended' && voiceStatus !== 'error';
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
+    // PART 4: Handler-level guard — Gemini text pipeline blocked while voice session is active
+    if (isVoiceActive) {
+      console.warn('[HostedChat] Voice call active — text messaging is disabled');
+      return;
+    }
     if (!inputMessage.trim() || !sessionToken || sending) return;
 
     const userText = inputMessage;
@@ -588,19 +624,31 @@ export const HostedChat: React.FC = () => {
               type="text"
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
-              placeholder="Ask a question or request a booking..."
-              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 sm:px-4 sm:py-3 text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500 min-w-0"
+              disabled={isVoiceActive}
+              placeholder={
+                isVoiceActive
+                  ? 'Voice call active — speak to Luna'
+                  : 'Ask a question or request a booking...'
+              }
+              className={`flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 sm:px-4 sm:py-3 text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500 min-w-0 ${
+                isVoiceActive ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             />
             <button
               type="submit"
-              disabled={sending || !inputMessage.trim()}
+              disabled={sending || !inputMessage.trim() || isVoiceActive}
               className="p-2.5 sm:p-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl transition font-bold disabled:opacity-50 shrink-0"
+              title={isVoiceActive ? 'Voice call active — speak to Luna' : undefined}
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
           <div className="mt-2 text-center text-[10px] text-slate-500 truncate">
-            Powered by <span className="font-semibold text-slate-400">ONCEClic.com</span> &bull; 24/7 AI Receptionist
+            {isVoiceActive ? (
+              <span className="text-emerald-400 font-medium">● Voice call active — speak to Luna directly</span>
+            ) : (
+              <>Powered by <span className="font-semibold text-slate-400">ONCEClic.com</span> &bull; 24/7 AI Receptionist</>
+            )}
           </div>
         </form>
       </div>

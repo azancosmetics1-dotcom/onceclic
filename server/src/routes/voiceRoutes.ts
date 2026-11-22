@@ -4,6 +4,7 @@ import { tenantIsolationMiddleware } from '../middleware/tenantIsolationMiddlewa
 import { requirePermission } from '../middleware/rbacMiddleware';
 import { VoiceService } from '../services/voice/VoiceService';
 import { DeepgramVoiceAgentService } from '../services/voice/DeepgramVoiceAgentService';
+import { ModularVoiceService } from '../services/voice/ModularVoiceService';
 import { PhoneNumberPricingService } from '../services/voice/PhoneNumberPricingService';
 import { PhoneNumberBillingService } from '../services/voice/PhoneNumberBillingService';
 import { VoiceConnectionMethod } from '@onceclic/shared';
@@ -74,6 +75,32 @@ router.post('/browser/session', requirePermission('voice:read'), async (req: Req
       success: true,
       data: session,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Handle Voice Turn (Dashboard Authenticated Voice Test)
+ */
+router.post('/turn', requirePermission('voice:read'), async (req: Request, res: Response, next) => {
+  try {
+    const { sessionTicket, userTranscript, conversationId } = req.body;
+    if (!sessionTicket || typeof userTranscript !== 'string') {
+      return res.status(400).json({ success: false, error: 'sessionTicket and userTranscript are required' });
+    }
+
+    const result = await ModularVoiceService.handleVoiceTurn({
+      sessionTicket,
+      userTranscript,
+      conversationId,
+    });
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    res.json(result);
   } catch (err) {
     next(err);
   }

@@ -124,8 +124,8 @@ export async function runAutomatedCustomerOnboardingTests() {
   const voiceConfig = await VoiceService.getCustomerVoiceConfig(orgId);
   assert.strictEqual(voiceConfig.isVoiceReceptionistReady, true, 'Receptionist must be marked ready');
   assert.strictEqual(voiceConfig.assistantId, provResult.assistantId, 'Assistant ID must be returned to client');
-  assert(voiceConfig.embedSnippet.includes('window.ONCECLIC_CONFIG = { orgSlug:'), 'Embed snippet must configure orgSlug');
-  assert(voiceConfig.embedSnippet.includes('/widget.js'), 'Embed snippet must load widget script');
+  assert(voiceConfig.embedSnippet?.includes('window.ONCECLIC_CONFIG = { orgSlug:'), 'Embed snippet must configure orgSlug');
+  assert(voiceConfig.embedSnippet?.includes('/widget.js'), 'Embed snippet must load widget script');
   console.log('✓ Website embed widget generated with browser microphone permission');
 
   // Test 8: Browser voice session authorization and limits
@@ -133,7 +133,7 @@ export async function runAutomatedCustomerOnboardingTests() {
   const session = await VoiceService.startBrowserVoiceSession(orgId);
   assert.strictEqual(session.allowed, true, 'Browser session must be allowed');
   assert.strictEqual(session.assistantId, provResult.assistantId, 'Session must bind to organization assistant');
-  assert(session.remainingMinutes > 0, 'Remaining minutes must be positive');
+  assert((session.remainingMinutes ?? 0) > 0, 'Remaining minutes must be positive');
   console.log('✓ Browser voice session authorized with remaining minutes:', session.remainingMinutes);
 
   // Test 9: Customer-specific knowledge retrieval isolation
@@ -201,7 +201,7 @@ export async function runAutomatedCustomerOnboardingTests() {
 
   let crossTenantDenied = false;
   try {
-    await AppointmentService.getAppointment(foreignOrgId, 'any_id');
+    await AppointmentService.getAppointment(foreignOrgId, { appointmentId: 'any_id' });
   } catch (err) {
     crossTenantDenied = true;
   }
@@ -220,7 +220,6 @@ export async function runAutomatedCustomerOnboardingTests() {
     customerPhone: '+15559876543',
     customerEmail: 'visitor@example.com',
     startTime: `${tomorrow}T10:00:00.000Z`,
-    source: 'WEBSITE_VOICE',
   });
   assert(booking.id, 'Appointment must be created');
   assert.strictEqual(booking.status, 'CONFIRMED', 'Appointment must be confirmed');

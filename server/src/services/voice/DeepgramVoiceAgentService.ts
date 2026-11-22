@@ -1,10 +1,12 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../../config';
 import { db } from '../../db';
 import { VoiceService } from './VoiceService';
 import { VoicePromptBuilder } from './VoicePromptBuilder';
 import { VoiceAssistantProvisioningService } from './VoiceAssistantProvisioningService';
+import { VoiceSessionReconciliationWorker } from './VoiceSessionReconciliationWorker';
 import { SubscriptionStatus } from '@onceclic/shared';
 
 export interface DeepgramSessionTicketPayload {
@@ -257,6 +259,9 @@ export class DeepgramVoiceAgentService {
     sessionTicket?: string;
     deepgramToken?: string;
     deepgramWsUrl?: string;
+    sttWsUrl?: string;
+    voiceTurnUrl?: string;
+    pipeline?: string;
     settings?: DeepgramVoiceAgentSettings;
     callId?: string;
     assistantId?: string;
@@ -327,14 +332,9 @@ export class DeepgramVoiceAgentService {
       };
     }
 
-    // 3. Concurrency check (reserve in-flight minutes & prune expired calls)
+    // 3. Concurrency check & durable reconciliation of stale/abandoned calls
+    await this.reconcileUnfinalizedSessions();
     const nowMs = Date.now();
-    for (const [activeCallId, active] of VoiceService.activeCalls.entries()) {
-      const elapsedSec = Math.floor((nowMs - active.startedAt) / 1000);
-      if (active.terminated || elapsedSec > ((active.maxDurationSeconds || 180) + 30)) {
-        VoiceService.activeCalls.delete(activeCallId);
-      }
-    }
 
     let activeInFlightMinutes = 0;
     for (const active of VoiceService.activeCalls.values()) {
@@ -413,7 +413,32 @@ export class DeepgramVoiceAgentService {
 
     const sessionTicket = jwt.sign(payload, config.jwtSecret, { expiresIn: '5m' });
 
-    // 7. Track active call in-flight
+    // 7. Persist session record in PostgreSQL voice_sessions (survives backend restart & process crashes)
+    const ticketHash = crypto.createHash('sha256').update(sessionTicket).digest('hex');
+    try {
+      await db.execute(
+        `INSERT INTO voice_sessions (
+           id, organization_id, call_id, session_ticket_hash, max_duration_seconds, started_at, status, metadata
+         ) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP, 'ACTIVE', $6)
+         ON CONFLICT (call_id) DO NOTHING`,
+        [
+          uuidv4(),
+          organizationId,
+          callId,
+          ticketHash,
+          maxDurationSeconds,
+          JSON.stringify({
+            callerPhone: params.callerPhone || '+15550001111',
+            isGuest: Boolean(isGuest),
+            channel: 'WEB',
+          }),
+        ]
+      );
+    } catch (persistErr: any) {
+      console.warn('[DeepgramVoiceAgent] Failed persisting session into voice_sessions:', persistErr?.message || persistErr);
+    }
+
+    // 8. Track active call in-flight in memory for fast local lookup
     VoiceService.activeCalls.set(callId, {
       callId,
       organizationId,
@@ -438,6 +463,8 @@ export class DeepgramVoiceAgentService {
       sessionTicket,
       deepgramToken: tokenResult.accessToken,
       deepgramWsUrl: 'wss://agent.deepgram.com/v1/agent/converse',
+      sttWsUrl: 'wss://api.deepgram.com/v1/listen?encoding=linear16&sample_rate=16000&model=nova-2&smart_format=true&endpointing=300',
+      pipeline: 'modular_stt_server_tts',
       settings,
       callId,
       assistantId,
@@ -540,7 +567,25 @@ export class DeepgramVoiceAgentService {
   }
 
   /**
+   * Durable server-side reconciliation for unfinished/abandoned voice sessions.
+   * Discovers sessions from persistent PostgreSQL storage without depending on in-memory state.
+   */
+  static async reconcileUnfinalizedSessions(params?: {
+    forceCallId?: string;
+    organizationId?: string;
+    maxAgeSeconds?: number;
+    workerId?: string;
+  }): Promise<{ reconciledCount: number; callIds: string[] }> {
+    const summary = await VoiceSessionReconciliationWorker.reconcileStaleSessions(params);
+    return {
+      reconciledCount: summary.reconciledCount,
+      callIds: summary.callIds,
+    };
+  }
+
+  /**
    * Finalize a voice session: record call duration and consume allowance strictly for actual seconds.
+   * Atomically coordinates with persistent voice_sessions table and enforces tenant isolation.
    */
   static async endSession(params: {
     sessionTicket: string;
@@ -560,6 +605,25 @@ export class DeepgramVoiceAgentService {
     const { organizationId, callId, maxDurationSeconds } = payload;
     const tracked = VoiceService.activeCalls.get(callId);
 
+    // Verify tenant isolation against persistent voice_sessions
+    try {
+      const persistedSession = await db.getOne<{ id: string; organization_id: string; status: string }>(
+        'SELECT id, organization_id, status FROM voice_sessions WHERE call_id = $1',
+        [callId]
+      );
+      if (persistedSession) {
+        if (persistedSession.organization_id !== organizationId) {
+          throw new Error('Tenant isolation violation: session ticket does not match recorded organization.');
+        }
+        if (persistedSession.status === 'FINALIZED' || persistedSession.status === 'RECONCILED') {
+          VoiceService.activeCalls.delete(callId);
+          return { success: true, recordedDurationSeconds: Math.min(180, Math.max(0, Math.round(durationSeconds || 0))) };
+        }
+      }
+    } catch (sessErr: any) {
+      if (sessErr.message?.includes('Tenant isolation')) throw sessErr;
+    }
+
     const actualDurationSec = Math.min(
       Math.min(180, maxDurationSeconds || 180),
       Math.max(0, Math.round(durationSeconds || 0))
@@ -573,6 +637,36 @@ export class DeepgramVoiceAgentService {
       durationMinutes,
       reason: reason || 'NORMAL_CLOSURE',
     });
+
+    // Check DB-level idempotency on voice_call_records
+    try {
+      const existing = await db.getOne<{ id: string }>(
+        'SELECT id FROM voice_call_records WHERE provider_call_id = $1',
+        [callId]
+      );
+      if (existing) {
+        await db.execute(
+          `UPDATE voice_sessions
+           SET status = 'FINALIZED', ended_at = CURRENT_TIMESTAMP, finalization_reason = $1, updated_at = CURRENT_TIMESTAMP
+           WHERE call_id = $2`,
+          [reason || 'ALREADY_RECORDED', callId]
+        ).catch(() => {});
+        VoiceService.activeCalls.delete(callId);
+        return { success: true, recordedDurationSeconds: actualDurationSec };
+      }
+    } catch (dbErr: any) {
+      console.warn('[DeepgramVoiceAgent] Error checking existing call record:', dbErr?.message || dbErr);
+    }
+
+    // Atomic claim on voice_sessions
+    try {
+      await db.execute(
+        `UPDATE voice_sessions
+         SET status = 'FINALIZING', updated_at = CURRENT_TIMESTAMP
+         WHERE call_id = $1 AND status = 'ACTIVE'`,
+        [callId]
+      );
+    } catch {}
 
     // Record call and consume allowance ONLY if actual conversation took place
     if (actualDurationSec > 0) {
@@ -597,6 +691,16 @@ export class DeepgramVoiceAgentService {
         console.warn('[DeepgramVoiceAgent] Error recording completed call record:', err?.message || err);
       }
     }
+
+    // Mark finalized in persistent voice_sessions
+    try {
+      await db.execute(
+        `UPDATE voice_sessions
+         SET status = 'FINALIZED', ended_at = CURRENT_TIMESTAMP, finalization_reason = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE call_id = $2`,
+        [reason || 'NORMAL_CLOSURE', callId]
+      );
+    } catch {}
 
     // Clean up in-flight tracker
     VoiceService.activeCalls.delete(callId);
